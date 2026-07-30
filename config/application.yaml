@@ -1,0 +1,24 @@
+environment: development
+logger:
+  mask_fields:
+    - password
+    - secret
+    - token
+    - access_token
+    - api_key
+    - authorization
+    - code
+package:
+  authors:
+    - Tatsuya Koishi
+  description: Mastodon サーバー「キュアスタ！」で稼働する AI マスコットボット MAKOTO。
+  email:
+    - tkoishi@b-shock.co.jp
+  license: MIT
+  url: https://github.com/pooza/makoto2
+  version: 0.1.0
+scheduler:
+  heartbeat:
+    interval: 1h
+sqlite3:
+  db: makoto.db

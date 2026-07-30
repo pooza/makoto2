@@ -1,0 +1,61 @@
+---
+# config 全体（application.yaml / local.yaml）のスキーマ。
+# Ginseng::Config#errors（`rake config:lint`）が使用する。
+$schema: http://json-schema.org/draft-06/schema#
+title: makoto2 config
+type: object
+properties:
+  environment:
+    enum:
+      - development
+      - production
+  logger:
+    type: object
+    properties:
+      mask_fields:
+        type: array
+        items:
+          type: string
+    required:
+      - mask_fields
+  mastodon:
+    type: object
+    properties:
+      url:
+        type: string
+        format: uri
+      token:
+        type: string
+  package:
+    type: object
+    properties:
+      version:
+        type: string
+      url:
+        type: string
+        format: uri
+    required:
+      - version
+  scheduler:
+    type: object
+    properties:
+      heartbeat:
+        type: object
+        properties:
+          interval:
+            type: string
+        required:
+          - interval
+  sqlite3:
+    type: object
+    properties:
+      db:
+        type: string
+    required:
+      - db
+required:
+  - environment
+  - logger
+  - package
+  - scheduler
+  - sqlite3
