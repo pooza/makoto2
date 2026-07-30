@@ -201,7 +201,7 @@
 | 用途 | ホスト | 状態 |
 | --- | --- | --- |
 | 開発 | **`bydo`** | 2026-07-30 作成済み。node 定義（rbenv ＋ Ruby 4.0.6）はコミット済みだが**レシピは未適用**（`pooza/chubo2#98`） |
-| 本番 | （ホスト名未定） | **9 月中に建てる**（`pooza/chubo2#104`）。10 月中にデプロイ検証を終えるため |
+| 本番 | **`rubicon`** | 未作成。**9 月中に建てる**（`pooza/chubo2#104`）。10 月中にデプロイ検証を終えるため |
 
 アドレス・接続情報は [pooza/chubo2 インフラノート](https://github.com/pooza/chubo2/blob/main/docs/infra-note.md) を見る。
 
