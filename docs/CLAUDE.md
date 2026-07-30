@@ -41,7 +41,10 @@
 
 ### プリキュアの情報は cure-api から REST で取る（2026-07-30 決定）
 
-⚠ **rubicure を直接使わない。** シリーズ一覧のようなプリキュアの基礎情報は、[cure-api](https://github.com/pooza/cure-api) の REST エンドポイントから取得する。ライブラリを抱え込むと同じデータの写しがもう 1 つ増え、更新のたびに MAKOTO 側の再デプロイが要る。cure-api は既に公開されていて（`https://cure-api.precure.ml`）、キュアスタ！でも使っている。
+⚠ **rubicure を直接使わない。** シリーズ一覧のようなプリキュアの基礎情報は、[cure-api](https://github.com/pooza/cure-api) の REST エンドポイントから取得する。
+
+- **経緯**: rubicure は上流と方向性が異なり、フォークを経て **cure-api がその受け皿として作られた**。MAKOTO が参照すべき正本は gem ではなく cure-api の側にある
+- 実務上も、ライブラリを抱え込むと同じデータの写しがもう 1 つ増え、更新のたびに MAKOTO 側の再デプロイが要る。cure-api は既に公開されていて（`https://cure-api.precure.ml`）、キュアスタ！でも使っている
 
 | エンドポイント | 返るもの |
 | --- | --- |
