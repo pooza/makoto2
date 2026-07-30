@@ -17,6 +17,18 @@ package:
   license: MIT
   url: https://github.com/pooza/makoto2
   version: 0.1.0
+http:
+  retry:
+    limit: 3
+    seconds: 1
+  timeout:
+    seconds: 30
+mastodon:
+  # 再送はこのクラスの責務にしているので、ginseng の HTTP 側は 1 回に落としている
+  # （app/lib/makoto/service/mastodon_service.rb）。
+  retry:
+    limit: 3
+    seconds: 2
 scheduler:
   heartbeat:
     interval: 1h
