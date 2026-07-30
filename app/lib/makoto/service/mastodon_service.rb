@@ -1,11 +1,13 @@
 module Makoto
-  # Mastodon への投稿口。ginseng-fediverse の実装に、MAKOTO 用のエラー分類と
-  # リトライを被せたもの。
+  # Mastodon への投稿口。ginseng-fediverse の実装に、MAKOTO 用のエラー分類を被せたもの。
   #
   # ⚠ **MAKOTO は無人で投稿し続ける。**呼び出し側が「もう一度投げてよいのか」を
   # 判断できないと、失敗のたびに無駄な再送を繰り返すか、逆に諦めなくてよい失敗で
   # 沈黙する。そのため恒久的な失敗（認証・スコープ・入力不正）と一時的な失敗
   # （5xx・レート制限・タイムアウト）を必ず分けて上げる。
+  #
+  # 再送そのものは ginseng-core 1.15.28 以降の `HTTP#retryable?` が持つ
+  # （恒久的な失敗は再送しない。回数は `/http/retry/limit`）。
   class MastodonService < Ginseng::Fediverse::MastodonService
     include Package
 
@@ -17,13 +19,6 @@ module Makoto
       404 => Ginseng::NotFoundError,
       422 => Ginseng::ValidateError,
     }.freeze
-
-    def initialize(uri = nil, token = nil)
-      super
-      # ginseng の HTTP は 4xx でも retry_limit 回まで再送する。恒久的な失敗を
-      # 再送しても意味がないので、再送の判断はこのクラスで持つ。
-      http.retry_limit = 1
-    end
 
     # 自分自身の acct。ステージングは @test、本番は @makoto と異なるため、
     # コード側に定数として持たせない。
@@ -42,9 +37,7 @@ module Makoto
     def post_status(text, visibility: nil)
       body = {status: text.to_s}
       body[:visibility] = visibility.to_s if visibility
-      response = with_retry do
-        post(body)
-      end
+      response = post(body)
       logger.info(
         mastodon: 'post',
         status_id: response['id'],
@@ -53,38 +46,16 @@ module Makoto
         length: text.to_s.length,
       )
       return response
-    end
-
-    def retry_limit
-      return config['/mastodon/retry/limit']
-    end
-
-    def retry_seconds
-      return config['/mastodon/retry/seconds']
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
     end
 
     private
 
-    def with_retry
-      attempt = 0
-      begin
-        attempt += 1
-        return yield
-      rescue Ginseng::GatewayError => e
-        error = classify(e)
-        raise error if PERMANENT_STATUSES.value?(error.class) || attempt >= retry_limit
-        logger.error(mastodon: 'post', message: 'retrying', attempt:, error: e)
-        sleep(retry_seconds * attempt)
-        retry
-      end
-    end
-
-    # ⚠ 例外メッセージにトークンを載せない。ginseng の GatewayError は
-    # 「Bad response 401」の形なので、その値だけを見て分類する。
+    # ⚠ 例外メッセージにトークンを載せない。上流のステータスだけを見て分類する。
     def classify(error)
-      status = error.message[/Bad response (\d+)/, 1].to_i
-      klass = PERMANENT_STATUSES[status]
-      return klass.new("mastodon returned #{status}") if klass
+      klass = PERMANENT_STATUSES[error.source_status]
+      return klass.new("mastodon returned #{error.source_status}") if klass
       return error
     end
   end

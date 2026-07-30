@@ -26,8 +26,8 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
-    # 恒久的な失敗は分類して上げ、再送しない。無人で投稿し続けるボットが
-    # 401 を 3 回投げ直しても意味が無い。
+    # 恒久的な失敗は分類して上げ、再送しない（ginseng-core 1.15.28 以降）。
+    # 無人で投稿し続けるボットが 401 を 3 回投げ直しても意味が無い。
     def test_post_status_auth_error
       stub_request(:post, @url).to_return(status: 401, body: '{}')
 
@@ -50,13 +50,13 @@ module Makoto
       end
     end
 
-    # 一時的な失敗は retry_limit まで再送する。
+    # 一時的な失敗は再送する（再送そのものは ginseng-core の HTTP が持つ）。
     def test_post_status_retries_server_error
-      config['/mastodon/retry/seconds'] = 0
+      config['/http/retry/seconds'] = 0
       stub_request(:post, @url).to_return(status: 503, body: '{}')
 
       assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
-      assert_requested(:post, @url, times: config['/mastodon/retry/limit'])
+      assert_requested(:post, @url, times: config['/http/retry/limit'])
     end
 
     # ⚠ トークンが例外メッセージに載らないこと。ログにも出さない方針だが、

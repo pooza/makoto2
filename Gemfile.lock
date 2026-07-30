@@ -1,9 +1,9 @@
 GIT
   remote: https://github.com/pooza/ginseng-core.git
-  revision: 31ed7b79ca53647b5dbba6abe307a38259d8ce6a
+  revision: 4b134cebaf80c6ba0267363d5f729b59bdaf6c36
   branch: main
   specs:
-    ginseng-core (1.15.27)
+    ginseng-core (1.15.28)
       activesupport (>= 7.0.7.1)
       addressable (>= 2.9.0)
       cgi (>= 0.4.2)
@@ -146,7 +146,6 @@ GEM
     rake (13.3.1)
     regexp_parser (2.12.0)
     rexml (3.4.4)
-    ricecream (0.2.1)
     rubocop (1.88.2)
       json (~> 2.3)
       language_server-protocol (~> 3.17.0.2)
@@ -228,7 +227,6 @@ PLATFORMS
 DEPENDENCIES
   ginseng-core!
   ginseng-fediverse!
-  ricecream
   rubocop
   rubocop-minitest
   rubocop-performance
@@ -263,7 +261,7 @@ CHECKSUMS
   fileutils (1.7.3) sha256=57271e854b694a87755d76f836f5c57b2c9538ebbaf4b2154bb66addf15eb5da
   find (0.2.0) sha256=9aabac9dbbea3fdd23781f79a2fd626166e57dab349aaec449400811b40c371b
   fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
-  ginseng-core (1.15.27)
+  ginseng-core (1.15.28)
   ginseng-fediverse (1.8.25)
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   httparty (0.24.2) sha256=8fca6a54aa0c4aa4303a0fd33e5e2156175d6a5334f714263b458abd7fda9c38
@@ -302,7 +300,6 @@ CHECKSUMS
   rake (13.3.1) sha256=8c9e89d09f66a26a01264e7e3480ec0607f0c497a861ef16063604b1b08eb19c
   regexp_parser (2.12.0) sha256=35a916a1d63190ab5c9009457136ae5f3c0c7512d60291d0d1378ba18ce08ebb
   rexml (3.4.4) sha256=19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142
-  ricecream (0.2.1) sha256=d32d7781d554d1e1ec44325cabeb22f604a74c563c08d2cfe82f4e2e2bb3ac93
   rubocop (1.88.2) sha256=8def251c90cd955feb4daa3edc0ab56893250c4ce90ef81e6c80c03f9a939bbf
   rubocop-ast (1.50.0) sha256=b9ca88300da0803ee222ad20cdb30494c0a784eed06fdc35d254b06d662788db
   rubocop-minitest (0.40.0) sha256=353c698199115f12151144cf0b5a96f69bb9d77b660cf6536df2c4250c672a9d

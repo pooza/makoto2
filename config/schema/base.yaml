@@ -28,20 +28,6 @@ properties:
         type: string
       token:
         type: string
-      retry:
-        type: object
-        properties:
-          limit:
-            type: integer
-            minimum: 1
-          seconds:
-            type: number
-            minimum: 0
-        required:
-          - limit
-          - seconds
-    required:
-      - retry
   package:
     type: object
     properties:
