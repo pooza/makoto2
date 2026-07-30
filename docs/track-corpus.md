@@ -24,7 +24,7 @@
 
 ## 収集の要点
 
-- **`term=プリキュア` 単体では artist / album / song いずれも 200 件で切れる。** [pooza/rubicure](https://github.com/pooza/rubicure) の `config/series.yml` にあるシリーズ名 22 件を種にしてアルバムを集め、**アルバム単位で曲を引く**のが有効
+- **`term=プリキュア` 単体では artist / album / song いずれも 200 件で切れる。** シリーズ名を種にしてアルバムを集め、**アルバム単位で曲を引く**のが有効。⚠ **シリーズ名の取得元は [cure-api](https://github.com/pooza/cure-api) の `GET https://cure-api.precure.ml/series`**（2026-07-30 時点で 24 件）。**rubicure は直接使わない**（→ [CLAUDE.md](CLAUDE.md) の設計方針）。なお 2026-07-29 の収集は rubicure のシリーズ名 22 件を種にして行った
 - ⚠ **アルバム経由だと他アーティストが混入する**（主題歌シングルやサントラを丸ごと拾うため。実測で `林ゆうき` 41 曲・`寺田志保` 38 曲など劇伴が 121 曲）。**`artistName` に対象語のいずれかを含むものだけ残すフィルタが必要**
 - ⚠ **ライブ用はシリーズ名の種だけでは 126 曲しか取れない。** 宮本佳那子本人のアルバム（21 枚）を artist 経由で列挙して合流させて 234 曲になる。**2 系統の収集を合わせる必要がある**
 - ⚠ **artist 経由でアルバムを全部辿ると 4,556 枚に膨らむ**（167 アーティスト × 各 200 枚）。API を叩きすぎるうえ重複が大半なので、シリーズ系は 876 枚に留めるのが妥当
@@ -53,6 +53,6 @@
 | `makoto_tracks_live.json` | ライブ用 234 曲 |
 | `makoto_tracks_daily.json` | 普段用 4,305 曲 |
 | `itunes_union.py` | artist 系の収集（宮本佳那子 / 剣崎真琴 / キュアソード） |
-| `itunes_corpus.py` | シリーズ系の収集（rubicure のシリーズ名を種にアルバム経由） |
+| `itunes_corpus.py` | シリーズ系の収集（cure-api から取ったシリーズ名を種にアルバム経由） |
 
 JSON は `trackId` をキーに持つオブジェクトの配列で、フィールドは `artistName` / `artworkUrl100` / `collectionId` / `collectionName` / `kind` / `previewUrl` / `releaseDate` / `trackId` / `trackName` / `trackNumber` / `trackTimeMillis` / `trackViewUrl`。`kind` はスクリプトが付けた分類で、iTunes 由来のフィールドではない。

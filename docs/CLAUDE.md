@@ -39,6 +39,18 @@
 
 モロヘイヤの設計方針をそのまま継承する。MAKOTO も **Mastodon 本体（フォーク含む）に手を入れずに、公開 API と webhook の外側で完結させる**。本体パッチが増えるほど upstream 追従の工数と衝突リスクが膨らむ。
 
+### プリキュアの情報は cure-api から REST で取る（2026-07-30 決定）
+
+⚠ **rubicure を直接使わない。** シリーズ一覧のようなプリキュアの基礎情報は、[cure-api](https://github.com/pooza/cure-api) の REST エンドポイントから取得する。ライブラリを抱え込むと同じデータの写しがもう 1 つ増え、更新のたびに MAKOTO 側の再デプロイが要る。cure-api は既に公開されていて（`https://cure-api.precure.ml`）、キュアスタ！でも使っている。
+
+| エンドポイント | 返るもの |
+| --- | --- |
+| `GET /series` | `[{"key": "dokidoki", "title": "ドキドキ！プリキュア"}, ...]`（2026-07-30 時点で 24 件） |
+| `GET /series/index` | `key` の配列だけ |
+| `GET /series/:key` | そのシリーズの詳細 |
+
+収集スクリプト（[seed/](../seed/)）も同じ方針に揃える。**ローカルの作業コピーのパスを埋め込まない**（`/home/pooza/repos/rubicure/...` のような書き方は、他の端末で動かない）。
+
 ### 管理操作は CLI で行う（WebUI の管理コンソールは作らない）
 
 旧実装は `/makoto` に管理コンソールを持っていたが、**パスを知る利用者は運用者ひとりだった**うえ、退役後も nginx に残骸を残した（→ [makoto-legacy.md](makoto-legacy.md)）。makoto2 では管理コンソールを作らず、**原稿・辞書・曲データの更新といった運用操作はコマンドラインのサブコマンドとして実装する**。
@@ -338,7 +350,7 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 | [pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy) | 通称モロヘイヤ。投稿プロキシ。webhook 出力の供給元。運用プラクティスの本家 |
 | [pooza/chubo2](https://github.com/pooza/chubo2) | インフラ（itamae）。`docs/infra-note.md` がインフラの正本。インフラ課題はここに起票 |
 | [pooza/makoto](https://github.com/pooza/makoto) | 旧実装。**アーカイブ済み**。参照のみ |
-| [pooza/rubicure](https://github.com/pooza/rubicure) | プリキュアシリーズ定義。曲収集の種に使う（`config/series.yml`） |
+| [pooza/cure-api](https://github.com/pooza/cure-api) | プリキュアの情報を返す REST API。**シリーズ一覧の取得元**（`https://cure-api.precure.ml/series`）。⚠ **rubicure を直接使わない**（下記） |
 | [pooza/capsicum](https://github.com/pooza/capsicum) | Flutter 製クライアント。MAKOTO とは直接関係しないが 5 観点レビューの前例元 |
 
 ## docs 一覧
