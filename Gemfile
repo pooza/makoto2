@@ -3,9 +3,10 @@ ruby '>= 4.0', '< 5.0'
 gem 'ginseng-core', github: 'pooza/ginseng-core', branch: 'main', require: 'ginseng'
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', branch: 'main',
   require: 'ginseng/fediverse'
-# ⚠ 開発専用のつもりでも :development に入れてはいけない。ginseng-core の
-# 初期化が `require 'ricecream'` を無条件に実行するため、development を外した
-# バンドル（本番）では `require 'ginseng'` の時点で LoadError になる。
+# ⚠ MAKOTO は ricecream を使わない。ginseng-core の初期化が無条件に
+# `require 'ricecream'` を実行するため、消すと `require 'ginseng'` が
+# LoadError で落ちる。上流が直ったら外す（pooza/ginseng-core#483 / #22）。
+# 同じ理由で :development に入れてもいけない（本番バンドルで落ちる）。
 gem 'ricecream'
 gem 'rufus-scheduler'
 gem 'sequel'

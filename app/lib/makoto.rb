@@ -22,23 +22,9 @@ module Makoto
     finder.exec.each {|f| require f}
   end
 
-  def self.setup_debug
-    # ricecream が無いバンドルでも起動できるようにしておく（無ければ何もしない）。
-    return unless defined?(Ricecream)
-    Ricecream.disable
-    return unless Environment.development?
-    require 'pp'
-    Ricecream.enable
-    Ricecream.include_context = true
-    Ricecream.colorize = true
-    Ricecream.prefix = "#{Package.name} | "
-    Ricecream.define_singleton_method(:arg_to_s, proc {|v| PP.pp(v)})
-  end
-
   Dir.chdir(dir)
   ENV['BUNDLE_GEMFILE'] = File.join(dir, 'Gemfile')
   Bundler.require
   loader.setup
-  setup_debug
   RubyVM::YJIT.enable if Environment.jit?
 end
