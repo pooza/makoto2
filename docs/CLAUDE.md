@@ -160,6 +160,15 @@
 
 **機能が全台 OFF ＝ ライブ露出ゼロなら、真の赤でも非ブロック化して受け皿 Issue に繰越してよい**（モロヘイヤの Spotify OAuth で適用した判断）。
 
+## CI（2026-07-30 決定・#6）
+
+GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（[.github/workflows/test.yml](../.github/workflows/test.yml)）。`develop` / `main` / `feature/**` への push と、`develop` / `main` 宛の PR が対象。
+
+- **CI に秘密情報を持たせない。** `config/local_sample.yaml` をそのままコピーして使う。**テストは WebMock で通信を遮断してある**ので、CI から実サーバーへは 1 通も飛ばない（→ コーディング規約の WebMock の項）
+- `rake migration:run` も流す。マイグレーションが 0 本の間も正常終了する
+- ⚠ **CI があってもローカル実行を省略しない。** 「CI が見るから」でローカルの lint / test を飛ばさない（規約どおり）
+- **Dependabot**（[.github/dependabot.yml](../.github/dependabot.yml)）は **`open-pull-requests-limit: 0`**。バージョン更新の PR は止め、**セキュリティ更新の PR だけ受ける**（別枠なので届く）。締め切りまでは更新 PR のノイズを避ける。モロヘイヤと同じ方針。脆弱性アラート自体はリポジトリ設定側で有効
+
 ## リポジトリ構成（0.1.0・#5 で作った骨組み）
 
 **レイアウトは tomato-shrieker を踏襲する。**同じ ginseng アプリなので、置き場所を考え直す理由が無い。
@@ -365,10 +374,9 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ## 未決事項
 
-1. **CI**（決まったら `.github/workflows/` を追加する）— #6
-2. **[seed/](../seed/) の扱い** — 収集済みコーパスを正式なデータ置き場へ移すか、スクリプトだけ残して再取得可能にするか — #9
+1. **[seed/](../seed/) の扱い** — 収集済みコーパスを正式なデータ置き場へ移すか、スクリプトだけ残して再取得可能にするか — #9
 
-実行環境（本番の置き場）は 2026-07-30 に確定した（→ 上記「実行環境」）。
+実行環境（本番の置き場）と CI は 2026-07-30 に確定した（→ 上記「実行環境」「CI」）。
 
 ## 関連リポジトリ
 
