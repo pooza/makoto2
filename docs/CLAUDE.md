@@ -164,7 +164,7 @@
 4. **Dependabot セキュリティアラート** — `gh api repos/pooza/makoto2/dependabot/alerts`
 5. **Codex レビューコメント** — 最近マージされた PR の `chatgpt-codex-connector[bot]` コメントを確認し、①未返信 → 対応判断して返信＋リアクション ②返信済みリアクション未付与 → `+1` を付ける ③両方済み → 完了。**返信とリアクションの両方揃って「完了」**
 6. **Sentry**（導入したら）— `sentry-cli issues list` で未解決を確認し、判断をコメントに記録
-7. **`pooza/chubo2` の同期確認** — `git fetch origin` + `docs/infra-note.md` の変更、open Issue の変動
+7. **`pooza/chubo2` の同期確認** — `git fetch origin` + `docs/infra-note.md` の変更、open Issue の変動。あわせて **MAKOTO に関係する chubo2 Issue**（実行環境の CT、cure-api の公開露出、モロヘイヤの webhook 経路など）を拾い、makoto2 側の作業の前提になっていないか確認する
 8. **マイルストーンの状態確認** — docs / メモリの記載と GitHub の open/closed が一致しているか
 9. メモリの更新 → 結果を報告
 
