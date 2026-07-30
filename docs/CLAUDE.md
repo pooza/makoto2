@@ -178,7 +178,7 @@
 
 ### 引き継いだ既知ドリフト
 
-nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残っており、**キュアスタ！のサーバー移行（gomander）にもそのまま引き継がれている**。バックエンドの 3011 は誰も listen していないので実害は 502 のみ。詳細は [makoto-legacy.md](makoto-legacy.md)。
+nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残っており、**キュアスタ！のサーバー移行（gomander）にもそのまま引き継がれている**。バックエンドの 3011 は誰も listen していないので実害は 502 のみ。**これは旧実装の管理コンソールで、makoto2 では踏襲せず削除する**（`pooza/chubo2#99`）。詳細は [makoto-legacy.md](makoto-legacy.md)。
 
 ## 未決事項（最初のセッションで決める）
 
