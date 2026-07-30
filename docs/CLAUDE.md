@@ -12,7 +12,7 @@
 - **稼働先は旧サーバー（lbock）非依存**。Proxmox ステージングの専用 CT（2GB）に隔離して建てる。旧実装は本番サーバー（lbock）に同居して孤児プロセスを撒いた前科があるため、同居させない
 - モロヘイヤ（[pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy)）の webhook 出力を受ける構成を想定する
 
-**ハドラーブロス**（[@hadlarbot](https://mstdn.delmulin.com/@hadlarbot)・895 投稿・最終 2025-01-06）も同じアカウントで復活させる余地があるが、**MAKOTO より優先度は低く、機能も少なくてよい。コードを MAKOTO と共有する必要もない**。
+**ハドラーブロス**（[@hadlarbot](https://mstdn.delmulin.com/@hadlarbot)・895 投稿・最終 2025-01-06）は **makoto2 のスコープ外**。要件が MAKOTO とまったく異なり、**必要なのはチャットボットの部分だけで、急いでもいない**。同じリポジトリに同居させると、絞り込んだ 4 機能に無関係な分岐を抱え込むだけになる。**復活させるときは別リポジトリで別立てにする。**
 
 ## 機能スコープ: 4 つに絞る
 
