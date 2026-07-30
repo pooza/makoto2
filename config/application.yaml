@@ -1,4 +1,10 @@
 environment: development
+http:
+  retry:
+    limit: 3
+    seconds: 1
+  timeout:
+    seconds: 30
 logger:
   mask_fields:
     - password
