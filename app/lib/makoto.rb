@@ -23,6 +23,8 @@ module Makoto
   end
 
   def self.setup_debug
+    # ricecream が無いバンドルでも起動できるようにしておく（無ければ何もしない）。
+    return unless defined?(Ricecream)
     Ricecream.disable
     return unless Environment.development?
     require 'pp'
