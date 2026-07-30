@@ -1,3 +1,5 @@
+require 'securerandom'
+
 module Makoto
   # Mastodon への投稿口。ginseng-fediverse の実装に、MAKOTO 用のエラー分類を被せたもの。
   #
@@ -8,6 +10,11 @@ module Makoto
   #
   # 再送そのものは ginseng-core 1.15.28 以降の `HTTP#retryable?` が持つ
   # （恒久的な失敗は再送しない。回数は `/http/retry/limit`）。
+  #
+  # ⚠ **その再送は「投稿が二重に出る」経路でもある。**Mastodon が受理した後に
+  # 応答だけが失われると（タイムアウト・逆プロキシの 502/503）、再送は同じ内容の
+  # 投稿をもう 1 つ作る。`Idempotency-Key` を 1 回の `post_status` につき 1 つ作り、
+  # 全試行で使い回してサーバー側に畳ませる。
   class MastodonService < Ginseng::Fediverse::MastodonService
     include Package
 
@@ -34,10 +41,13 @@ module Makoto
       raise classify(e)
     end
 
-    def post_status(text, visibility: nil)
+    # `idempotency_key` は再送で使い回すもの。既定では 1 回の呼び出しにつき 1 つ作る。
+    # 呼び出し側が「同じ予定の投稿」を識別できるなら（スケジューラの再実行など）、
+    # その識別子を渡せばプロセスをまたいだ重複も畳める。
+    def post_status(text, visibility: nil, idempotency_key: SecureRandom.uuid)
       body = {status: text.to_s}
       body[:visibility] = visibility.to_s if visibility
-      response = post(body)
+      response = post(body, {headers: {'Idempotency-Key' => idempotency_key}})
       logger.info(
         mastodon: 'post',
         status_id: response['id'],

@@ -42,6 +42,45 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
+    # ⚠ 再送で投稿が二重に出ないこと。**同じキーが全試行で飛ぶ**のが本体で、
+    # 「キーが付いている」だけでは 3 通投稿される事故は防げない。
+    def test_post_status_reuses_idempotency_key_across_retries
+      config['/http/retry/seconds'] = 0
+      keys = []
+      stub_request(:post, @url).to_return do |request|
+        keys.push(request.headers['Idempotency-Key'])
+        {status: 503, body: '{}'}
+      end
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+      assert_equal(config['/http/retry/limit'], keys.length)
+      assert_equal(1, keys.uniq.length)
+      assert_not_nil(keys.first)
+    end
+
+    # 投稿ごとには別のキーになる（同じキーを使い回すと 2 通目が捨てられる）。
+    def test_post_status_uses_fresh_idempotency_key_per_call
+      keys = []
+      stub_request(:post, @url).to_return do |request|
+        keys.push(request.headers['Idempotency-Key'])
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+      end
+      @service.post_status('こんにちは')
+      @service.post_status('こんばんは')
+
+      assert_equal(2, keys.uniq.length)
+    end
+
+    # 呼び出し側が「同じ予定の投稿」を識別できるなら、プロセスをまたいでも畳める。
+    def test_post_status_accepts_explicit_idempotency_key
+      stub_request(:post, @url)
+        .with(headers: {'Idempotency-Key' => 'morning-2026-11-01'})
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}')
+      @service.post_status('おはよう', idempotency_key: 'morning-2026-11-01')
+
+      assert_requested(:post, @url, times: 1)
+    end
+
     # ⚠ 「テストが本物のサーバーを叩かない」こと自体を見る。WebMock.enable! を忘れると
     # stub も disable_net_connect! も無言で素通りし、実サーバーへ書き込む。
     def test_net_connect_is_blocked

@@ -28,6 +28,11 @@ properties:
         type: string
       token:
         type: string
+    # ⚠ `whoami` も `post` も、この 2 つが無ければ動かない。ここに書いておかないと
+    # `rake config:lint` は通り、投稿しようとした瞬間に初めて失敗する。
+    required:
+      - url
+      - token
   package:
     type: object
     properties:
