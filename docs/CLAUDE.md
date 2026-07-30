@@ -10,7 +10,7 @@
 - **コードは作り直し**: 旧実装 [pooza/makoto](https://github.com/pooza/makoto)（最終コミット 2024-11-10）はアーカイブ済み。**使い回さない**
 - **言語・スタックは自由**（Ruby 縛りなし）。未決＝下記「未決事項」
 - **稼働先は旧サーバー（lbock）非依存**。専用 CT（2GB）に隔離して建てる。旧実装は本番サーバー（lbock）に同居して孤児プロセスを撒いた前科があるため、同居させない。**開発用 CT (`bydo`) は 2026-07-30 に用意済み。本番も pve 内にもう 1 CT 建てる**（→ 下記「実行環境」）
-- モロヘイヤ（[pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy)）の webhook 出力を受ける構成を想定する
+- **入出力は非対称にする**（旧 makoto と同じ）。**出す側は抽象化し、読む側は Mastodon に決め打つ** → 下記「入出力の非対称性」
 
 **ハドラーブロス**（[@hadlarbot](https://mstdn.delmulin.com/@hadlarbot)・895 投稿・最終 2025-01-06）は **makoto2 のスコープ外**。要件が MAKOTO とまったく異なり、**必要なのはチャットボットの部分だけで、急いでもいない**。同じリポジトリに同居させると、絞り込んだ 4 機能に無関係な分岐を抱え込むだけになる。**復活させるときは別リポジトリで別立てにする。**
 
@@ -54,6 +54,27 @@
 | `GET /series/:key` | そのシリーズの詳細 |
 
 収集スクリプト（[seed/](../seed/)）も同じ方針に揃える。**ローカルの作業コピーのパスを埋め込まない**（`/home/pooza/repos/rubicure/...` のような書き方は、他の端末で動かない）。
+
+### 入出力の非対称性: 出す側は抽象化、読む側は Mastodon 決め打ち（2026-07-31 整理）
+
+**旧 makoto と同じ仕様。**投稿と受信で扱いを変える。
+
+| 向き | 経路 | 抽象化するか |
+| --- | --- | --- |
+| **出す**（投稿） | モロヘイヤの **Slack 互換 webhook**（`POST /mulukhiya/webhook/{digest}`）／ Mastodon API 直 | **する。**Slack 互換 webhook を実装した他サービスにも同じコードで向けられる |
+| **読む**（メンション検知） | Mastodon の **Streaming API**（WebSocket） | **しない。Mastodon に決め打つ。**読む側は SNS 固有の仕様に踏み込むので、抽象化しても得るものが無い |
+
+⚠ **どちらも outbound。**「inbound は開けない」（→ 下記「実行環境」）と矛盾しない。webhook は**送りつける側**であって、MAKOTO が受け口を持つのではない。Streaming API も MAKOTO 側から張る WebSocket 接続。
+
+⚠ **「モロヘイヤの webhook を受ける」という書き方をしない。**向きが逆に読めて、inbound を開ける話だと誤解される（実際に一度誤読された）。
+
+#### ⚠ ストリーミング受信は「里帰り」になる
+
+**モロヘイヤの `Listener`（`app/lib/mulukhiya/listener.rb`）は旧 makoto から移植された実装。**makoto2 で書くと、出ていったものが戻ってくる形になる。
+
+- **参照するのは旧 makoto ではなくモロヘイヤ版。**移植後にモロヘイヤ側で手が入っており（指数バックオフ・シグナル処理・最終受信時刻のハートビート）、本番で揉まれている。旧実装はアーカイブ済みで、そちらを掘る理由が無い
+- **「コードは作り直し・旧実装は使い回さない」とは矛盾しない。**スタックの決定で「フレームワークは引き継ぐ」としたのと同じ扱いで、**キャラの一貫性に関わらない配管**だから。逆に、台詞の使い方（そのまま返す）は引き継がない
+- ⚠ **モロヘイヤ版をそのまま持ってこられない。**`EventMachine` のイベントループと最終受信時刻の Redis 保存を前提にしており、MAKOTO は**常駐 1 本＋内蔵スケジューラ・Redis 無し**。同居のさせ方は設計時に決める
 
 ### 管理操作は CLI で行う（WebUI の管理コンソールは作らない）
 
@@ -424,7 +445,7 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 | リポジトリ | 関係 |
 | --- | --- |
-| [pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy) | 通称モロヘイヤ。投稿プロキシ。webhook 出力の供給元。運用プラクティスの本家 |
+| [pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy) | 通称モロヘイヤ。投稿プロキシ。**投稿の出力先**（Slack 互換 webhook）であり、ストリーミング受信（`Listener`）の参考実装。運用プラクティスの本家 |
 | [pooza/chubo2](https://github.com/pooza/chubo2) | インフラ（itamae）。`docs/infra-note.md` がインフラの正本。インフラ課題はここに起票 |
 | [pooza/makoto](https://github.com/pooza/makoto) | 旧実装。**アーカイブ済み**。参照のみ |
 | [pooza/cure-api](https://github.com/pooza/cure-api) | プリキュアの情報を返す REST API。**シリーズ一覧の取得元**（`https://cure-api.precure.ml/series`）。⚠ **rubicure を直接使わない**（下記） |
