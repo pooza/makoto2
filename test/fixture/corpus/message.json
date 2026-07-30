@@ -1,0 +1,7 @@
+[
+  {"id": 2001, "type": "morning", "feature": null, "message": "テスト用の原稿（通年の朝挨拶）", "month": null, "day": null, "data": null},
+  {"id": 2002, "type": "morning", "feature": "一般", "message": "テスト用の原稿（夏の朝挨拶）", "month": null, "day": null, "data": "{\"season\": [6,7,8]}"},
+  {"id": 2003, "type": "holiday", "feature": null, "message": "テスト用の原稿（元日）", "month": 1, "day": 1, "data": null},
+  {"id": 2004, "type": "birthday", "feature": null, "message": "テスト用の原稿（秋のバースデー）", "month": null, "day": null, "data": "{\"season\": [9,10]}"},
+  {"id": 2005, "type": "template", "feature": null, "message": "テスト用の原稿（汎用テンプレート）", "month": null, "day": null, "data": null}
+]

@@ -27,7 +27,7 @@ module Makoto
       puts "bot: #{account['bot']}"
       puts "statuses: #{account['statuses_count']}"
     rescue Ginseng::AuthError => e
-      warn "認証に失敗しました（トークンかスコープを確認）: #{e.message}"
+      warn "認証に失敗しました（トークンかスコープを確認）: #{error_message(e)}"
       exit 1
     end
 
@@ -37,12 +37,15 @@ module Makoto
       status = MastodonService.new.post_status(text, visibility: options[:visibility])
       puts status['url']
     rescue Ginseng::AuthError, Ginseng::ValidateError, Ginseng::RequestError => e
-      warn "投稿できませんでした（再送しても変わりません）: #{e.message}"
+      warn "投稿できませんでした（再送しても変わりません）: #{error_message(e)}"
       exit 1
     rescue Ginseng::GatewayError => e
-      warn "投稿できませんでした（時間をおけば通るかもしれません）: #{e.message}"
+      warn "投稿できませんでした（時間をおけば通るかもしれません）: #{error_message(e)}"
       exit 1
     end
+
+    desc 'corpus SUBCOMMAND', '台詞コーパスの投入・確認'
+    subcommand 'corpus', CorpusCommand
 
     desc 'status', '常駐プロセスの生死を表示'
     def status

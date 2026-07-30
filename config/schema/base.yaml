@@ -5,6 +5,13 @@ $schema: http://json-schema.org/draft-06/schema#
 title: makoto2 config
 type: object
 properties:
+  corpus:
+    type: object
+    properties:
+      dir:
+        type: string
+    required:
+      - dir
   environment:
     enum:
       - development
@@ -61,6 +68,7 @@ properties:
     required:
       - db
 required:
+  - corpus
   - environment
   - logger
   - mastodon

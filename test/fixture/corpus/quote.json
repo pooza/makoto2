@@ -1,0 +1,7 @@
+[
+  {"id": 1001, "series_id": 1, "form_id": 1, "episode": 1, "emotion": null, "exclude": false, "exclude_respond": false, "priority": 5, "body": "テスト用の台詞（応答可・キュアソード）", "remark": null},
+  {"id": 1002, "series_id": 1, "form_id": 2, "episode": 12, "emotion": null, "exclude": false, "exclude_respond": false, "priority": 3, "body": "テスト用の台詞（応答可・剣崎真琴）", "remark": "備考"},
+  {"id": 1003, "series_id": 1, "form_id": 2, "episode": null, "emotion": null, "exclude": false, "exclude_respond": true, "priority": 3, "body": "テスト用の台詞（投稿専用・応答不可）", "remark": null},
+  {"id": 1004, "series_id": 1, "form_id": 1, "episode": 3, "emotion": "bad", "exclude": true, "exclude_respond": true, "priority": 1, "body": "テスト用の台詞（完全封印）", "remark": null},
+  {"id": 1005, "series_id": 3, "form_id": 3, "episode": null, "emotion": null, "exclude": false, "exclude_respond": false, "priority": 4, "body": "テスト用の台詞（応答可・ちびキュアソード）", "remark": null}
+]

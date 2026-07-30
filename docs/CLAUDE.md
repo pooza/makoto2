@@ -177,7 +177,8 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | --- | --- |
 | `app/lib/makoto.rb` | エントリポイント。Zeitwerk のローダ設定と初期化 |
 | `app/lib/makoto/` | 本体。`cli/` と `daemon/` は Zeitwerk の `collapse` 対象で名前空間を作らない |
-| `app/migration/` | Sequel のマイグレーション（#8 から使う） |
+| `app/migration/` | Sequel のマイグレーション |
+| `app/lib/makoto/model/` | データ層。リポジトリと投入（`QuoteRepository` / `MessageRepository` / `CorpusImporter`） |
 | `app/task/` | rake タスク（`config:lint` / `migration:run` / `test` / `bundle:*`） |
 | `bin/makoto` | 運用操作の CLI（Thor）。管理コンソールの代わり |
 | `bin/makoto_daemon.rb` | 常駐プロセス。`start` / `stop` / `restart` / `status` |
@@ -191,6 +192,32 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 - **`/logger/mask_fields` が秘密情報の唯一の正本。** ログのマスクと `makoto config` の伏せ字が同じリストを見る。⚠ このリストは fail-open な rescue の内側で読まないこと（読めなければ「マスク対象ゼロ ＝ 素通し」になる）
 - **`bin/makoto_daemon.rb` が標準出入力を `/dev/null` に落とすのは `start` / `restart` のときだけ。** 常駐時の `Errno::EPIPE` は避けつつ、`stop` / `status` の出力は監視やスクリプトから読めるようにしてある
 - **スケジューラはハートビートを 1 本持つ**（`/scheduler/heartbeat/interval`）。登録ジョブ数を一緒に出すので、「常駐しているが何もしていない」状態が検知できる
+
+## 台詞コーパスのスキーマ（0.1.0・#8）
+
+旧 DB のダンプ（`var/corpus/*.json`）を SQLite に投入する。**人手で付いたメタ情報が資産の本体**なので、列を減らさずに移す（→ [makoto-legacy.md](makoto-legacy.md)）。
+
+| テーブル | 中身 | 実データの行数 |
+| --- | --- | --- |
+| `form` | 変身前後の別（キュアソード / 剣崎真琴 / ちびキュアソード） | 3 |
+| `series` | 台詞の出典作品。`cure_api_key` で cure-api と繋ぐ | 7 |
+| `quote` | 本編の台詞 | 956（**応答可 561**） |
+| `message` | 前もって用意した原稿 | 388 |
+| `message_season` | 原稿の季節指定を月ごとに展開したもの | 196 |
+
+```sh
+rake migration:run
+bin/makoto corpus import   # 何度実行してもよい
+bin/makoto corpus stat     # 件数を確認する
+```
+
+- **旧 DB の id をそのまま主キーにする。** `INSERT OR REPLACE` で上書きするので投入は再実行可能。**取り込み元に無い行は消さない**ので、後から CLI で足した原稿を投入が消すことはない
+- ⚠ **応答に使ってよい台詞は `QuoteRepository#respondable` からしか引かない。** `exclude`（完全封印 106 件）と `exclude_respond`（投稿専用 289 件）は人手で付いた判断で、**再取得できない**（スナップショットが 2026-02-13 で止まっている）
+- **`series.name` はプリキュアの情報の正本ではない。** ダンプ由来の文字列を移しただけで、正本は cure-api。`cure_api_key` は**作品名ではなく旧 id で対応**させてある（名前で引くとコードに作品名を書くことになり、正本が 2 つに割れる）。⚠ **劇場版・オールスターズ（旧 id 3〜7）は cure-api の `/series` に無いので key が null。** 足りない情報は MAKOTO 側に抱え込まず cure-api を伸ばす
+- **`message.data` の `{"season": [6,7,8]}` は月ごとの行に展開する。** json を解かずに「6 月の朝挨拶」がただの `WHERE` で引ける。旧実装の原稿選択は「特定日 → 季節 → 無指定」の 3 段構えで、どう落とすかは #12 で決める
+- **`account`（393 件）と `fairy`（62 件）は取り込まない。** 前者は引き継がないと決めた好感度モデルのデータ、後者は妖精の語尾で MAKOTO 本人の口調ではない
+- **SQLite の外部キーは既定で無効。** `Database.connect` が `PRAGMA foreign_keys = ON` を打つ。打たないと `form_id` の取り違えが黙って通る
+- ⚠ **`var/` はコミットしない。** 台詞は第三者の著作物なので、**テストの fixture にも実データを置かない**（[test/fixture/corpus/](../test/fixture/corpus/) は作り物）。したがって**件数一致の確認は CI ではなく `corpus stat` で手元で行う**
 
 ## コーディング規約
 
@@ -212,6 +239,8 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 - ⚠ **再送する経路で外部へ書き込むときは冪等キーを持つ。** MAKOTO は無人で投稿し続けるので、`HTTP#retryable?` の再送は「投稿が二重に出る」経路でもある（Mastodon が受理した後に応答だけ失われると、再送が同じ投稿をもう 1 つ作る）。1 回の論理的な投稿につき `Idempotency-Key` を 1 つ作り、**全試行で使い回す**。テストは「キーが付いている」ではなく**「同じキーが全試行で飛ぶ」**ことを見る（前者では 3 通投稿される事故を検知できない）
 - **運用上必須の設定は JSON Schema の `required` に入れる。** 親キーだけを `required` にしても、中身が欠けた設定は `rake config:lint` を通り抜け、その設定を使う瞬間に初めて落ちる
 - **fail-open な `rescue` の内側で設定値を読まない。** 設定パスの typo が例外として飲まれ、ガードが恒常 no-op になる（モロヘイヤで実際に踏んだ「守っているつもりで無防備」という静かな穴）。ガードのパラメータは定数化するか rescue の外で評価し、**「実際にブロックする」正テストを必ず書く**
+- ⚠ **例外メッセージを埋め込むときは `error_message` を通す。** Sequel / SQLite の例外は **ASCII-8BIT** で上がるので、台詞のような非 ASCII を含む SQL が失敗すると `"...: #{e.message}"` が `Encoding::CompatibilityError` になる。**エラー処理そのものが落ちて本当のエラーが隠れる**（無人で動くボットでは誰も気付けない）
+- ⚠ **テストの共通処理は `setup` メソッドではなくコールバック（`setup do ... end`）で登録する。** メソッドにすると、サブクラスが `setup` を定義して `super` を忘れた瞬間に外れる。**忘れても落ちない**ので素通しに気付けない（WebMock の通信遮断で実際に起きうる形だった）
 - **秘密情報はログに出さない。** OAuth 認可コード・アクセストークン・API キーは scrub 対象に入れる
 
 ### ドキュメント表記規約

@@ -72,6 +72,9 @@ Metrics/BlockLength:
   Exclude:
     - test/*
     - app/task/**/*.rb
+    # マイグレーションは `Sequel.migration do ... end` が丸ごと 1 ブロックなので、
+    # 行数で切ると意味の無い分割を強いることになる。
+    - app/migration/**/*.rb
 Metrics/ClassLength:
   Exclude:
     - test/*
