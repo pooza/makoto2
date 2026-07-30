@@ -4,17 +4,14 @@ module Makoto
   namespace :migration do
     desc 'migrate database'
     task run: [:db] do
-      path = File.join(Environment.dir, 'app/migration')
-      # マイグレーションが 1 本も無い間は sequel が「ファイルが見つからない」で落ちる。
-      # スキーマ設計は #8 なので、それまでは空を正常として扱う（握り潰さず、その旨を出す）。
-      if Dir.glob(File.join(path, '*.rb')).empty?
-        puts 'migration: no migration files yet'
-        next
-      end
-      sh "bundle exec sequel -m #{path} '#{Environment.dsn}' -E"
+      # ⚠ テストのメモリ DB と同じ経路（Database.migrate）を通す。sequel の CLI を
+      # 別に叩くと、テストが通るスキーマと本番に当たるスキーマがずれる余地が残る。
+      Database.migrate
+      puts "migration: #{Environment.db}"
     end
 
     file :db do
+      FileUtils.mkdir_p(File.dirname(Environment.db))
       FileUtils.touch(Environment.db)
     end
   end

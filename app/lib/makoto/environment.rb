@@ -30,8 +30,13 @@ module Makoto
       return ENV['TEST'].present? rescue false
     end
 
+    # ⚠ **テストは開発用の DB を掴まない。**テストは基本的にメモリ DB を作って
+    # 使うが、渡し忘れた経路がここに落ちてきたときに `makoto.db` を書き換えると
+    # 投入済みのコーパスが壊れる。落ちる先を分けて、事故を「テストが落ちる」で
+    # 済ませる。
     def self.db
-      return File.join(dir, 'tmp/db', config['/sqlite3/db'])
+      name = test? ? 'test.db' : config['/sqlite3/db']
+      return File.join(dir, 'tmp/db', name)
     end
 
     def self.dsn
