@@ -144,6 +144,29 @@
 
 **機能が全台 OFF ＝ ライブ露出ゼロなら、真の赤でも非ブロック化して受け皿 Issue に繰越してよい**（モロヘイヤの Spotify OAuth で適用した判断）。
 
+## リポジトリ構成（0.1.0・#5 で作った骨組み）
+
+**レイアウトは tomato-shrieker を踏襲する。**同じ ginseng アプリなので、置き場所を考え直す理由が無い。
+
+| パス | 中身 |
+| --- | --- |
+| `app/lib/makoto.rb` | エントリポイント。Zeitwerk のローダ設定と初期化 |
+| `app/lib/makoto/` | 本体。`cli/` と `daemon/` は Zeitwerk の `collapse` 対象で名前空間を作らない |
+| `app/migration/` | Sequel のマイグレーション（#8 から使う） |
+| `app/task/` | rake タスク（`config:lint` / `migration:run` / `test` / `bundle:*`） |
+| `bin/makoto` | 運用操作の CLI（Thor）。管理コンソールの代わり |
+| `bin/makoto_daemon.rb` | 常駐プロセス。`start` / `stop` / `restart` / `status` |
+| `config/application.yaml` | 既定値。**バージョンはここが正本**（`/package/version`） |
+| `config/local.yaml` | 秘密情報。gitignore 対象。雛形は [config/local_sample.yaml](../config/local_sample.yaml) |
+| `config/schema/base.yaml` | 設定の JSON Schema。`rake config:lint` が使う |
+| `test/` | テスト。`rake test` が全部読む |
+| `tmp/` | pid・SQLite・キャッシュ。中身はコミットしない |
+
+- **ログは syslog に出る**（ident は `makoto2`。`journalctl -t makoto2`）。ginseng の Logger が JSON 1 行で吐く
+- **`/logger/mask_fields` が秘密情報の唯一の正本。** ログのマスクと `makoto config` の伏せ字が同じリストを見る。⚠ このリストは fail-open な rescue の内側で読まないこと（読めなければ「マスク対象ゼロ ＝ 素通し」になる）
+- **`bin/makoto_daemon.rb` が標準出入力を `/dev/null` に落とすのは `start` / `restart` のときだけ。** 常駐時の `Errno::EPIPE` は避けつつ、`stop` / `status` の出力は監視やスクリプトから読めるようにしてある
+- **スケジューラはハートビートを 1 本持つ**（`/scheduler/heartbeat/interval`）。登録ジョブ数を一緒に出すので、「常駐しているが何もしていない」状態が検知できる
+
 ## コーディング規約
 
 ### Ruby（RuboCop）
