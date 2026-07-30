@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # ⚠ open-pull-requests-limit: 0 はバージョン更新の PR を止める設定で、
+  # セキュリティ更新の PR は別枠なので届く。締め切り (2026-11-01) までは
+  # 更新 PR のノイズを避け、脆弱性だけを拾う。モロヘイヤと同じ方針。
+  - package-ecosystem: bundler
+    directory: '/'
+    schedule:
+      interval: daily
+      time: '03:00'
+      timezone: 'Asia/Tokyo'
+    open-pull-requests-limit: 0
+    target-branch: develop
+    versioning-strategy: lockfile-only
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+      time: '03:00'
+      timezone: 'Asia/Tokyo'
+    open-pull-requests-limit: 0
+    target-branch: develop

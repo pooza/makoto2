@@ -1,0 +1,34 @@
+name: test
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - develop
+      - main
+env:
+  CI: 'true'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+      - name: apt install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+      # 秘密情報を持たない雛形で動かす。CI から実サーバーへは投稿しない
+      # （テストは WebMock で通信を遮断している）。
+      - name: prepare config
+        run: cp config/local_sample.yaml config/local.yaml
+      - run: bundle exec rake migration:run
+      - run: bundle exec rubocop
+      - run: bundle exec rake config:lint
+      - run: bundle exec rake test
