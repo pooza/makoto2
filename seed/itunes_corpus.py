@@ -4,8 +4,8 @@
 #   ライブ用 (live)  … 宮本佳那子 / 剣崎真琴 / キュアソード の和集合
 #   普段用   (daily) … live + プリキュアソング（アーティスト名かアルバム名に「プリキュア」を含む）
 #
-# 検索は 1 クエリ 200 件で頭打ちになるため、rubicure のシリーズ名 22 件を種にして
-# アルバムを集め、アルバム単位で曲を引く。
+# 検索は 1 クエリ 200 件で頭打ちになるため、シリーズ名を種にしてアルバムを集め、
+# アルバム単位で曲を引く。シリーズ名は cure-api から REST で取る（rubicure は使わない）。
 import json
 import re
 import sys
@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 
 UA = {'User-Agent': 'makoto-track-survey/0.1 (research)'}
+CURE_API = 'https://cure-api.precure.ml'
 LIVE_KEYWORDS = ['宮本佳那子', '剣崎真琴', 'キュアソード']
 SLEEP = 2.0  # iTunes Search API の目安（約 20req/min）に寄せる
 
@@ -48,8 +49,14 @@ def is_precure(track):
         or 'ぷりきゅあ' in norm(track.get('artistName')) + norm(track.get('collectionName'))
 
 
-series = [line.strip().strip('"\'') for line in re.findall(
-    r'^\s+title:\s*(.+?)\s*$', open('/home/pooza/repos/rubicure/config/series.yml', encoding='utf-8').read(), re.M)]
+def series_titles():
+    """シリーズ名を cure-api から取る。ローカルの作業コピーには依存しない。"""
+    req = urllib.request.Request(f'{CURE_API}/series', headers=UA)
+    with urllib.request.urlopen(req, timeout=30) as res:
+        return [entry['title'].strip() for entry in json.loads(res.read().decode('utf-8'))]
+
+
+series = series_titles()
 terms = series + ['プリキュア', 'プリキュア 主題歌', 'プリキュア キャラクターアルバム',
                   'プリキュア ボーカルアルバム', 'プリキュア サウンドトラック'] + LIVE_KEYWORDS
 print(f'種にする検索語 {len(terms)} 件', flush=True)

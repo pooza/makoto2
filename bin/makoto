@@ -1,0 +1,9 @@
+#!/usr/bin/env ruby
+
+$LOAD_PATH.unshift(File.join(File.expand_path('..', __dir__), 'app/lib'))
+
+require 'makoto'
+module Makoto
+  Sequel.connect(Environment.dsn)
+  MainCommand.start(ARGV)
+end

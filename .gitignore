@@ -1,0 +1,15 @@
+# 台詞コーパス・DB ダンプなどの作業データ置き場。
+# このリポジトリは public。台詞は第三者の著作物であり、旧 DB には
+# アカウント情報も含まれるため、var/ の中身は絶対にコミットしない。
+/var/
+
+.bundle
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+*.log
+*.bak
+*.swp
+.vscode
+.claude

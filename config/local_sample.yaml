@@ -1,0 +1,9 @@
+# config/local.yaml の雛形。秘密情報を書く場所で、コミットしない（config/.gitignore）。
+# 実際の値はインフラノート（pooza/chubo2・private）側に置く。
+# CI はこの雛形をそのままコピーして使う（CI に秘密情報を持たせない）。
+environment: development
+mastodon:
+  # 開発・検証はキュアスタ！のステージング。本番は https://precure.ml
+  url: https://st2.precure.ml
+  acct: test
+  token: CHANGE_ME
