@@ -262,7 +262,7 @@ bin/makoto corpus stat     # 件数を確認する
 - **`series.name` はプリキュアの情報の正本ではない。** ダンプ由来の文字列を移しただけで、正本は cure-api。`cure_api_key` は**作品名ではなく旧 id で対応**させてある（名前で引くとコードに作品名を書くことになり、正本が 2 つに割れる）。⚠ **劇場版・オールスターズ（旧 id 3〜7）は cure-api の `/series` に無いので key が null。** 足りない情報は MAKOTO 側に抱え込まず cure-api を伸ばす
 - **`message.data` の `{"season": [6,7,8]}` は月ごとの行に展開する。** json を解かずに「6 月の朝挨拶」がただの `WHERE` で引ける。旧実装の原稿選択は「特定日 → 季節 → 無指定」の 3 段構えで、どう落とすかは #12 で決める
 - **`account`（393 件）と `fairy`（62 件）は取り込まない。** 前者は引き継がないと決めた好感度モデルのデータ、後者は妖精の語尾で MAKOTO 本人の口調ではない
-- **SQLite の外部キーは既定で無効。** `Database.connect` が `PRAGMA foreign_keys = ON` を打つ。打たないと `form_id` の取り違えが黙って通る
+- **外部キーは効く。**⚠ **SQLite 本体の既定は OFF だが、Sequel の SQLite アダプタが既定で ON にする**（5.106 で実測。`busy_timeout` も既定 5000）。`Database.connect` の `PRAGMA foreign_keys = ON` は**上流の既定に依存しないための明示**であって、無いと壊れるわけではない
 - ⚠ **`var/` はコミットしない。** 台詞は第三者の著作物なので、**テストの fixture にも実データを置かない**（[test/fixture/corpus/](../test/fixture/corpus/) は作り物）。したがって**件数一致の確認は CI ではなく `corpus stat` で手元で行う**
 
 ## コーディング規約

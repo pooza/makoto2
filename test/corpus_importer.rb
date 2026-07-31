@@ -88,7 +88,9 @@ module Makoto
       assert_equal(Encoding::UTF_8, error_message(error).encoding)
     end
 
-    # 外部キーが効いていること（SQLite は既定で無効）。効いていないと
+    # 外部キーが効いていること。⚠ これは `Database.connect` の PRAGMA 行を検証する
+    # テストではない（Sequel が既定で ON にするため、PRAGMA を消しても通る）。
+    # 見ているのは「この接続で外部キーが効いている」という結果のほう。効いていないと
     # form_id の取り違えが黙って通る。
     def test_foreign_key_is_enforced
       assert_raise(Sequel::ForeignKeyConstraintViolation) do

@@ -17,8 +17,9 @@ module Makoto
 
       def connect(dsn)
         db = Sequel.connect(dsn)
-        # 外部キーは SQLite では既定で無効。有効にしないと
-        # `quote.form_id` の取り違えが黙って通る。
+        # ⚠ **SQLite 本体の既定は OFF だが、Sequel の SQLite アダプタが既定で ON にする**
+        # （5.106 で確認）。つまりこの 1 行が無くても外部キーは効く。**上流の既定に
+        # 依存しないための明示**であって、消しても今すぐ壊れるわけではない。
         db.run('PRAGMA foreign_keys = ON')
         return db
       end
