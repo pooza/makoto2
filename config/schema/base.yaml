@@ -74,6 +74,13 @@ properties:
         type: string
     required:
       - db
+  track:
+    type: object
+    properties:
+      dir:
+        type: string
+    required:
+      - dir
 required:
   - corpus
   - environment
@@ -82,3 +89,4 @@ required:
   - package
   - scheduler
   - sqlite3
+  - track
