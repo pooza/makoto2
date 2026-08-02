@@ -79,8 +79,35 @@ properties:
     properties:
       dir:
         type: string
+      # 抽選の重み。⚠ 5 つの kind は収集スクリプトが付ける閉じた集合なので、
+      # すべて required にする。欠けると、その kind が黙って永久に出なくなる。
+      weight:
+        type: object
+        properties:
+          vocal:
+            type: integer
+            minimum: 0
+          bgm:
+            type: integer
+            minimum: 0
+          karaoke:
+            type: integer
+            minimum: 0
+          tv_size:
+            type: integer
+            minimum: 0
+          instrumental:
+            type: integer
+            minimum: 0
+        required:
+          - vocal
+          - bgm
+          - karaoke
+          - tv_size
+          - instrumental
     required:
       - dir
+      - weight
 required:
   - corpus
   - environment
