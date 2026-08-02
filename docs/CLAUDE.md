@@ -74,6 +74,12 @@
 
 ⚠ **「モロヘイヤの webhook を受ける」という書き方をしない。**向きが逆に読めて、inbound を開ける話だと誤解される（実際に一度誤読された）。
 
+#### ⚠⚠ 出力先によって、投稿に乗る付加価値が変わる
+
+**モロヘイヤ経由なら、`ItunesURLHandler` / `ItunesImageHandler` が URL 短縮とアートワーク添付を代行する**（`handle_pre_webhook` は `handle_pre_toot` に委譲するので webhook 経由でも走る。→ [track-corpus.md](track-corpus.md)）。
+
+⚠ **抽象化した出力先はこれを持たない。****アートワークが出ない前提でも成立する本文にしておく**（#16 / #30）。
+
 #### ⚠ ストリーミング受信は「里帰り」になる
 
 **モロヘイヤの `Listener`（`app/lib/mulukhiya/listener.rb`）は旧 makoto から移植された実装。**makoto2 で書くと、出ていったものが戻ってくる形になる。
