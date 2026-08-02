@@ -30,5 +30,9 @@ package:
 scheduler:
   heartbeat:
     interval: 1h
+  # ⚠ 投稿時刻の解釈に使う唯一の正本。ライブは 12:00 JST に始まるので、稼働先の
+  # ローカルタイムが UTC だと 9 時間ずれる。しかも「起動したのに何も起きない」だけ
+  # なので気付きにくい。ホストの TZ に依存させない。
+  timezone: Asia/Tokyo
 sqlite3:
   db: makoto.db

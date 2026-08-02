@@ -60,6 +60,13 @@ properties:
             type: string
         required:
           - interval
+      timezone:
+        type: string
+    # ⚠ timezone が欠けるとホストのローカルタイムに落ちる。ライブの開始時刻がずれても
+    # 「何も起きない」だけなので、設定の検証で止める。
+    required:
+      - heartbeat
+      - timezone
   sqlite3:
     type: object
     properties:
