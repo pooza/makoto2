@@ -47,6 +47,9 @@ module Makoto
     desc 'corpus SUBCOMMAND', '台詞コーパスの投入・確認'
     subcommand 'corpus', CorpusCommand
 
+    desc 'track SUBCOMMAND', '曲データの投入・確認'
+    subcommand 'track', TrackCommand
+
     desc 'status', '常駐プロセスの生死を表示'
     def status
       daemon = MakotoDaemon.new

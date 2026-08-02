@@ -3,6 +3,10 @@ corpus:
   # 旧 DB から取り出したコーパスの置き場（`makoto corpus import` の取り込み元）。
   # ⚠ var/ はコミットしない。台詞は第三者の著作物のため（.gitignore 参照）。
   dir: var/corpus
+track:
+  # 曲データ（iTunes Search API の収集物）の置き場。⚠ 台詞と違って git 管理下に
+  # あるので、clone すればそのまま `makoto track import` が通る。
+  dir: seed
 http:
   retry:
     limit: 3

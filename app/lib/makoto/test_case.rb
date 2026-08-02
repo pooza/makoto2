@@ -51,6 +51,21 @@ module Makoto
       return File.join(self.class.fixture_dir, 'corpus')
     end
 
+    # テスト用の曲データ。**メモリ上に作って捨てる。**
+    # 中身は [test/fixture/track/](../../../test/fixture/track/) の作り物で、
+    # 名義違いの重複・全角の揺れ・URL 欠け・壊れた日付を意図的に混ぜてある。
+    def track_db
+      unless @track_db
+        @track_db = empty_db
+        TrackImporter.new(track_fixture_dir, db: @track_db).exec
+      end
+      return @track_db
+    end
+
+    def track_fixture_dir
+      return File.join(self.class.fixture_dir, 'track')
+    end
+
     def self.dir
       return File.join(Environment.dir, 'test')
     end
