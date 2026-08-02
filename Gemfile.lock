@@ -237,6 +237,7 @@ DEPENDENCIES
   sqlite3
   test-unit
   thor
+  tzinfo
   webmock
 
 CHECKSUMS

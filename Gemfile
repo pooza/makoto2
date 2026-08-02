@@ -5,6 +5,8 @@ gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', branch: 'main',
   require: 'ginseng/fediverse'
 gem 'rufus-scheduler'
 gem 'sequel'
+# rufus-scheduler の依存として入るが、Timetable が直接使うので明示する。
+gem 'tzinfo'
 gem 'sqlite3'
 gem 'thor'
 
