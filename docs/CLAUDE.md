@@ -74,11 +74,11 @@
 
 ⚠ **「モロヘイヤの webhook を受ける」という書き方をしない。**向きが逆に読めて、inbound を開ける話だと誤解される（実際に一度誤読された）。
 
-#### ⚠⚠ 出力先によって、投稿に乗る付加価値が変わる
+#### ✅ 画像添付は実装しない。URL を貼って SNS のプレビューカードに任せる
 
-**モロヘイヤ経由なら、`ItunesURLHandler` / `ItunesImageHandler` が URL 短縮とアートワーク添付を代行する**（`handle_pre_webhook` は `handle_pre_toot` に委譲するので webhook 経由でも走る。→ [track-corpus.md](track-corpus.md)）。
+**曲紹介のアートワークは、URL を貼れば Mastodon 側が OGP のプレビューカードとして補完する**（→ [track-corpus.md](track-corpus.md)）。⚠ **これは SNS 側の機能なので、出力先を抽象化しても失われない。**
 
-⚠ **抽象化した出力先はこれを持たない。****アートワークが出ない前提でも成立する本文にしておく**（#16 / #30）。
+⚠ **モロヘイヤ経由の場合は `ItunesImageHandler` が画像も添付するため二重になりうる**（`handle_pre_webhook` は `handle_pre_toot` に委譲するので webhook 経由でも走る）。**#16 で実機確認し、必要ならモロヘイヤ側で切る。**
 
 #### ⚠ ストリーミング受信は「里帰り」になる
 

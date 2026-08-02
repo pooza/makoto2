@@ -39,19 +39,27 @@
 - ⚠ **投稿には `trackViewUrl` を必ず載せる**（`previewUrl` / `artworkUrl100` も素材として持っている）
 - ⚠ **ただし #13（ライブ）では話が別。**実在するライブのセットリストを参照するとき、**手元のコーパスが完全な母集合だと思い込まない**（上記のとおり 21% が欠ける）。**台本に載せたい曲が無い場合は、その曲を諦めるか、個別に補う**
 
-### ⚠⚠ モロヘイヤ経由なら、URL 短縮とアートワーク添付は向こうがやる
+### ✅ アートワークは Mastodon のプレビューカードに任せる（2026-08-02 決定）
 
-**モロヘイヤに iTunes 用のハンドラが実在する**（[pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy)）。
+⚠⚠ **URL を貼れば Mastodon 側で OGP のプレビューカードが生成され、そこでアートワークが補完される。****現在の運用はこれに任せている。**
+
+**したがって MAKOTO 側に画像添付の実装は要らない。**本文に `trackViewUrl` を入れるだけでよい。
+
+- ⚠ **`artworkUrl100` / `previewUrl` はコーパスに持っているが、投稿には使わない**（本文が組めなくなったときの予備）
+- ⚠⚠ **これは出力先の抽象化（#30）と衝突しない。**プレビューカードは **SNS 側の機能**なので、⚠ **モロヘイヤ固有ではない。**Slack 互換 webhook を実装した他サービスでも、リンクプレビューを持つのが普通
+
+#### 参考: モロヘイヤ側にも iTunes 用のハンドラがある
+
+**[pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy) の実装を確認した。**
 
 | ハンドラ | 効果 |
 | --- | --- |
-| `ItunesURLHandler` | **本文中の iTunes URL を短縮して書き換える** |
-| `ItunesImageHandler` | ⚠⚠ **iTunes URL からアートワークを取り出して画像として添付する** |
+| `ItunesURLHandler` | **iTunes URL を正規化する**（ホストを統一し、id 以外のパラメータを落とす）。⚠ **リダイレクタではなく Apple Music の URL のままなので、プレビューカードの取得と競合しない** |
+| `ItunesImageHandler` | **iTunes URL からアートワークを画像として添付する** |
 
-⚠⚠ **`Handler#handle_pre_webhook` は `handle_pre_toot` に委譲しているので、webhook 経由の投稿でもこれらが走る**（実装で確認済み）。**MAKOTO は出す側をモロヘイヤの Slack 互換 webhook に向ける**（→ [CLAUDE.md](CLAUDE.md)）ので、**本文に `trackViewUrl` を入れるだけでよい。**
+⚠ **`Handler#handle_pre_webhook` は `handle_pre_toot` に委譲しているので、webhook 経由の投稿でもこれらが走る。**
 
-- ⚠ **`artworkUrl100` を MAKOTO 側で添付する実装は要らない可能性が高い**（#16 で実機確認する。ハンドラがユーザ設定で有効化を要するかは未確認）
-- ⚠⚠ **これは出力先の抽象化（#30）とトレードオフになる。**Slack 互換 webhook を実装した他サービスに向けたときは**この恩恵が無い**ので、**アートワークが出ない前提でも成立する本文にしておく**
+⚠⚠ **つまりモロヘイヤ経由だと、プレビューカードと画像添付が二重になりうる。**#16 で実機確認し、**必要ならモロヘイヤ側のハンドラを切る**（MAKOTO のアカウント設定で。ユーザ単位で有効・無効を持てる）。
 
 ## 収集の要点
 
