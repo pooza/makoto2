@@ -234,7 +234,9 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto.rb` | エントリポイント。Zeitwerk のローダ設定と初期化 |
 | `app/lib/makoto/` | 本体。`cli/` と `daemon/` は Zeitwerk の `collapse` 対象で名前空間を作らない |
 | `app/migration/` | Sequel のマイグレーション |
-| `app/lib/makoto/model/` | データ層。リポジトリと投入（`QuoteRepository` / `MessageRepository` / `CorpusImporter`） |
+| `app/lib/makoto/model/` | データ層。リポジトリと投入（`QuoteRepository` / `MessageRepository` / `CorpusImporter` / `TrackRepository` / `TrackImporter`） |
+| `app/lib/makoto/timetable.rb` | 投稿の枠の計算。⚠ **状態を持たず、進行位置は時刻から導出する**（→ 上記「投稿の欠落は詰めない」） |
+| `seed/` | 曲データ（iTunes 収集物）と収集スクリプト。⚠ **`makoto track import` の取り込み元**（→ [track-corpus.md](track-corpus.md)） |
 | `app/task/` | rake タスク（`config:lint` / `migration:run` / `test` / `bundle:*`） |
 | `bin/makoto` | 運用操作の CLI（Thor）。管理コンソールの代わり |
 | `bin/makoto_daemon.rb` | 常駐プロセス。`start` / `stop` / `restart` / `status` |
@@ -482,9 +484,9 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ## 未決事項
 
-1. **[seed/](../seed/) の扱い** — 収集済みコーパスを正式なデータ置き場へ移すか、スクリプトだけ残して再取得可能にするか — #9
+**現在、未決の項目は無い。**
 
-実行環境（本番の置き場）と CI は 2026-07-30 に確定した（→ 上記「実行環境」「CI」）。
+決着したもの: 実行環境（本番の置き場）と CI は 2026-07-30（→ 上記「実行環境」「CI」）。⚠ **[seed/](../seed/) の扱いは 2026-08-02（#9）** — **JSON をデータ層へ取り込み、`seed/` は取り込み元として残す**（→ [track-corpus.md](track-corpus.md)）。
 
 ## 関連リポジトリ
 
@@ -501,4 +503,4 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 - [makoto-persona.md](makoto-persona.md) — **剣崎真琴の人物設定と、MAKOTO が語ってよい範囲。**#18 / #19 が直接使う
 - [makoto-legacy.md](makoto-legacy.md) — 旧実装の経緯・停止の理由・引き継ぐ資産（台詞コーパス）・既知ドリフト
 - [birthday-live.md](birthday-live.md) — 11/4 バースデーライブの要件と 2024 年の台本
-- [track-corpus.md](track-corpus.md) — 曲データの自動収集（iTunes Search API）と収集済みコーパスの中身
+- [track-corpus.md](track-corpus.md) — 曲データの自動収集（iTunes Search API）、データ層への取り込み（#9）、⚠ **重複判定の鍵**（正規化した曲名のみ。duration は使えない）
