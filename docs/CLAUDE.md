@@ -159,6 +159,8 @@
 2. リリース時に `develop` → `main` へ PR を作成しマージ
 3. `main` でタグを打ちリリース
 
+⚠ **`develop` 宛の PR では `Closes #n` が効かない。**GitHub は**既定ブランチ（`main`）へのマージでしか Issue を自動クローズしない**ので、develop へのマージでは Issue が open のまま残る（2026-08-05 に #43 / #12 で確認）。**書いてもよいが、閉じるかどうかは必ず手で判断する**（ラップアップの分類ルールは下記「Issue / マイルストーン運用」）。
+
 ⚠ **`gh pr create` では `--base develop` を必ず指定する。** 省略するとリポジトリ default の `main` が base になり、未リリースの変更が黙って main に乗る（モロヘイヤで 3 件同時に踏んだ事故がある）。リリース PR のときだけ `--base main`。作成直後に `gh pr view <番号> --json baseRefName` で確認する。
 
 ## Issue / マイルストーン運用
