@@ -3,10 +3,10 @@ module Makoto
     def test_import_counts
       counts = TrackImporter.new(track_fixture_dir, db: empty_db).exec
 
-      assert_equal(10, counts[:track])
+      assert_equal(12, counts[:track])
       assert_equal(4, counts[:live])
       # ⚠ 行数と曲数は一致しない。名義違い・盤違いの同一曲があるため。
-      assert_equal(7, counts[:unique])
+      assert_equal(8, counts[:unique])
       assert_equal(2, counts[:live_unique])
     end
 
@@ -29,7 +29,7 @@ module Makoto
       second = TrackImporter.new(track_fixture_dir, db: db).exec
 
       assert_equal(first, second)
-      assert_equal(10, db[:track].count)
+      assert_equal(12, db[:track].count)
     end
 
     # ⚠ ライブ用の定義から外れた曲にフラグが残らないこと。

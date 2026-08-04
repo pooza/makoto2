@@ -31,16 +31,28 @@ module Makoto
     # ⚠ **`distinct` で名義違い・盤違いの同一曲を 1 行に寄せる**（寄せないと同じ曲が
     # 何度も当たる）。⚠ **`linkable` で url の無い行を落とす** — 曲紹介はリンク付きで
     # 曲そのものを出すので、url が無い行は紹介の形にならない。
+    #
+    # ⚠⚠ **順序が効く。`linkable` してから代表を選ぶ。**逆にすると、代表になった行
+    # だけ url が無いときに**同じ曲の url がある行ごと落ちる**（`url` は NULL 可）。
+    # 「特定の曲だけ静かに出ない」形になり、無人で回る曲紹介では誰も気付けない。
     def candidates
-      return @repository.linkable(@repository.distinct)
+      return @repository.distinct(@repository.linkable)
     end
 
-    # 1 曲引く。母集合が空なら nil。
+    # 1 曲引く。⚠ **母集合が空なら nil。設定の誤りは例外。**
     def draw(records = nil)
       records ||= candidates
       counts = @repository.count_by_kind(records)
+      # 母集合がそもそも空（例: 絞り込んだ結果 0 件）。これは設定の誤りではない。
+      return nil if counts.empty?
       kind = pick_kind(counts)
-      return nil unless kind
+      # ⚠⚠ **母集合はあるのに引けない ＝ 実効的な重みがゼロ。**正の重みが付いた kind が
+      # 1 曲も居ない状態で、`weights` の「全部 0 は誤り」検査をすり抜ける。黙って nil を
+      # 返し続けると曲紹介が無言で止まるので、ここで落とす。
+      unless kind
+        raise Ginseng::ConfigError,
+          "track: no positive weight for available kinds (#{counts.keys.sort.join(', ')})"
+      end
       return pick_track(records.where(kind: kind))
     end
 

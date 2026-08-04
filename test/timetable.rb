@@ -102,6 +102,60 @@ module Makoto
       assert_not_equal(live.times(date).first, utc.times(date).first)
     end
 
+    # ⚠⚠ 夏時間の切り替え日に落ちないこと（→ #43）。`Asia/Tokyo` に夏時間は無いが、
+    # タイムゾーンは設定で差し替わるので、切り替えのある地域でも計算が通ること。
+    #
+    # 2026-11-01 の `America/New_York` は 01:00〜02:00 が 2 度ある。⚠ 素の
+    # `local_to_utc` は `TZInfo::AmbiguousTime` を上げる。
+    def test_ambiguous_local_time_resolves_to_the_earlier_period
+      timetable = Timetable.new(
+        start: '01:00', finish: '05:00', interval: '1h', timezone: 'America/New_York',
+      )
+      date = Date.new(2026, 11, 1)
+      times = timetable.times(date)
+
+      # 01:00 EDT（切り替え前）＝ 05:00 UTC。⚠ 後ろに寄せると枠が 1 時間短くなる。
+      assert_equal(Time.utc(2026, 11, 1, 5, 0), times.first.getutc)
+      # ⚠ 壁時計では 4 時間でも、1 時間が 2 度あるので実時間は 5 時間 ＝ 5 枠。
+      # **枠は実時間で刻む**（間隔の加算を UTC で行っているため）。
+      assert_equal(5, times.size)
+      assert_true(timetable.cover?(Time.utc(2026, 11, 1, 5, 0)))
+      assert_equal(0, timetable.index_at(Time.utc(2026, 11, 1, 5, 0)))
+    end
+
+    # 2026-03-08 の `America/New_York` は 02:00〜03:00 が存在しない。⚠ 素の
+    # `local_to_utc` は `TZInfo::PeriodNotFound` を上げる。⚠⚠ ブロックでも解決しない。
+    def test_skipped_local_time_falls_back_to_the_transition
+      timetable = Timetable.new(
+        start: '02:30', finish: '06:00', interval: '1h', timezone: 'America/New_York',
+      )
+      date = Date.new(2026, 3, 8)
+      times = timetable.times(date)
+
+      # 切り替わりの瞬間＝ 07:00 UTC（03:00 EDT）へ寄せる。
+      assert_equal(Time.utc(2026, 3, 8, 7, 0), times.first.getutc)
+      assert_equal(3, timetable.timezone.utc_to_local(times.first.getutc).hour)
+      assert_true(timetable.cover?(Time.utc(2026, 3, 8, 7, 0)))
+    end
+
+    # ⚠ 切り替え日でも `next_after` / `index_at` が例外にならないこと。落ちるのが
+    # 一番まずい経路（常駐が切り替え日に丸ごと死ぬ）。
+    def test_dst_transition_does_not_raise
+      ['2026-03-08', '2026-11-01'].each do |value|
+        date = Date.parse(value)
+        timetable = Timetable.new(
+          start: '01:30', finish: '23:00', interval: '30m', timezone: 'America/New_York',
+        )
+
+        assert_nothing_raised do
+          timetable.times(date)
+          timetable.cover?(Time.utc(date.year, date.month, date.day, 12, 0))
+          timetable.index_at(Time.utc(date.year, date.month, date.day, 12, 0))
+          timetable.next_after(Time.utc(date.year, date.month, date.day, 12, 0))
+        end
+      end
+    end
+
     # ⚠ 設定の誤りは「起動して何も起きない」ではなく例外にする。
     def test_rejects_reversed_window
       assert_raise(Ginseng::ConfigError) do
