@@ -21,6 +21,10 @@ module Makoto
   class Timetable
     include Package
 
+    # 夏時間の切り替わりを探す幅（秒）。⚠ 切り替えは半年に 1 度なので、前後 1 日で
+    # 拾えるのは対象の 1 件だけ。
+    GAP_WINDOW = 86_400
+
     attr_reader :timezone, :interval
 
     def initialize(start:, finish:, interval:, timezone: nil)
@@ -99,8 +103,32 @@ module Makoto
     end
 
     # その日の HH:MM に対応する瞬間（UTC）。
+    #
+    # ⚠⚠ **夏時間の切り替え日には「2 度ある時刻」と「存在しない時刻」がある。**素の
+    # `local_to_utc` は前者で `TZInfo::AmbiguousTime`、後者で `TZInfo::PeriodNotFound`
+    # を上げるので、そのままだと `times` / `cover?` / `index_at` / `next_after` が
+    # **切り替え日に丸ごと落ちる**。⚠ 間隔の加算を UTC で行う配慮（`times`）は端点の
+    # 変換までは守らない。**`Asia/Tokyo` に夏時間は無いが、タイムゾーンの正本を設定に
+    # 持つ以上ここで守る。**
     def instant(date, clock)
-      return timezone.local_to_utc(Time.utc(date.year, date.month, date.day, clock[0], clock[1]))
+      naive = Time.utc(date.year, date.month, date.day, clock[0], clock[1])
+      # ⚠ 2 度ある時刻は前側（切り替え前）に寄せる。後ろに寄せると枠が 1 時間短くなる。
+      return timezone.local_to_utc(naive, &:first)
+    rescue TZInfo::PeriodNotFound
+      return gap_end(naive, clock)
+    end
+
+    # 夏時間の始まりで飛ばされた時刻を、切り替わりの瞬間へ寄せる。
+    #
+    # ⚠ **ここはブロックでは解決しない。**該当する期間がそもそも無いので、
+    # `local_to_utc` にブロックを渡しても `PeriodNotFound` のまま。
+    def gap_end(naive, clock)
+      transition = timezone.transitions_up_to(naive + GAP_WINDOW, naive - GAP_WINDOW).last
+      unless transition
+        raise Ginseng::ConfigError,
+          "timetable: no instant for #{format_clock(clock)} in #{timezone.identifier}"
+      end
+      return transition.at.to_time.utc
     end
 
     def create_timezone(name)

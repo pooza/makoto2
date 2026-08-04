@@ -138,5 +138,33 @@
     "previewUrl": "https://example.test/preview/1010",
     "artworkUrl100": "https://example.test/artwork/1010",
     "kind": "vocal"
+  },
+  {
+    "trackId": 1011,
+    "collectionId": 9004,
+    "trackName": "テスト行進曲",
+    "artistName": "テスト劇伴",
+    "collectionName": "テストサウンドトラック",
+    "releaseDate": "2013-08-21T12:00:00Z",
+    "trackTimeMillis": 96000,
+    "trackNumber": 41,
+    "trackViewUrl": null,
+    "previewUrl": null,
+    "artworkUrl100": null,
+    "kind": "karaoke"
+  },
+  {
+    "trackId": 1012,
+    "collectionId": 9007,
+    "trackName": "テスト行進曲",
+    "artistName": "テスト劇伴",
+    "collectionName": "テストベスト",
+    "releaseDate": "2019-11-02T12:00:00Z",
+    "trackTimeMillis": 97000,
+    "trackNumber": 5,
+    "trackViewUrl": "https://example.test/track/1012",
+    "previewUrl": "https://example.test/preview/1012",
+    "artworkUrl100": "https://example.test/artwork/1012",
+    "kind": "karaoke"
   }
 ]

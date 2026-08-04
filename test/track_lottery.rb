@@ -22,6 +22,15 @@ module Makoto
       ids = draws(200).map {|track| track[:id]}
 
       assert_not_include(ids, 1009)
+      assert_not_include(ids, 1011)
+    end
+
+    # ⚠⚠ **代表（id 最小）だけ url が無い曲を、丸ごと落とさない。**先に代表を選ぶと
+    # `linkable` で曲ごと消え、「特定の曲だけ静かに出ない」形になる（→ #43）。
+    def test_draws_the_linkable_representation_of_a_duplicate
+      ids = draws(200).map {|track| track[:id]}
+
+      assert_include(ids, 1012)
     end
 
     # ⚠⚠ 同じ曲の別名義行を引かない。distinct の上で抽選する。
@@ -102,6 +111,24 @@ module Makoto
       config['/track/weight/vocal'] = -1
 
       assert_raise(Ginseng::ConfigError) {lottery.draw}
+    end
+
+    # ⚠⚠ **母集合はあるのに、正の重みが付いた kind が 1 曲も居ない**（重みの合計は
+    # 正なので `weights` の検査は通る）。⚠ nil を返し続けると曲紹介が無言で止まるので、
+    # ここは設定の誤りとして落とす（→ #43）。
+    def test_rejects_weights_that_match_no_available_kind
+      config.keys('/track/weight').each {|kind| config["/track/weight/#{kind}"] = 0}
+      config['/track/weight/vocal'] = 10
+      records = TrackRepository.new(track_db).by_kind(:bgm)
+
+      assert_raise(Ginseng::ConfigError) {lottery.draw(records)}
+    end
+
+    # ⚠ 母集合が空なのは設定の誤りではない。上と取り違えて例外にしない。
+    def test_empty_pool_is_not_a_config_error
+      records = TrackRepository.new(track_db).by_kind(:nothing)
+
+      assert_nothing_raised {lottery.draw(records)}
     end
   end
 end
