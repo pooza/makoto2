@@ -126,14 +126,16 @@ python3 tools/pgdump_to_json.py var/corpus/makoto_2026-02-13.sql var/corpus
 
 **makoto2 では LLM の few-shot / RAG 素材として使う。** 561 件はファインチューニングには少ないが、プロンプト同梱には十分な量。
 
-## 引き継いだ既知ドリフト（nginx `/makoto`）
+## 引き継いだ既知ドリフト（nginx `/makoto`）→ ✅ 解消済み（2026-07-31）
 
-nginx の `/makoto` ロケーションは Mastodon フォークの vhost 側にあるため、**キュアスタ！のサーバー移行（lbock → gomander、2026-07-28）でそのまま引き継がれた**。
+nginx の `/makoto` ロケーションは Mastodon フォークの vhost 側にあるため、**キュアスタ！のサーバー移行（lbock → gomander、2026-07-28）でそのまま引き継がれていた**。
 
-- 配置はデルムリン丼とキュアスタ！の 2 台（各サーバーの vhost 設定）。他の 2 台には無い
+- 配置はデルムリン丼とキュアスタ！の 2 台（各サーバーの vhost 設定）。他の 2 台には無かった
 - バックエンドの 3011 は誰も listen していないので**実害は 502 のみ**
-- `/makoto/sidekiq` の ACL が `/mulukhiya/sidekiq` と食い違ったまま — **退役したホストの旧プレフィクスを許可しており、モロヘイヤ側が持つ現行の許可元が入っていない**（具体的な CIDR は chubo2 側を参照）
+- `/makoto/sidekiq` の ACL が `/mulukhiya/sidekiq` と食い違ったまま — **退役したホストの旧プレフィクスを許可しており、モロヘイヤ側が持つ現行の許可元が入っていなかった**（具体的な CIDR は chubo2 側を参照）
 
-**この location は踏襲しない。削除する。** `/makoto` は旧実装の**管理コンソール**で、パスを知っていたのは運用者ひとりだった。makoto2 に引き継ぐべき利用者も用途も無く、残しても 502 と ACL の食い違いを抱え続けるだけになる。削除は `pooza/chubo2` 側の作業（`pooza/chubo2#99`）。
+**この location は踏襲しない。** `/makoto` は旧実装の**管理コンソール**で、パスを知っていたのは運用者ひとりだった。makoto2 に引き継ぐべき利用者も用途も無く、残しても 502 と ACL の食い違いを抱え続けるだけだった。
+
+✅ **2026-07-31 に 2 台とも削除・反映済み**（`pooza/chubo2#99` クローズ）。`location ^~ /makoto/sidekiq` と `location ^~ /makoto` の計 9 行を削除し、`nginx -t` 通過後に reload。**両ホストとも 502 → 404 になったことを確認済み。**
 
 **makoto2 では管理コンソールそのものを作らない。** 運用操作は CLI で行う（→ [CLAUDE.md](CLAUDE.md) の「管理操作は CLI で行う」）。旧実装で Issue が立っていた「WebUI からの辞書更新」も、WebUI ではなく CLI として作る。
