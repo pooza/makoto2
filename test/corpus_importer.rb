@@ -7,7 +7,7 @@ module Makoto
       assert_equal(3, counts[:series])
       assert_equal(5, counts[:quote])
       assert_equal(3, counts[:respondable])
-      assert_equal(5, counts[:message])
+      assert_equal(6, counts[:message])
       assert_equal(5, counts[:message_season])
     end
 

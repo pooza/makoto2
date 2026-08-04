@@ -50,6 +50,9 @@ module Makoto
     desc 'track SUBCOMMAND', '曲データの投入・確認'
     subcommand 'track', TrackCommand
 
+    desc 'message SUBCOMMAND', '原稿の追加・確認・下見'
+    subcommand 'message', MessageCommand
+
     desc 'status', '常駐プロセスの生死を表示'
     def status
       daemon = MakotoDaemon.new
