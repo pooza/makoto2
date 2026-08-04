@@ -118,6 +118,25 @@
 
 ⚠ **したがって「投稿が出たかどうか」を記録する必要があるのは、重複回避（#11 / #13）のためであって、進行の再開のためではない。**この 2 つを混同しない。
 
+### 原稿の上書きは「具体的なものが勝つ」5 段（2026-08-05 決定・#12）
+
+**特定の日は、前もって用意した原稿で自動生成を上書きする。**旧実装の 3 段構え（特定日 → 季節 → 無指定）に 2 段足して、`Makoto::MessageSelector` に落とした。
+
+| 段 | 引くもの | 旧データでの中身 |
+| --- | --- | --- |
+| 1 | **その年のその日**（`message.year` 一致） | 無し。⚠ **台本（#13 / #14）がここに入る** |
+| 2 | **毎年のその日**（`year` が NULL） | `holiday` 6 件（元日・プリキュアの日・バレンタイン・エイプリルフール・キュアスタ！の誕生日・クリスマスイブ） |
+| 3 | **記念日**（`/message/anniversary`） | `birthday` 19 件（11/4） |
+| 4 | **季節**（`message_season` の月一致） | `morning` 82 件 |
+| 5 | **無指定**（通年） | `morning` 155 件 |
+
+- ⚠ **`year` 列は #12 で足した**（migration 003）。⚠ **NULL は「毎年」**。旧データ 388 件はすべて NULL
+- ⚠⚠ **記念日として登録した type は、その日以外では選ばれない。**除かないと、日付を持たない `birthday` 19 件が段 5 に混ざって**毎朝バースデーの原稿が出る**
+- ⚠ **使ってよい `type` は呼ぶ側が許可リストで決める。**朝挨拶（#17）は `holiday` / `birthday` / `morning`、ライブ（#13）は台本の type だけ。⚠ **許可リストに無い type は日付が一致しても選ばれない**ので、ライブの台本を朝挨拶が横取りしない
+- ⚠⚠ **`template` 109 件と `calling` 13 件を許可リストに入れない**（全件が `%s` を含む。→ 上記コーパスの節）
+- **原稿が無ければ nil を返す**＝通常の生成にフォールバックする合図。例外にしない
+- **原稿の追加・削除・下見は CLI から行う**（`makoto message add` / `list` / `preview` / `remove`）。⚠ **コード変更なしで原稿を足せること**が #12 の完了条件
+
 ## 情報の記載先ルール
 
 - **課題・タスク** → GitHub Issue（`pooza/makoto2`）。**インフラ面の課題は `pooza/chubo2` の Issue として起票する**
@@ -237,6 +256,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/model/` | データ層。リポジトリと投入（`QuoteRepository` / `MessageRepository` / `CorpusImporter` / `TrackRepository` / `TrackImporter`） |
 | `app/lib/makoto/timetable.rb` | 投稿の枠の計算。⚠ **状態を持たず、進行位置は時刻から導出する**（→ 上記「投稿の欠落は詰めない」） |
 | `app/lib/makoto/posting_job.rb` | 枠に載せる投稿 1 本。**「いつ」＝ `Timetable` / 「何を」＝ `source` / 「どう」＝ここ**。⚠ **失敗しても例外を外に出さない**（→ 上記「投稿の欠落は詰めない」） |
+| `app/lib/makoto/message_selector.rb` | 原稿の上書き機構（→ 下記）。⚠ **`PostingJob` の `source` としてそのまま渡せる**（原稿が無ければ nil＝通常の生成へ） |
 | `seed/` | 曲データ（iTunes 収集物）と収集スクリプト。⚠ **`makoto track import` の取り込み元**（→ [track-corpus.md](track-corpus.md)） |
 | `app/task/` | rake タスク（`config:lint` / `migration:run` / `test` / `bundle:*`） |
 | `bin/makoto` | 運用操作の CLI（Thor）。管理コンソールの代わり |
@@ -287,8 +307,8 @@ bin/makoto corpus stat     # 件数を確認する
 - **`series.name` はプリキュアの情報の正本ではない。** ダンプ由来の文字列を移しただけで、正本は cure-api。`cure_api_key` は**作品名ではなく旧 id で対応**させてある（名前で引くとコードに作品名を書くことになり、正本が 2 つに割れる）。⚠ **劇場版・オールスターズ（旧 id 3〜7）は cure-api の `/series` に無いので key が null。** 足りない情報は MAKOTO 側に抱え込まず cure-api を伸ばす
 - **`message.data` の `{"season": [6,7,8]}` は月ごとの行に展開する。** json を解かずに「6 月の朝挨拶」がただの `WHERE` で引ける。旧実装の原稿選択は「特定日 → 季節 → 無指定」の 3 段構えで、どう落とすかは #12 で決める
 - ⚠ **`message` の本文カラムは `body` ではなく `message`。**`quote` は `body`。取り込み時に取り違えやすい
-- **`message` 388 件の `type` 内訳は `morning` 237 / `template` 109 / `birthday` 23 / `calling` 13 / `holiday` 6**（各 type の中身は [makoto-legacy.md](makoto-legacy.md) が正本）。⚠ **`morning` と `birthday` 以外の 128 件は用途が確認できていない。**#12 で仕分ける
-- ⚠⚠ **`birthday` 23 行の `month` / `day` / `feature` は全行 NULL。日付で引ける作りになっていない。**`data` を持つのも 4 行だけで中身は季節指定（`{"season": [9,10]}` 等）。**11/4 という日付をどこから与えるかは #12 / #13 で新しく決める**（→ [birthday-live.md](birthday-live.md)）
+- **`message` 388 件の `type` 内訳は `morning` 237 / `template` 109 / `birthday` 23 / `calling` 13 / `holiday` 6**（各 type の中身は [makoto-legacy.md](makoto-legacy.md) が正本）。✅ **128 件の仕分けは 2026-08-05（#12）に済んだ** — ⚠⚠ **`template` 109 件と `calling` 13 件は全件が `%s` を含む穴埋めテンプレートで、原稿ではない**（そのまま投稿すると `%s` が出る）。原稿として使えるのは `morning` / `holiday` / `birthday` の 266 件
+- ⚠⚠ **`birthday` 23 行の `month` / `day` / `feature` は全行 NULL。日付で引ける作りになっていない。**✅ **11/4 という日付は `/message/anniversary` に持たせた**（#12）。⚠ **季節指定を持つ 4 行は中身が秋の朝挨拶＝誤分類**なので誕生日には使わない（残る 19 行が対象）
 - ⚠ **`quote.remark` は 35 件だけ付いた第 3 のメタ情報。**⚠ **意味が 2 系統に混在している。**
 
   | 値 | 意味 | 件数 | 応答可 | 平均 |

@@ -40,6 +40,16 @@ package:
   license: MIT
   url: https://github.com/pooza/makoto2
   version: 0.2.0
+message:
+  # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
+  # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が
+  # ここ。⚠ **ここに挙げた type は、その日以外では選ばれない**（毎朝バースデーの
+  # 原稿が出ないようにするため）。
+  #
+  # ⚠ 11/4 は剣崎真琴と声優（宮本佳那子）の誕生日が重なる日（→ docs/CLAUDE.md）。
+  anniversary:
+    # ⚠ 引用符を外さない。`11-04` は YAML が数値・日付と取り違えうる書き方。
+    '11-04': birthday
 scheduler:
   heartbeat:
     interval: 1h

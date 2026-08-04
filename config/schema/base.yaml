@@ -40,6 +40,19 @@ properties:
     required:
       - url
       - token
+  message:
+    type: object
+    properties:
+      # 記念日。⚠ キーは `MM-DD`、値はその日に使う原稿の type。
+      # ⚠⚠ ここに挙げた type は、その日以外では選ばれない。
+      anniversary:
+        type: object
+        patternProperties:
+          '^\d{2}-\d{2}$':
+            type: string
+        additionalProperties: false
+    required:
+      - anniversary
   package:
     type: object
     properties:
@@ -117,6 +130,7 @@ required:
   - environment
   - logger
   - mastodon
+  - message
   - package
   - scheduler
   - sqlite3
