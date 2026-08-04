@@ -1,0 +1,130 @@
+module Makoto
+  # 枠（`Timetable`）に載せる投稿 1 本ぶん。ライブ（#13）も朝挨拶（#17）も
+  # 曲紹介（#16）も、**何を投稿するか（`source`）だけ差し替えて**ここに載る。
+  #
+  # ```
+  # いつ投げるか → Timetable
+  # 何を投げるか → source（call(slot) が本文を返すもの）
+  # どう投げるか → PostingJob（ここ）
+  # ```
+  #
+  # ⚠⚠ **状態を持たない。**「次はどの枠か」を覚えず、**渡された時刻が枠の頭に
+  # 入っているか**だけを見る。⚠ **落ちて戻ってきても位置がずれない**（→ #10 の
+  # 「再起動後の状態復帰」）。
+  #
+  # ⚠⚠ **失敗しても例外を外に出さない。**`source` が落ちても投稿が失敗しても、
+  # ログに残して次の枠へ進む。**落とした分は後ろに詰めない**（→ docs/CLAUDE.md
+  # 「投稿の欠落は詰めない」）。⚠ 例外を上げると常駐そのものが止まり、**残り 8 時間の
+  # 枠を全部落とす**ことになる。
+  #
+  # ⚠ **冪等キーは枠から作る。**tick が重なっても、再起動で同じ枠をもう一度処理しても、
+  # Mastodon 側が畳む。⚠⚠ **同じ枠なら本文が変わっても 1 通**（抽選をやり直しても
+  # 二重投稿にならない）。
+  class PostingJob
+    include Package
+
+    attr_reader :name, :timetable, :tolerance, :visibility
+
+    # @param name [String] ログと冪等キーに使う名前。⚠ 投稿の種類ごとに一意にする
+    # @param timetable [Timetable] 枠
+    # @param source [#call] 枠の頭の時刻を受け取り、投稿の本文を返すもの
+    # @param tolerance [String, Numeric] 枠の頭を拾う幅。既定は `/scheduler/tick`
+    def initialize(name:, timetable:, source:, tolerance: nil, visibility: nil)
+      @name = name.to_s
+      @timetable = timetable
+      @source = source
+      @tolerance = parse_tolerance(tolerance || config['/scheduler/tick'])
+      @visibility = visibility
+      validate
+    end
+
+    # 枠の頭か。⚠ **tick はぴったりの時刻には来ない**ので、`tolerance` の幅だけ
+    # 遅れて呼ばれても拾う。
+    def due?(time = nil)
+      return !due_slot(time).nil?
+    end
+
+    # 枠の頭なら投稿する。⚠ 枠の外・枠の途中・本文が空なら何もしない。
+    def exec(time = nil)
+      slot = due_slot(time)
+      return nil unless slot
+      text = create_text(slot)
+      if text.blank?
+        # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
+        logger.info(post: @name, slot: format_slot(slot), message: 'no text')
+        return nil
+      end
+      return post(text, slot)
+    end
+
+    # ⚠ **枠の頭の時刻そのものから作る。**プロセスをまたいでも同じ枠なら同じ値。
+    def idempotency_key(slot)
+      return [@name, slot.getutc.strftime('%Y%m%dT%H%M%SZ')].join('-')
+    end
+
+    def service
+      @service ||= MastodonService.new
+      return @service
+    end
+
+    def to_s
+      return "#{@name} #{@timetable}"
+    end
+
+    private
+
+    def validate
+      unless @source.respond_to?(:call)
+        raise Ginseng::ConfigError, "posting job: #{@name} source must respond to #call"
+      end
+      return if @tolerance < @timetable.interval
+      # ⚠⚠ 枠の間隔が拾う幅以下だと、1 回の tick が複数の枠に跨がって取りこぼす。
+      message = "posting job: #{@name} interval (#{@timetable.interval}s)"
+      raise Ginseng::ConfigError, "#{message} must be longer than tolerance (#{@tolerance}s)"
+    end
+
+    # 枠の頭から `tolerance` 以内なら、その枠を返す。
+    def due_slot(time = nil)
+      time ||= Time.now
+      slot = @timetable.slot_at(time)
+      return nil unless slot
+      return nil unless (time - slot) < @tolerance
+      return slot
+    end
+
+    # ⚠ **`source` の失敗で常駐を落とさない。**本文が作れなければその枠は欠落する。
+    def create_text(slot)
+      return @source.call(slot).to_s
+    rescue => e
+      logger.error(post: @name, slot: format_slot(slot), error: e)
+      return nil
+    end
+
+    # ⚠ **投稿の失敗で常駐を落とさない。**恒久的な失敗（401 等）も一時的な失敗も、
+    # ここでは同じく「その枠は落ちた」として扱う。⚠ 再送そのものは `HTTP#retryable?`
+    # が済ませた後なので、ここまで来た時点で諦める。
+    def post(text, slot)
+      response = service.post_status(
+        text,
+        visibility: @visibility,
+        idempotency_key: idempotency_key(slot),
+      )
+      logger.info(post: @name, slot: format_slot(slot), status_id: response['id'])
+      return response
+    rescue => e
+      logger.error(post: @name, slot: format_slot(slot), error: e)
+      return nil
+    end
+
+    def format_slot(slot)
+      return slot.getutc.iso8601
+    end
+
+    def parse_tolerance(value)
+      return value if value.is_a?(Numeric)
+      seconds = Fugit::Duration.parse(value.to_s)&.to_sec
+      raise Ginseng::ConfigError, "posting job: bad tolerance '#{value}'" unless seconds&.positive?
+      return seconds
+    end
+  end
+end

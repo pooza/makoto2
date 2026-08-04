@@ -62,11 +62,15 @@ properties:
           - interval
       timezone:
         type: string
+      # ⚠ 枠の頭を拾う間隔。欠けると PostingJob が作れず、投稿が 1 本も出ない。
+      tick:
+        type: string
     # ⚠ timezone が欠けるとホストのローカルタイムに落ちる。ライブの開始時刻がずれても
     # 「何も起きない」だけなので、設定の検証で止める。
     required:
       - heartbeat
       - timezone
+      - tick
   sqlite3:
     type: object
     properties:
