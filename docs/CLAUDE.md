@@ -236,6 +236,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/migration/` | Sequel のマイグレーション |
 | `app/lib/makoto/model/` | データ層。リポジトリと投入（`QuoteRepository` / `MessageRepository` / `CorpusImporter` / `TrackRepository` / `TrackImporter`） |
 | `app/lib/makoto/timetable.rb` | 投稿の枠の計算。⚠ **状態を持たず、進行位置は時刻から導出する**（→ 上記「投稿の欠落は詰めない」） |
+| `app/lib/makoto/posting_job.rb` | 枠に載せる投稿 1 本。**「いつ」＝ `Timetable` / 「何を」＝ `source` / 「どう」＝ここ**。⚠ **失敗しても例外を外に出さない**（→ 上記「投稿の欠落は詰めない」） |
 | `seed/` | 曲データ（iTunes 収集物）と収集スクリプト。⚠ **`makoto track import` の取り込み元**（→ [track-corpus.md](track-corpus.md)） |
 | `app/task/` | rake タスク（`config:lint` / `migration:run` / `test` / `bundle:*`） |
 | `bin/makoto` | 運用操作の CLI（Thor）。管理コンソールの代わり |
@@ -249,7 +250,10 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 - **ログは syslog に出る**（ident は `makoto2`。`journalctl -t makoto2`）。ginseng の Logger が JSON 1 行で吐く
 - **`/logger/mask_fields` が秘密情報の唯一の正本。** ログのマスクと `makoto config` の伏せ字が同じリストを見る。⚠ このリストは fail-open な rescue の内側で読まないこと（読めなければ「マスク対象ゼロ ＝ 素通し」になる）
 - **`bin/makoto_daemon.rb` が標準出入力を `/dev/null` に落とすのは `start` / `restart` のときだけ。** 常駐時の `Errno::EPIPE` は避けつつ、`stop` / `status` の出力は監視やスクリプトから読めるようにしてある
-- **スケジューラはハートビートを 1 本持つ**（`/scheduler/heartbeat/interval`）。登録ジョブ数を一緒に出すので、「常駐しているが何もしていない」状態が検知できる
+- **スケジューラはハートビートを 1 本持つ**（`/scheduler/heartbeat/interval`）。登録した投稿の数を一緒に出すので、「常駐しているが何もしていない」状態が検知できる
+- ⚠⚠ **枠ごとにジョブを登録しない。**ライブは 8 時間で 240 枠あり、枠の数だけ登録すると日をまたぐたびに登録し直すことになる（＝進行位置を状態として持つのと同じ）。**`/scheduler/tick` の間隔で叩き、そのつど「いま枠の頭か」を時刻から計算する。**⚠ **枠の間隔は tick より長いこと**（短いと 1 回の叩きが複数の枠に跨がって取りこぼす。`PostingJob` が起動時に弾く）
+- ⚠ **投稿の冪等キーは枠の頭の時刻から作る**（`{名前}-{枠の時刻 UTC}`）。tick が重なっても、再起動で同じ枠をもう一度処理しても、Mastodon 側が畳む。⚠⚠ **同じ枠なら本文が変わっても 1 通**（抽選をやり直しても二重投稿にならない）
+- ⚠ **`bin/makoto_daemon.rb start` は前景で走る。**背景化するのは `restart`（`fork` ＋ `setsid` ＋ `detach`）。**デプロイ・監視から起動するときは `restart` を使う**（→ #15）
 
 ## 台詞コーパスのスキーマ（0.1.0・#8）
 

@@ -59,6 +59,19 @@ module Makoto
       assert_equal(239, live.index_at(jst(date, 19, 59)))
     end
 
+    # ⚠ 枠の頭の時刻。投稿の冪等キーがこれから作られる（→ PostingJob）。
+    def test_slot_at
+      assert_equal(jst(date, 12, 0), live.slot_at(jst(date, 12, 0)))
+      assert_equal(jst(date, 12, 0), live.slot_at(jst(date, 12, 1)))
+      assert_equal(jst(date, 12, 2), live.slot_at(jst(date, 12, 2)))
+      assert_equal(jst(date, 19, 58), live.slot_at(jst(date, 19, 59)))
+    end
+
+    def test_slot_at_outside_window
+      assert_nil(live.slot_at(jst(date, 11, 59)))
+      assert_nil(live.slot_at(jst(date, 20, 0)))
+    end
+
     def test_index_at_outside_window
       assert_nil(live.index_at(jst(date, 11, 59)))
       assert_nil(live.index_at(jst(date, 20, 0)))

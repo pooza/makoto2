@@ -70,6 +70,16 @@ module Makoto
       return ((time - instant(date_of(time), @start)) / @interval).floor
     end
 
+    # その時刻が属する枠の頭。⚠ 枠の外なら nil。
+    # ⚠ **`index_at` が「何番目か」、これが「その枠が始まった時刻」。**投稿の側は
+    # 後者を冪等キーに使う（→ `PostingJob`）。
+    def slot_at(time = nil)
+      time ||= Time.now
+      index = index_at(time)
+      return nil unless index
+      return times(date_of(time))[index]
+    end
+
     # 次の投稿時刻。⚠ その日の枠を過ぎていたら翌日の 1 本目を返す。
     def next_after(time = nil)
       time ||= Time.now
