@@ -69,7 +69,7 @@ module Makoto
     desc 'preview', 'その日に選ばれる原稿を表示する（投稿はしない）'
     def preview
       selector = MessageSelector.new(options[:types]&.split(',') || DEFAULT_TYPES)
-      message = selector.find(preview_time(options[:date]))
+      message = selector.find(preview_date(options[:date]))
       unless message
         puts '原稿はありません（通常の生成にフォールバックします）'
         return
@@ -104,10 +104,12 @@ module Makoto
       return months
     end
 
-    def preview_time(value)
-      return Time.now if value.blank?
-      return Time.parse("#{value} 12:00:00")
-    rescue ArgumentError
+    # ⚠⚠ **日付のまま渡す。**時刻を作るとホストの TZ で解釈され、`/scheduler/timezone`
+    # に直したときに 1 日ずれる（日本の外で下見すると 11/4 が 11/5 になる）。
+    def preview_date(value)
+      return nil if value.blank?
+      return Date.parse(value)
+    rescue Date::Error
       raise Ginseng::ValidateError, "日付は YYYY-MM-DD で指定してください（'#{value}'）"
     end
 

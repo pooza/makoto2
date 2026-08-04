@@ -49,6 +49,10 @@ module Makoto
 
     # 選ばれた原稿そのもの。⚠ CLI の下見（`makoto message preview`）と、
     # ログに「どの原稿を使ったか」を残すためにある。
+    #
+    # ⚠ **`Date` をそのまま渡せる。**下見は「その日」を見たいだけなので、時刻を
+    # 作らせるとホストの TZ で 1 日ずれる（`Time.parse('2026-11-04 12:00')` は
+    # ホストの正午）。⚠ **日付で渡せばタイムゾーンの変換そのものが起きない。**
     def find(time = nil)
       date = date_of(time || Time.now)
       records = candidates(date)
@@ -87,13 +91,18 @@ module Makoto
       return nil
     end
 
+    # ⚠⚠ **通年で回してよい type が 1 つも無いときは、段 4 / 5 そのものを飛ばす。**
+    # `MessageRepository` は `type: nil` を「絞り込まない」と解釈するので、空の
+    # 許可リストを渡すと**他の type の原稿まで引いてしまう**（記念日だけを持つ
+    # 呼び出し側が、記念日以外の日に無関係な原稿を出す）。
     def steps(date)
+      rotating = rotating_types
       return [
         -> {@repository.on_date(date.month, date.day, type: @types, year: date.year)},
         -> {@repository.on_date(date.month, date.day, type: @types)},
         -> {anniversary(date)},
-        -> {@repository.in_season(date.month, type: rotating_types)},
-        -> {@repository.undated(type: rotating_types)},
+        -> {rotating.empty? ? nil : @repository.in_season(date.month, type: rotating)},
+        -> {rotating.empty? ? nil : @repository.undated(type: rotating)},
       ]
     end
 
@@ -105,9 +114,7 @@ module Makoto
 
     # 記念日として予約された type を除いた、通年で回してよい type。
     def rotating_types
-      types = @types - anniversary_types.values
-      return nil if types.empty?
-      return types
+      return @types - anniversary_types.values
     end
 
     def pick(records)
@@ -116,10 +123,11 @@ module Makoto
     end
 
     # ⚠ ホストの TZ ではなく `/scheduler/timezone` で日付を出す。ライブは JST の
-    # 11/4 に始まる（→ `Timetable`）。
-    def date_of(time)
+    # 11/4 に始まる（→ `Timetable`）。⚠ `Date` はそのまま（変換すると逆にずれる）。
+    def date_of(value)
+      return value if value.is_a?(Date) && !value.is_a?(DateTime)
       zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
-      return zone.utc_to_local(time.getutc).to_date
+      return zone.utc_to_local(value.getutc).to_date
     end
   end
 end

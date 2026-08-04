@@ -99,6 +99,20 @@ module Makoto
       assert_not_equal('birthday', selector.find(Time.utc(2026, 11, 4, 15, 0))[:type])
     end
 
+    # ⚠⚠ 許可リストが記念日の type だけのとき、記念日以外の日は**何も返さない**こと。
+    # ⚠ 段 4 / 5 に空の許可リストを渡すと「絞り込まない」と解釈され、無関係な type の
+    # 原稿を出してしまう（→ #46 の Codex 指摘）。
+    def test_anniversary_only_selector_returns_nil_on_other_days
+      assert_nil(selector(['birthday']).find(jst(5, 15)))
+      assert_equal('birthday', selector(['birthday']).find(jst(11, 4))[:type])
+    end
+
+    # ⚠ 下見は日付をそのまま渡せること。時刻を作らせるとホストの TZ で 1 日ずれる。
+    def test_accepts_a_date
+      assert_equal('birthday', selector.find(Date.new(2026, 11, 4))[:type])
+      assert_equal(2003, selector.find(Date.new(2026, 1, 1))[:id])
+    end
+
     def test_anniversary_types_come_from_config
       assert_equal({'11-04' => 'birthday'}, selector.anniversary_types)
     end
