@@ -1,8 +1,41 @@
 environment: development
+announcement:
+  # 11/1 からの予告投稿（#14）。⚠ **予告開始が 11/1 なので、これが機能的な締め切り**
+  # （→ docs/birthday-live.md）。
+  #
+  # ⚠⚠ **日付はここに書かない。**枠は毎日あり、その日の原稿が無ければ何も投稿しない
+  # （MessageSelector が nil を返す）。日付は原稿の側と /message/anniversary が持つ。
+  # ⚠ **予告を止めるのは原稿を消すだけ**でよいので、機能のフラグは持たない。
+  type: announcement
+  # ⚠ 1 日 1 本。**finish は含まない（半開区間）**ので、この幅で枠は 10:00 の 1 つ。
+  #
+  # ⚠ **10:00 なのは人に届く時刻だから。**11/1 が意味を持つのは日曜＝ニチアサ実況で
+  # キュアスタ！が最も賑わう日だという理由なので、その流れの残っている時間に置く。
+  # ⚠ ライブ本体の開始（12:00）に揃える理由は無い。
+  # ⚠⚠ **朝挨拶（#17）の枠と重ねないこと。**同じ時刻に 2 本出る。
+  # ⚠⚠ **11/3 の増量でここを広げないこと。**枠は日付を区別しないので、広げると
+  # 11/1 と 11/2 も一緒に増える。増量は #13 が別の枠として足す。
+  timetable:
+    start: '10:00'
+    finish: '10:01'
+    interval: '1m'
 corpus:
   # 旧 DB から取り出したコーパスの置き場（`makoto corpus import` の取り込み元）。
   # ⚠ var/ はコミットしない。台詞は第三者の著作物のため（.gitignore 参照）。
   dir: var/corpus
+track:
+  # 曲データ（iTunes Search API の収集物）の置き場。⚠ 台詞と違って git 管理下に
+  # あるので、clone すればそのまま `makoto track import` が通る。
+  dir: seed
+  # 抽選の重み。⚠ **その kind が選ばれる確率の比**であって、曲数の割合ではない。
+  # 既定値の根拠は docs/track-corpus.md を見ること。
+  # ⚠ 普段用は BGM が 53% なので、一様に引くと曲紹介がサントラだらけになる。
+  weight:
+    vocal: 10
+    bgm: 4
+    tv_size: 1
+    karaoke: 1
+    instrumental: 1
 http:
   retry:
     limit: 3
@@ -26,9 +59,35 @@ package:
     - tkoishi@b-shock.co.jp
   license: MIT
   url: https://github.com/pooza/makoto2
-  version: 0.1.0
+  version: 0.2.0
+message:
+  # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
+  # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が
+  # ここ。⚠ **ここに挙げた type は、その日以外では選ばれない**（毎朝バースデーの
+  # 原稿が出ないようにするため）。
+  #
+  # ⚠ 11/4 は剣崎真琴と声優（宮本佳那子）の誕生日が重なる日（→ docs/CLAUDE.md）。
+  anniversary:
+    # ⚠ 引用符を外さない。`11-04` は YAML が数値・日付と取り違えうる書き方。
+    #
+    # ⚠⚠ **予告（#14）の 3 日もここに要る。**登録が無いと、日付を持たない
+    # `announcement` の原稿が段 5（無指定）に混ざって**毎日予告が出る**。
+    # ⚠ Announcement はこの登録が無ければ起動時に落ちる（黙って毎日出るより早い）。
+    '11-01': announcement
+    '11-02': announcement
+    '11-03': announcement
+    '11-04': birthday
 scheduler:
   heartbeat:
     interval: 1h
+  # 枠の頭を拾いに行く間隔。⚠ **枠ごとにジョブを登録せず、この間隔で叩いて
+  # 「いま枠の頭か」を時刻から計算する**（→ Scheduler / PostingJob）。
+  # ⚠⚠ **枠の間隔はこれより長いこと。**短いと 1 回の叩きが複数の枠に跨がり、
+  # 取りこぼす（PostingJob が起動時に弾く）。ライブは 2 分間隔なので十分余裕がある。
+  tick: 10s
+  # ⚠ 投稿時刻の解釈に使う唯一の正本。ライブは 12:00 JST に始まるので、稼働先の
+  # ローカルタイムが UTC だと 9 時間ずれる。しかも「起動したのに何も起きない」だけ
+  # なので気付きにくい。ホストの TZ に依存させない。
+  timezone: Asia/Tokyo
 sqlite3:
   db: makoto.db

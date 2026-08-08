@@ -5,6 +5,30 @@ $schema: http://json-schema.org/draft-06/schema#
 title: makoto2 config
 type: object
 properties:
+  # 予告投稿（#14）。⚠ 欠けると PostingJob が作れず、11/1 に予告が出ない。
+  # ⚠⚠ 出ないことは 11/1 まで分からないので、設定の検証で止める。
+  announcement:
+    type: object
+    properties:
+      # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
+      type:
+        type: string
+      timetable:
+        type: object
+        properties:
+          start:
+            type: string
+          finish:
+            type: string
+          interval:
+            type: string
+        required:
+          - start
+          - finish
+          - interval
+    required:
+      - type
+      - timetable
   corpus:
     type: object
     properties:
@@ -40,6 +64,19 @@ properties:
     required:
       - url
       - token
+  message:
+    type: object
+    properties:
+      # 記念日。⚠ キーは `MM-DD`、値はその日に使う原稿の type。
+      # ⚠⚠ ここに挙げた type は、その日以外では選ばれない。
+      anniversary:
+        type: object
+        patternProperties:
+          '^\d{2}-\d{2}$':
+            type: string
+        additionalProperties: false
+    required:
+      - anniversary
   package:
     type: object
     properties:
@@ -60,6 +97,17 @@ properties:
             type: string
         required:
           - interval
+      timezone:
+        type: string
+      # ⚠ 枠の頭を拾う間隔。欠けると PostingJob が作れず、投稿が 1 本も出ない。
+      tick:
+        type: string
+    # ⚠ timezone が欠けるとホストのローカルタイムに落ちる。ライブの開始時刻がずれても
+    # 「何も起きない」だけなので、設定の検証で止める。
+    required:
+      - heartbeat
+      - timezone
+      - tick
   sqlite3:
     type: object
     properties:
@@ -67,11 +115,48 @@ properties:
         type: string
     required:
       - db
+  track:
+    type: object
+    properties:
+      dir:
+        type: string
+      # 抽選の重み。⚠ 5 つの kind は収集スクリプトが付ける閉じた集合なので、
+      # すべて required にする。欠けると、その kind が黙って永久に出なくなる。
+      weight:
+        type: object
+        properties:
+          vocal:
+            type: integer
+            minimum: 0
+          bgm:
+            type: integer
+            minimum: 0
+          karaoke:
+            type: integer
+            minimum: 0
+          tv_size:
+            type: integer
+            minimum: 0
+          instrumental:
+            type: integer
+            minimum: 0
+        required:
+          - vocal
+          - bgm
+          - karaoke
+          - tv_size
+          - instrumental
+    required:
+      - dir
+      - weight
 required:
+  - announcement
   - corpus
   - environment
   - logger
   - mastodon
+  - message
   - package
   - scheduler
   - sqlite3
+  - track

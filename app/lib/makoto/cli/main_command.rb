@@ -47,15 +47,39 @@ module Makoto
     desc 'corpus SUBCOMMAND', '台詞コーパスの投入・確認'
     subcommand 'corpus', CorpusCommand
 
-    desc 'status', '常駐プロセスの生死を表示'
+    desc 'track SUBCOMMAND', '曲データの投入・確認'
+    subcommand 'track', TrackCommand
+
+    desc 'message SUBCOMMAND', '原稿の追加・確認・下見'
+    subcommand 'message', MessageCommand
+
+    desc 'status', '常駐プロセスの健全性を表示（監視から叩く口）'
+    long_desc <<~TEXT
+      終了コード: 0 = 健全 / 1 = 異常（復旧させる）/ 2 = 警告（人が見る）
+
+      ⚠ 生死だけでなく「投稿を持っているか」「ハートビートが止まっていないか」を見る。
+      systemd はプロセスの死しか見ないので、常駐したまま何もしていない状態を拾えない。
+    TEXT
     def status
-      daemon = MakotoDaemon.new
-      if daemon.alive?
-        puts "running (PID #{daemon.pid})"
+      health = Health.new
+      if health.alive?
+        puts "running (PID #{health.pid})"
+        puts "jobs: #{health.jobs || '(unknown)'}"
+        puts "heartbeat: #{format_age(health.heartbeat_age)}"
+        puts "orphans: #{health.orphans&.join(', ') || '(unknown)'}"
       else
         puts 'not running'
-        exit 1
       end
+      health.errors.each {|message| warn "error: #{message}"}
+      health.warnings.each {|message| warn "warning: #{message}"}
+      exit health.code
+    end
+
+    private
+
+    def format_age(seconds)
+      return '(unknown)' unless seconds
+      return "#{seconds.round}s ago (limit #{Heartbeat.limit.round}s)"
     end
   end
 end
