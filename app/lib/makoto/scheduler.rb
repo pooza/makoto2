@@ -60,6 +60,9 @@ module Makoto
       interval = config['/scheduler/heartbeat/interval']
       @scheduler.every interval, first: :now do
         logger.info(scheduler: 'heartbeat', version: Package.version, jobs: jobs)
+        # ⚠ **監視はログではなくこの痕跡を見る**（→ `Heartbeat` / `Health`）。
+        # 書けなくてもハートビートそのものは止めない（下の rescue の内側）。
+        Heartbeat.touch(jobs: jobs)
       rescue => e
         logger.error(scheduler: 'heartbeat', error: e)
       end

@@ -111,6 +111,17 @@
 
 ⚠ **monit の `exec` は argv に分割されるため `&&` 以降が黙って捨てられる。** 本番 3 台の自動復旧がこれで長期間死んでいた実例がある。復旧コマンドはラッパースクリプトに逃がす。
 
+### 死活監視は「生きているか」と「仕事をしているか」を分ける（2026-08-08 決定・#15）
+
+⚠⚠ **systemd の `Restart=always` はプロセスの死しか見ない。**⚠ 実際に **2026-08-05 から 08 までの 3 日間、常駐は生きたまま `jobs: 0`（投稿の登録が 0 本）だった。**プロセスの生死だけを見る監視ではこれを検知できない。
+
+- **監視の口は `makoto status`**（`Makoto::Health`）。⚠ **終了コードで返す** — **`0` 健全 / `1` 異常（復旧させる）/ `2` 警告（人が見る）**
+- 見るのは 4 つ。**生死** / ⚠ **登録された投稿の数**（0 は異常）/ ⚠ **ハートビートからの経過**（止まっていればスケジューラが死んでいる）/ **孤児プロセス**
+- ⚠ **ハートビートの痕跡は `tmp/run/heartbeat.json`**（`Makoto::Heartbeat`）。⚠ **監視にログを読ませない**（置き場と書式に依存させない）。⚠ **観測用の痕跡であって進行位置の状態ではない**ので、消しても再起動後の動作は変わらない
+- ⚠⚠ **止まったとみなす閾値は設定から出す**（`/scheduler/heartbeat/interval` の 3 倍）。**間隔を延ばした瞬間に監視が誤検知しはじめる**のを防ぐ
+- ⚠⚠ **孤児プロセスは警告どまりで、復旧を叩かせない。**再起動の瞬間に一時的に 2 本になりうるので、ここで再起動させると**検知 → 再起動 → 検知のループ**になる。⚠ **孤児は「溜まる」のが問題**（旧実装は 11 日分溜めた）なので、即時の自動復旧より人の目が要る
+- ⚠ **`/proc` が読めない環境では「孤児は無い」と答えない**（不明を返す）。**守っているつもりで無防備**になるのを防ぐ
+
 ### 投稿の欠落は詰めない。進行位置は状態ではなく計算で出す（2026-08-02 決定・#10）
 
 **失敗した投稿は、欠落したまま次の枠へ進む。**⚠ **落とした分を後ろに詰めない。****旧実装でも同じ判断をした前例がある。**
@@ -278,6 +289,8 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/posting_job.rb` | 枠に載せる投稿 1 本。**「いつ」＝ `Timetable` / 「何を」＝ `source` / 「どう」＝ここ**。⚠ **失敗しても例外を外に出さない**（→ 上記「投稿の欠落は詰めない」） |
 | `app/lib/makoto/message_selector.rb` | 原稿の上書き機構（→ 下記）。⚠ **`PostingJob` の `source` としてそのまま渡せる**（原稿が無ければ nil＝通常の生成へ） |
 | `app/lib/makoto/announcement.rb` | 11/1 からの予告投稿（#14）。⚠ **常駐が持つ最初の `PostingJob`**。日付は枠ではなく原稿が持つ（→ 下記） |
+| `app/lib/makoto/heartbeat.rb` | ハートビートの痕跡（`tmp/run/heartbeat.json`）。⚠ **監視が見るのはログではなくこれ** |
+| `app/lib/makoto/health.rb` | 常駐の健全性。⚠ **`makoto status` の中身であり、監視が叩く口**（→ 上記「死活監視」） |
 | `seed/` | 曲データ（iTunes 収集物）と収集スクリプト。⚠ **`makoto track import` の取り込み元**（→ [track-corpus.md](track-corpus.md)） |
 | `app/task/` | rake タスク（`config:lint` / `migration:run` / `test` / `bundle:*`） |
 | `bin/makoto` | 運用操作の CLI（Thor）。管理コンソールの代わり |
@@ -286,7 +299,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `config/local.yaml` | 秘密情報。gitignore 対象。雛形は [config/local_sample.yaml](../config/local_sample.yaml) |
 | `config/schema/base.yaml` | 設定の JSON Schema。`rake config:lint` が使う |
 | `test/` | テスト。`rake test` が全部読む |
-| `tmp/` | pid・SQLite・キャッシュ。中身はコミットしない |
+| `tmp/` | pid（`pids/`）・SQLite（`db/`）・キャッシュ（`cache/`）・常駐の痕跡（`run/`）。中身はコミットしない |
 
 - **ログは syslog に出る**（ident は `makoto2`。`journalctl -t makoto2`）。ginseng の Logger が JSON 1 行で吐く
 - **`/logger/mask_fields` が秘密情報の唯一の正本。** ログのマスクと `makoto config` の伏せ字が同じリストを見る。⚠ このリストは fail-open な rescue の内側で読まないこと（読めなければ「マスク対象ゼロ ＝ 素通し」になる）
