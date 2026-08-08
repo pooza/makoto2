@@ -9,7 +9,7 @@ module Makoto
       return Announcement.new(repository: @repository)
     end
 
-    def jst(month, day, hour = 12, year: 2026)
+    def jst(month, day, hour = 10, year: 2026)
       return Time.new(year, month, day, hour, 0, 0, '+09:00')
     end
 
@@ -20,7 +20,8 @@ module Makoto
       )
     end
 
-    # ⚠ 枠は 1 日 1 本。**`finish` は含まない（半開区間）**ので 12:00 だけ。
+    # ⚠ 枠は 1 日 1 本。**`finish` は含まない（半開区間）**ので 10:00 だけ。
+    # ⚠ 10:00 なのはニチアサ実況の流れが残っている時刻だから（→ config）。
     def test_timetable_has_one_slot_a_day
       times = announcement.timetable.times(Date.new(2026, 11, 1))
 
@@ -37,7 +38,7 @@ module Makoto
     # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **再起動で同じ枠をもう一度処理しても
     # Mastodon 側が畳む**（→ PostingJob）。
     def test_idempotency_key_comes_from_the_slot
-      assert_equal('announcement-20261101T030000Z', announcement.job.idempotency_key(jst(11, 1)))
+      assert_equal('announcement-20261101T010000Z', announcement.job.idempotency_key(jst(11, 1)))
     end
 
     # ⚠⚠ #14 の完了条件。11/1 に予告が出ること。
