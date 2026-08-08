@@ -113,8 +113,17 @@ module Makoto
       assert_equal(2003, selector.find(Date.new(2026, 1, 1))[:id])
     end
 
+    # ⚠ 11/1〜11/3 は予告（#14）、11/4 はライブ当日。**予告も記念日として登録する**
+    # ことで、日付を持たない予告の原稿が段 5 に混ざらない（→ Announcement）。
     def test_anniversary_types_come_from_config
-      assert_equal({'11-04' => 'birthday'}, selector.anniversary_types)
+      expected = {
+        '11-01' => 'announcement',
+        '11-02' => 'announcement',
+        '11-03' => 'announcement',
+        '11-04' => 'birthday',
+      }
+
+      assert_equal(expected, selector.anniversary_types)
     end
 
     def test_rejects_empty_types

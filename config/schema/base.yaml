@@ -5,6 +5,30 @@ $schema: http://json-schema.org/draft-06/schema#
 title: makoto2 config
 type: object
 properties:
+  # 予告投稿（#14）。⚠ 欠けると PostingJob が作れず、11/1 に予告が出ない。
+  # ⚠⚠ 出ないことは 11/1 まで分からないので、設定の検証で止める。
+  announcement:
+    type: object
+    properties:
+      # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
+      type:
+        type: string
+      timetable:
+        type: object
+        properties:
+          start:
+            type: string
+          finish:
+            type: string
+          interval:
+            type: string
+        required:
+          - start
+          - finish
+          - interval
+    required:
+      - type
+      - timetable
   corpus:
     type: object
     properties:
@@ -126,6 +150,7 @@ properties:
       - dir
       - weight
 required:
+  - announcement
   - corpus
   - environment
   - logger
