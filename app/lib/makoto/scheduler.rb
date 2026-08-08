@@ -68,6 +68,13 @@ module Makoto
     # ⚠ 登録が 1 つも無ければ tick そのものを作らない。空回りのログを増やさない。
     def schedule_posts
       return nil if @jobs.empty?
+      # ⚠⚠ **最初の 1 回はここで叩く。**`every` は最初の間隔を待つので、これが無いと
+      # 枠の頭 ＋ tolerance の内側で再起動したときに**その枠が落ちる**（→ #47）。
+      # ⚠ 位置の計算そのものは正しいのに、**再起動直後にそれを呼ぶ機会が無い**という
+      # 形で「落ちて戻ってきても位置がずれない」が効かなくなっていた。
+      # ⚠ 投稿済みの枠をもう一度処理しても、冪等キーが枠の頭の時刻から作られている
+      # ので Mastodon 側が畳む（→ `PostingJob#idempotency_key`）。
+      tick
       @scheduler.every config['/scheduler/tick'] do
         tick
       end
