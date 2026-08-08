@@ -68,6 +68,24 @@ module Makoto
       assert_equal([:exec], calls)
     end
 
+    # ⚠⚠ **登録が先、初回の tick が後。**初回の tick は投稿を伴うので、HTTP の再送で
+    # 秒単位に伸びうる。⚠ **逆順だと、伸びている間に次の枠が tolerance ごと過ぎて
+    # 落ちる**（ライブの枠は 2 分間隔）。
+    def test_schedule_posts_registers_before_the_first_tick
+      registered = []
+      recording = job('live', proc {'ok'})
+      recording.define_singleton_method(:exec) do |_time = nil|
+        registered.push(Scheduler.instance.scheduler.jobs.size)
+        next nil
+      end
+      Scheduler.instance.register(recording)
+
+      Scheduler.instance.send(:schedule_posts)
+
+      # 初回の tick が走った時点で、繰り返しの登録が既に済んでいること。
+      assert_equal([1], registered)
+    end
+
     # ⚠ 登録が 1 つも無ければ tick そのものを作らない。空回りのログを増やさない。
     def test_schedule_posts_without_jobs
       assert_nil(Scheduler.instance.send(:schedule_posts))
