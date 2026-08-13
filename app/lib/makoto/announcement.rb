@@ -57,7 +57,7 @@ module Makoto
     # なので、設定の側で止める（→ `MessageSelector` の「記念日の type はその日以外
     # では選ばれない」）。
     def validate
-      return if source.anniversary_types.value?(type)
+      return if source.reserved_types.include?(type)
       raise Ginseng::ConfigError,
         "announcement: type '#{type}' must be registered in /message/anniversary"
     end

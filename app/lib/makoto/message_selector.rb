@@ -60,21 +60,40 @@ module Makoto
       return pick(records)
     end
 
-    # その日に使う記念日の type。⚠ 設定に無い日なら nil。
-    def anniversary_type(date)
+    # 選ばれた段の原稿を、id 順に並べたもの。⚠ **無ければ空配列。**
+    #
+    # ⚠⚠ **`find` が乱択なのに対し、こちらは順序が安定する。**ライブの MC（#13）は
+    # 「用意した原稿を頭から順に消化する」ので、枠ごとに引き直すと**同じ原稿が何度も
+    # 出て、出ない原稿が残る**。⚠ **順に消化したい呼び出し側はこちらを使う。**
+    def list(time = nil)
+      date = date_of(time || Time.now)
+      records = candidates(date)
+      return [] unless records
+      return records.order(Sequel[:message][:id]).all
+    end
+
+    # その日に使える記念日の type。⚠ 許可リストに無いものは外す。設定に無い日なら空。
+    def anniversary_types_on(date)
       key = '%<month>02d-%<day>02d' % {month: date.month, day: date.day}
-      type = anniversary_types[key]
-      return nil unless type
-      return nil unless @types.include?(type)
-      return type
+      return anniversary_types.fetch(key, []) & @types
     end
 
     # 記念日として予約されている type。⚠ **その日以外では選ばれない。**
+    #
+    # ⚠⚠ **1 日に複数の type を登録できる**（#13）。11/4 は誕生日の原稿とライブの
+    # 台本（開始告知・MC・終了告知）が同居し、11/3 は予告と前日増量が同居する。
+    # ⚠ **1 日 1 type だと、後から来たほうが記念日に登録できず段 5 に漏れる。**
     def anniversary_types
       @anniversary_types ||= config.keys(ANNIVERSARY_PREFIX).to_h do |key|
-        [key.to_s, config["#{ANNIVERSARY_PREFIX}/#{key}"].to_s]
+        [key.to_s, Array(config["#{ANNIVERSARY_PREFIX}/#{key}"]).map(&:to_s)]
       end
       return @anniversary_types
+    end
+
+    # 記念日として予約された type の全体。⚠ 呼び出し側の登録漏れ検査に使う
+    # （→ `Announcement#validate` / `Live#validate`）。
+    def reserved_types
+      return anniversary_types.values.flatten.uniq
     end
 
     private
@@ -107,14 +126,14 @@ module Makoto
     end
 
     def anniversary(date)
-      type = anniversary_type(date)
-      return nil unless type
-      return @repository.undated(type: type)
+      types = anniversary_types_on(date)
+      return nil if types.empty?
+      return @repository.undated(type: types)
     end
 
     # 記念日として予約された type を除いた、通年で回してよい type。
     def rotating_types
-      return @types - anniversary_types.values
+      return @types - reserved_types
     end
 
     def pick(records)

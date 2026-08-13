@@ -4,31 +4,38 @@
 $schema: http://json-schema.org/draft-06/schema#
 title: makoto2 config
 type: object
-properties:
-  # 予告投稿（#14）。⚠ 欠けると PostingJob が作れず、11/1 に予告が出ない。
-  # ⚠⚠ 出ないことは 11/1 まで分からないので、設定の検証で止める。
-  announcement:
+definitions:
+  # 投稿の枠（→ Makoto::Timetable）。⚠ 3 つのうち 1 つでも欠けると枠が作れない。
+  timetable:
     type: object
     properties:
-      # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
+      start:
+        type: string
+      finish:
+        type: string
+      interval:
+        type: string
+    required:
+      - start
+      - finish
+      - interval
+  # 前もって用意した原稿を出す枠。⚠ type は /message/anniversary にも登録すること。
+  scripted_slot:
+    type: object
+    properties:
       type:
         type: string
       timetable:
-        type: object
-        properties:
-          start:
-            type: string
-          finish:
-            type: string
-          interval:
-            type: string
-        required:
-          - start
-          - finish
-          - interval
+        $ref: '#/definitions/timetable'
     required:
       - type
       - timetable
+properties:
+  # 予告投稿（#14）。⚠ 欠けると PostingJob が作れず、11/1 に予告が出ない。
+  # ⚠⚠ 出ないことは 11/1 まで分からないので、設定の検証で止める。
+  # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
+  announcement:
+    $ref: '#/definitions/scripted_slot'
   corpus:
     type: object
     properties:
@@ -36,6 +43,54 @@ properties:
         type: string
     required:
       - dir
+  # バースデーライブ（#13）。⚠ 欠けると PostingJob が作れず、11/4 に何も起きない。
+  # ⚠⚠ 起きないことは 11/4 まで分からないので、設定の検証で止める。
+  live:
+    type: object
+    properties:
+      # 8 時間の進行。⚠ 12:00 と 20:00 は告知の枠なので曲は含めない。
+      timetable:
+        $ref: '#/definitions/timetable'
+      setlist:
+        type: object
+        properties:
+          # ⚠ アンカーの曲名。引けなければその位置を諦める（Setlist）。
+          opening:
+            type: string
+          closing:
+            type: string
+          # ゲストコーナー 1 つあたりの曲数。⚠ 0 ならカバーを置かない。
+          cover_size:
+            type: integer
+            minimum: 0
+          cover_prefix:
+            type: string
+        required:
+          - opening
+          - closing
+          - cover_size
+      # ⚠ 4 つの type はすべて /message/anniversary にも登録すること
+      # （登録が無いと台本が毎日出る。Live#validate が起動時に落とす）。
+      open:
+        $ref: '#/definitions/scripted_slot'
+      close:
+        $ref: '#/definitions/scripted_slot'
+      eve:
+        $ref: '#/definitions/scripted_slot'
+      mc:
+        type: object
+        properties:
+          type:
+            type: string
+        required:
+          - type
+    required:
+      - timetable
+      - setlist
+      - open
+      - mc
+      - close
+      - eve
   environment:
     enum:
       - development
@@ -69,11 +124,17 @@ properties:
     properties:
       # 記念日。⚠ キーは `MM-DD`、値はその日に使う原稿の type。
       # ⚠⚠ ここに挙げた type は、その日以外では選ばれない。
+      # ⚠ 1 日に複数の type を持てる（11/4 は誕生日とライブの台本が同居する → #13）。
       anniversary:
         type: object
         patternProperties:
           '^\d{2}-\d{2}$':
-            type: string
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+                minItems: 1
         additionalProperties: false
     required:
       - anniversary
@@ -153,6 +214,7 @@ required:
   - announcement
   - corpus
   - environment
+  - live
   - logger
   - mastodon
   - message

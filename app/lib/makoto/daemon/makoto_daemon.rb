@@ -38,6 +38,9 @@ module Makoto
     # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
     def register_jobs
       Scheduler.instance.register(Announcement.new.job)
+      # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
+      # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
+      Live.new.jobs.each {|job| Scheduler.instance.register(job)}
       return Scheduler.instance
     end
 

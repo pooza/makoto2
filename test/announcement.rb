@@ -88,9 +88,12 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {announcement.job}
     end
 
+    # ⚠ 11/3 は予告と前日増量（#13）が同居する。**1 日 1 type ではない。**
     def test_type_is_registered_as_an_anniversary
       assert_equal(['11-01', '11-02', '11-03'],
-        announcement.source.anniversary_types.select {|_, type| type == announcement.type}.keys)
+        announcement.source.anniversary_types.select do |_, types|
+          types.include?(announcement.type)
+        end.keys)
     end
   end
 end

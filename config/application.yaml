@@ -19,6 +19,67 @@ announcement:
     start: '10:00'
     finish: '10:01'
     interval: '1m'
+live:
+  # 11/4 バースデーライブ SONGBIRD PARTY 2026（#13）。**このプロジェクトのゴール**
+  # （→ docs/birthday-live.md）。
+  #
+  # ⚠⚠ **日付はここに書かない。**ライブの日の正本は /message/anniversary で、
+  # open の type が登録されている日がライブの日（→ LiveProgram#live_day?）。
+  # ⚠ 日付を動かすのに /message/anniversary と原稿だけを触ればよい形にする。
+  #
+  # 8 時間の進行。⚠ **12:00 と 20:00 は告知の枠なので、曲は 12:02 から始めて
+  # 20:00 を含めない（半開区間）。**最後の曲は 19:59。
+  #
+  # ⚠ 3 分間隔なのは、ライブ用 vocal が重複を寄せると 134 曲しか無いから。
+  # 2 分にすると曲と MC がほぼ交互になり、MC を 100 本以上書くことになる。
+  timetable:
+    start: '12:02'
+    finish: '20:00'
+    interval: '3m'
+  setlist:
+    # ⚠ アンカーの 2 曲だけは曲名で指す。⚠⚠ **引けなければその位置を諦める**
+    # （黙って別の曲を置かない → Setlist）。
+    #
+    # ⚠ 〜SONGBIRD〜 はライブ名の由来そのもので、開始直後と中盤（前後編の蝶番）の
+    # 2 回歌う。元ネタ（Song Party♪ vol.8）が第 1 部の本編ラストと第 2 部の冒頭に
+    # 置いている。
+    opening: 〜SONGBIRD〜
+    # ⚠ こころをこめて はアルバムの最終曲で、実際のイベントでもラストになりやすい。
+    # ⚠⚠ この曲の重みは四層あり、うち三層は MAKOTO には口に出せない。
+    # **曲順という語らない手段で回収する**（→ docs/birthday-live.md）。
+    closing: こころをこめて
+    # ゲストコーナー 1 つあたりの曲数。⚠ 前半・後半に 1 つずつ置くので 2 倍が総数。
+    #
+    # ⚠⚠ **カバーはライブ用に入っていない vocal＝他の歌手の持ち歌**から引く。
+    # 元ネタが各部にゲストコーナーを持つのに対応する。
+    # ⚠ **いま引けるのはプリキュアソングだけ**（収集の網に非プリキュアが無い → #55）。
+    cover_size: 4
+    cover_prefix: 今日はカバーもやります。
+  # 開始告知。⚠⚠ **ミュート導線をここに書く**（#13 の完了条件・参加は任意）。
+  open:
+    type: live_open
+    timetable:
+      start: '12:00'
+      finish: '12:01'
+      interval: '1m'
+  # 曲と曲の間の語り。⚠ **原稿を頭から順に消化する**（乱択ではない → LiveProgram）。
+  # ⚠ 用意した本数より枠が多ければ頭に戻る。
+  mc:
+    type: live_mc
+  close:
+    type: live_close
+    timetable:
+      start: '20:00'
+      finish: '20:01'
+      interval: '1m'
+  # 前日（11/3）の増量。⚠ **別の枠として持つ**（予告の枠を広げると 11/1 と 11/2 も
+  # 一緒に増える → docs/CLAUDE.md）。2024 年は 11/3 が 14 投稿・平常時は 5〜7。
+  eve:
+    type: live_eve
+    timetable:
+      start: '12:00'
+      finish: '20:00'
+      interval: '1h'
 corpus:
   # 旧 DB から取り出したコーパスの置き場（`makoto corpus import` の取り込み元）。
   # ⚠ var/ はコミットしない。台詞は第三者の著作物のため（.gitignore 参照）。
@@ -67,6 +128,10 @@ message:
   # 原稿が出ないようにするため）。
   #
   # ⚠ 11/4 は剣崎真琴と声優（宮本佳那子）の誕生日が重なる日（→ docs/CLAUDE.md）。
+  #
+  # ⚠⚠ **1 日に複数の type を書ける**（#13）。11/3 は予告と前日増量、11/4 は誕生日と
+  # ライブの台本が同居する。⚠ **1 日 1 type だと後から来たほうが登録できず、
+  # 日付を持たない原稿が段 5 に漏れて毎日出る。**
   anniversary:
     # ⚠ 引用符を外さない。`11-04` は YAML が数値・日付と取り違えうる書き方。
     #
@@ -75,8 +140,16 @@ message:
     # ⚠ Announcement はこの登録が無ければ起動時に落ちる（黙って毎日出るより早い）。
     '11-01': announcement
     '11-02': announcement
-    '11-03': announcement
-    '11-04': birthday
+    '11-03':
+      - announcement
+      - live_eve
+    # ⚠⚠ **open の type が登録されている日がライブの日**（→ LiveProgram#live_day?）。
+    # 曲は原稿ではないので、これが無いと毎日 8 時間ぶんの曲が流れる。
+    '11-04':
+      - birthday
+      - live_open
+      - live_mc
+      - live_close
 scheduler:
   heartbeat:
     interval: 1h
