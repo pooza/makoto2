@@ -59,8 +59,12 @@ module Makoto
       )
     end
 
+    # ⚠⚠ **前日増量は 1 日に 8 本出るので、乱択では原稿が重複する。**枠の順に
+    # 頭から消化する（→ `ScriptRotation`）。⚠ 開始・終了告知は 1 日 1 本なので
+    # `MessageSelector` のままでよい。
     def eve_job
-      return PostingJob.new(name: EVE_NAME, timetable: timetable('eve'), source: selector('eve'))
+      source = ScriptRotation.new(selector: selector('eve'), timetable: timetable('eve'))
+      return PostingJob.new(name: EVE_NAME, timetable: timetable('eve'), source: source)
     end
 
     def program_job

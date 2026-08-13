@@ -167,6 +167,17 @@ module Makoto
       assert_equal([0, 1, 2, 3, 4], ordinals)
     end
 
+    # ⚠⚠ **MC の番号は 0 から連番。**⚠ カバーの本数だけ番号が飛ぶと、
+    # `LiveProgram` の `ordinal %% 原稿数` がずれて**用意した原稿の一部が永久に出ず、
+    # 別の一部が 2 回出る**（実測で 4 本が欠番になっていた）。
+    def test_mc_ordinals_have_no_gap_when_covers_exist
+      seed(songs: 12, covers: 8)
+      ordinals = setlist(30).entries.select(&:mc?).map(&:ordinal)
+
+      assert_operator(ordinals.size, :>, 2)
+      assert_equal((0...ordinals.size).to_a, ordinals)
+    end
+
     # ⚠⚠ **枠より曲が多ければ本編を削る。アンカーは守る。**8 時間に収まらない量の曲を
     # 集めても、開始・蝶番・最終曲は必ず出る。
     def test_trims_the_body_but_keeps_the_anchors

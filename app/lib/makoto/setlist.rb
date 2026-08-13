@@ -189,11 +189,17 @@ module Makoto
       return trim(opening, closing, first, second) if fillers.negative?
       corners = covers.each_slice([cover_size, 1].max).first(2)
       first_extra = fillers / 2
+      # ⚠⚠ **後半の MC は「前半に実際に置いた本数」から続ける。**埋め草の数
+      # （`first_extra`）から始めると、⚠ **カバーの本数だけ番号が飛ぶ。**飛ぶと
+      # `LiveProgram` の `ordinal % 原稿数` がずれ、**用意した原稿の一部が永久に出ず、
+      # 別の一部が 2 回出る**（実測で 8〜11 の 4 本が欠番になっていた）。
+      first_corner = (corners[0] || []).first(first_extra)
       results = []
       results.push(Entry.new(kind: :song, track: opening)) if opening
-      results.concat(half(first, corners[0], first_extra, 0))
+      results.concat(half(first, first_corner, first_extra, 0))
       results.push(Entry.new(kind: :song, track: opening)) if opening
-      results.concat(half(second, corners[1], fillers - first_extra, first_extra))
+      results.concat(half(second, corners[1], fillers - first_extra,
+        first_extra - first_corner.size))
       results.push(Entry.new(kind: :song, track: closing)) if closing
       return results
     end

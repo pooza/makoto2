@@ -121,8 +121,28 @@ module Makoto
       add('live_eve', '明日はバースデーライブです', day: 3)
 
       assert_equal(8, live.timetable('eve').size(Date.new(2026, 11, 3)))
-      assert_equal('明日はバースデーライブです', live.selector('eve').call(jst(11, 3, 13, 0)))
-      assert_nil(live.selector('eve').call(jst(11, 4, 13, 0)))
+      assert_equal('明日はバースデーライブです', live.eve_job.send(:instance_variable_get, :@source)
+        .call(jst(11, 3, 13, 0)))
+    end
+
+    # ⚠⚠ **前日増量は 1 日に 8 本出る。乱択だと同じ原稿が何度も出て、出ない原稿が残る。**
+    # 枠の順に頭から消化すること。
+    def test_eve_consumes_the_scripts_in_order
+      ['1 本目', '2 本目', '3 本目'].each {|body| add('live_eve', body, day: 3)}
+      source = ScriptRotation.new(selector: live.selector('eve'), timetable: live.timetable('eve'))
+      times = live.timetable('eve').times(Date.new(2026, 11, 3))
+
+      assert_equal(['1 本目', '2 本目', '3 本目', '1 本目'],
+        times.first(4).map {|time| source.call(time)})
+    end
+
+    # ⚠ 前日以外には出ない（枠は毎日あるので、ここが nil を返さないと毎日出る）。
+    def test_eve_is_silent_on_other_days
+      add('live_eve', '明日はバースデーライブです', day: 3)
+      source = ScriptRotation.new(selector: live.selector('eve'), timetable: live.timetable('eve'))
+
+      assert_nil(source.call(jst(11, 4, 13, 0)))
+      assert_nil(source.call(jst(6, 15, 13, 0)))
     end
 
     # ⚠⚠ **台本の type が記念日に登録されていなければ作らせない。**登録が無いと
