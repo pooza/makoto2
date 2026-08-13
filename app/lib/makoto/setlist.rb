@@ -59,10 +59,11 @@ module Makoto
 
     # @param date [Date] ライブの日。⚠ **カバーの抽出をこの日で固定する**
     # @param slots [Integer] 枠の数（`Timetable#size`）
-    def initialize(date:, slots:, repository: nil)
+    def initialize(date:, slots:, repository: nil, cure_api: nil)
       @date = date
       @slots = slots.to_i
       @repository = repository || TrackRepository.new
+      @cure_api = cure_api || CureApiService.new
       validate
     end
 
@@ -95,6 +96,11 @@ module Makoto
     # ⚠⚠ **元ネタ（Song Party♪ vol.8）は各部にゲストコーナーを持つ。**MAKOTO では
     # 「他キャラ・他アカウントの曲に触れる枠」にあたる（→ docs/makoto-persona.md の
     # 「同業者として気にかける」register）。
+    #
+    # ⚠⚠ **プリキュア歌手の持ち歌に限る**（cure-api の `/singers`・50 名義）。絞らないと
+    # **カラオケレーベル（歌っちゃ王 48 曲）・オルゴール盤・ドラマトラック**が混ざる。
+    # ⚠ 曲データの `kind` は当てにならない（歌っちゃ王 125 曲のうち 83 曲が `vocal`
+    # に分類されている → #56）ので、**名義の側で落とす。**
     #
     # ⚠ **いま引けるのはプリキュアソングだけ。**収集が ①宮本佳那子名義のアルバム
     # ②シリーズ名を種にしたアルバム の 2 系統なので、**プリキュア以外のアニソン・
@@ -149,10 +155,18 @@ module Makoto
     def pick_covers
       total = cover_size * 2
       return [] unless total.positive?
+      # ⚠⚠ **歌手辞書が引けなければカバーを置かない。**絞れないまま出すと、
+      # ⚠ カラオケレーベルやドラマトラックがゲストコーナーに並ぶ（→ 上記）。
+      # ⚠ **黙って素通ししない** — 落ちてもライブは走るが、警告は残す。
+      unless @cure_api.available?
+        logger.warn(setlist: 'covers', message: 'cure-api is unavailable', date: @date.to_s)
+        return []
+      end
       # ⚠ `dedupe_key` が NULL の行を部分集合に混ぜない。**`NOT IN` は NULL が 1 つでも
       # 混ざると 1 行も返さない**ので、静かに「カバー無し」になる。
       live_keys = @repository.live.exclude(dedupe_key: nil).select(:dedupe_key)
       pool = distinct(@repository.by_kind('vocal')).exclude(dedupe_key: live_keys).order(:id).all
+        .select {|track| @cure_api.singer?(track[:artist_name])}
       return [] if pool.empty?
       return pool.sample(total, random: Random.new(@date.strftime('%Y%m%d').to_i))
     end
@@ -208,10 +222,14 @@ module Makoto
       placed = 0
       items.each_with_index do |entry, index|
         results.push(entry)
-        next unless placed < count
-        next unless ((index + 1) * count / items.size) > placed
-        results.push(Entry.new(kind: :mc, ordinal: ordinal_from + placed))
-        placed += 1
+        # ⚠⚠ **1 曲につき 1 本とは限らない。**曲より MC のほうが多い部では
+        # 続けて 2 本以上置く必要がある。⚠ ここを `if` 1 回にしていたため、
+        # **埋め草が置ききれず枠が余ったまま返っていた**（カバーが 0 件のときに表面化）。
+        target = (index + 1) * count / items.size
+        while placed < target
+          results.push(Entry.new(kind: :mc, ordinal: ordinal_from + placed))
+          placed += 1
+        end
       end
       return results
     end

@@ -43,6 +43,15 @@ properties:
         type: string
     required:
       - dir
+  # プリキュアの情報の取得先。⚠ 欠けるとライブのゲストコーナーが静かに空になる。
+  cure_api:
+    type: object
+    properties:
+      url:
+        type: string
+        format: uri
+    required:
+      - url
   # バースデーライブ（#13）。⚠ 欠けると PostingJob が作れず、11/4 に何も起きない。
   # ⚠⚠ 起きないことは 11/4 まで分からないので、設定の検証で止める。
   live:
@@ -213,6 +222,7 @@ properties:
 required:
   - announcement
   - corpus
+  - cure_api
   - environment
   - live
   - logger

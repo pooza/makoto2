@@ -10,12 +10,17 @@ module Makoto
     include Package
 
     # @param gate [MessageSelector] ライブ当日かを判定する口（開始告知の記念日登録）
-    def initialize(timetable:, mc_selector:, gate:, repository: nil, cover_prefix: nil)
+    def initialize(timetable:, mc_selector:, gate:, repository: nil, cure_api: nil)
       @timetable = timetable
       @mc_selector = mc_selector
       @gate = gate
       @repository = repository
-      @cover_prefix = cover_prefix
+      @cure_api = cure_api
+    end
+
+    # カバーに添える断り。⚠ 設定から直に読む（呼び出し側に横流しさせない）。
+    def cover_prefix
+      return config['/live/setlist/cover_prefix']
     end
 
     # 枠の頭の時刻 → 投稿の本文。⚠ **枠の外・ライブ当日でない・並びの外・原稿が
@@ -25,7 +30,7 @@ module Makoto
       entry = setlist(time)&.at(@timetable.index_at(time))
       return nil unless entry
       return mc_text(entry, time) if entry.mc?
-      return TrackPresenter.new(entry.track, prefix: (@cover_prefix if entry.cover?)).to_s
+      return TrackPresenter.new(entry.track, prefix: (cover_prefix if entry.cover?)).to_s
     end
 
     # ⚠⚠ **ライブ当日か。**告知や MC は「その日の原稿が無ければ出ない」で黙るが、
@@ -45,7 +50,7 @@ module Makoto
       date = date_of(time)
       @setlists ||= {}
       @setlists[date] ||= Setlist.new(
-        date: date, slots: @timetable.size(date), repository: @repository,
+        date: date, slots: @timetable.size(date), repository: @repository, cure_api: @cure_api,
       )
       return @setlists[date]
     end

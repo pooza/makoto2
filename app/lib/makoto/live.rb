@@ -37,9 +37,10 @@ module Makoto
 
     # @param repository [MessageRepository] テストが差し替えるためだけの口
     # @param tracks [TrackRepository] 同上
-    def initialize(repository: nil, tracks: nil)
+    def initialize(repository: nil, tracks: nil, cure_api: nil)
       @repository = repository
       @tracks = tracks
+      @cure_api = cure_api
     end
 
     # 常駐に登録する 4 本。⚠ **登録の順は投稿の順ではない**（どれも枠の頭で判定する）。
@@ -73,7 +74,7 @@ module Makoto
         # ⚠ ライブ当日かの判定は開始告知の記念日登録を見る（→ `LiveProgram#live_day?`）。
         gate: selector('open'),
         repository: @tracks,
-        cover_prefix: config["#{PREFIX}/setlist/cover_prefix"],
+        cure_api: @cure_api,
       )
       return @program
     end

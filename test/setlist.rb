@@ -3,6 +3,18 @@ module Makoto
     OPENING = 'オープニングの曲'.freeze
     CLOSING = 'クロージングの曲'.freeze
 
+    # ⚠ 実際の cure-api を叩かない。**カバーの母集合はプリキュア歌手に絞られる**ので、
+    # テスト用の曲の名義（`歌手NNNN`）を全部「歌手」として通す差し替えを渡す。
+    FakeCureApi = Struct.new(:names) do
+      def available?
+        return true
+      end
+
+      def singer?(artist_name)
+        return names.nil? || artist_name.to_s.start_with?('歌手')
+      end
+    end
+
     def setup
       super
       @db = empty_db
@@ -19,8 +31,13 @@ module Makoto
       return Date.new(2026, 11, 4)
     end
 
+    def cure_api
+      return FakeCureApi.new(nil)
+    end
+
     def setlist(slots, **)
-      return Setlist.new(date: date, slots: slots, repository: repository, **)
+      return Setlist.new(date: date, slots: slots, repository: repository,
+        cure_api: cure_api, **)
     end
 
     # ⚠ **フィクスチャの曲データは 2 曲しかない**ので、並びを見るテストはここで作る。
@@ -92,8 +109,10 @@ module Makoto
     # ゲストコーナーにならない）。
     def test_covers_change_with_the_year
       seed(songs: 8, covers: 20)
-      this_year = Setlist.new(date: date, slots: 20, repository: repository).covers
-      next_year = Setlist.new(date: date.next_year, slots: 20, repository: repository).covers
+      this_year = Setlist.new(date: date, slots: 20, repository: repository,
+        cure_api: cure_api).covers
+      next_year = Setlist.new(date: date.next_year, slots: 20, repository: repository,
+        cure_api: cure_api).covers
 
       assert_equal(4, this_year.size)
       assert_not_equal(this_year.map {|t| t[:id]}, next_year.map {|t| t[:id]})
@@ -189,6 +208,37 @@ module Makoto
       assert_nil(list.at(nil))
       assert_nil(list.at(-1))
       assert_nil(list.at(list.size))
+    end
+
+    # ⚠⚠ **cure-api が引けなければカバーを置かない。**絞れないまま出すと
+    # カラオケレーベルやドラマトラックがゲストコーナーに並ぶ。
+    # ⚠ ライブそのものは止めない（MC で埋まる）。
+    def test_no_covers_when_cure_api_is_unavailable
+      seed(songs: 8, covers: 6)
+      unavailable = Struct.new(:x) do
+        def available? = false
+        def singer?(_) = false
+      end
+      list = Setlist.new(date: date, slots: 20, repository: repository,
+        cure_api: unavailable.new(nil))
+
+      assert_empty(list.covers)
+      assert_empty(list.entries.select(&:cover?))
+      assert_equal(20, list.entries.size)
+    end
+
+    # ⚠ 辞書に居ない名義の曲はカバーに選ばれない。
+    def test_covers_are_limited_to_known_singers
+      seed(songs: 8, covers: 0)
+      add('カラオケ盤', live: false, day: 200, url: 'https://example.test/k')
+      picky = Struct.new(:x) do
+        def available? = true
+        def singer?(name) = !name.to_s.include?('9')
+      end
+      list = Setlist.new(date: date, slots: 20, repository: repository,
+        cure_api: picky.new(nil))
+
+      assert(list.covers.none? {|track| track[:artist_name].include?('9')})
     end
 
     # ⚠ アンカーすら置けない枠数は設定の誤り。黙って空の並びを返さない。
