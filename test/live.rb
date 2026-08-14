@@ -33,6 +33,37 @@ module Makoto
       return @messages.create(type: type, body: body, year: year, month: month, day: day)
     end
 
+    def job_source(job)
+      return job.send(:instance_variable_get, :@source)
+    end
+
+    # ⚠⚠ **ライブの 4 枠すべてにハッシュタグが付く**（#64）。⚠ 曲の投稿は原稿では
+    # ないので、原稿の側に書き足す形にすると**曲だけ付かない。**
+    def test_every_slot_appends_the_hashtag
+      add('live_eve', '明日はバースデーライブです', day: 3)
+      add('live_open', 'スタートです')
+      add('live_close', 'おしまいです')
+      tag = config['/live/hashtag']
+
+      assert_equal(
+        [true, true, true, true],
+        [
+          job_source(live.eve_job).call(jst(11, 3, 13, 0)),
+          job_source(live.open_job).call(jst(11, 4, 12, 0)),
+          # ⚠ 曲の枠。`TrackPresenter` の出力（URL の後ろ）に付くこと。
+          job_source(live.program_job).call(jst(11, 4, 12, 2)),
+          job_source(live.close_job).call(jst(11, 4, 20, 0)),
+        ].map {|text| text.to_s.lines.last == tag},
+      )
+    end
+
+    # ⚠⚠ **本文が無い枠にタグだけ出さない。**nil は「その枠は投稿しない」の合図で、
+    # ⚠ ここでタグを足すと**タグだけの投稿が毎日出る。**
+    def test_hashtag_is_not_posted_alone
+      assert_nil(job_source(live.open_job).call(jst(6, 15, 12, 0)))
+      assert_nil(job_source(live.program_job).call(jst(6, 15, 13, 0)))
+    end
+
     # ⚠ 枠は 4 つ。**前日増量・開始告知・8 時間の進行・終了告知。**
     def test_registers_four_jobs
       assert_equal(['live-eve', 'live-open', 'live', 'live-close'], live.jobs.map(&:name))
@@ -121,8 +152,8 @@ module Makoto
       add('live_eve', '明日はバースデーライブです', day: 3)
 
       assert_equal(8, live.timetable('eve').size(Date.new(2026, 11, 3)))
-      assert_equal('明日はバースデーライブです', live.eve_job.send(:instance_variable_get, :@source)
-        .call(jst(11, 3, 13, 0)))
+      assert_equal("明日はバースデーライブです\n#{config['/live/hashtag']}",
+        job_source(live.eve_job).call(jst(11, 3, 13, 0)))
     end
 
     # ⚠⚠ **前日増量は 1 日に 8 本出る。乱択だと同じ原稿が何度も出て、出ない原稿が残る。**

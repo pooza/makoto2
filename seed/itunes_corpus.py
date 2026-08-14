@@ -17,6 +17,22 @@ import urllib.request
 UA = {'User-Agent': 'makoto-track-survey/0.1 (research)'}
 CURE_API = 'https://cure-api.precure.ml'
 LIVE_KEYWORDS = ['宮本佳那子', '剣崎真琴', 'キュアソード']
+
+# ライブ本編から外すもの（#63）。
+#
+# 童謡の仕事は「歌手としての引き出し」なので残すが、**発売日順に並べる以上、
+# 同じアルバムの曲は必ず隣接する**ため、そのまま入れると塊で流れる（実測で
+# 10 曲 / うち 4 曲が中盤の蝶番の直後に連続した）。アルバム単位で間引く。
+#
+# 「あそび劇シアター」は劇のアルバムで、オープニング／エンディング／掛け合いは
+# 場面の構成物であり、単独で流すと歌ではなく断片に見える。全部落とす。
+# 「ショコラちゃんとうたおう」は 1 曲ずつ独立したあそびうたなので 2 曲だけ残す
+# （落とす『みんなでいこう!』は 4 名義。MAKOTO は 1 人で歌う → #65 と同じ観点）。
+#
+# **普段用 (daily) には掛けない。**曲紹介は「紹介」であって「カバーして歌う」
+# テイではないので、絞る理由が無い。
+LIVE_EXCLUDE_COLLECTIONS = ['あそび劇シアター 3びきのやぎとトロル/さるかにがっせん/ピンポーン']
+LIVE_EXCLUDE_TRACKS = ['みんなでいこう![7月]']
 SLEEP = 2.0  # iTunes Search API の目安（約 20req/min）に寄せる
 
 
@@ -39,9 +55,21 @@ def norm(text):
     return re.sub(r'[\s！!♪☆♡～~・]', '', text or '')
 
 
-def is_live(track):
+def is_makoto(track):
+    """名義かアルバム名が MAKOTO 本人を指すか。**daily の母集合はこちらを使う。**"""
     joined = norm(track.get('artistName')) + norm(track.get('collectionName'))
     return any(norm(k) in joined for k in LIVE_KEYWORDS)
+
+
+def is_live_excluded(track):
+    """ライブ本編から外すもの（#63）。アルバム単位、または曲単位。"""
+    if norm(track.get('collectionName')) in [norm(n) for n in LIVE_EXCLUDE_COLLECTIONS]:
+        return True
+    return norm(track.get('trackName')) in [norm(n) for n in LIVE_EXCLUDE_TRACKS]
+
+
+def is_live(track):
+    return is_makoto(track) and not is_live_excluded(track)
 
 
 def is_precure(track):
@@ -89,7 +117,8 @@ for i, cid in enumerate(sorted(albums), 1):
 print(f'\n生の曲 {len(tracks)} 件', flush=True)
 
 live = [t for t in tracks.values() if is_live(t)]
-daily = [t for t in tracks.values() if is_live(t) or is_precure(t)]
+# ⚠ daily は is_makoto。ライブ本編の除外（#63）をここに掛けない。
+daily = [t for t in tracks.values() if is_makoto(t) or is_precure(t)]
 json.dump(sorted(live, key=lambda t: t.get('releaseDate') or ''),
           open('corpus_live.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 json.dump(sorted(daily, key=lambda t: t.get('releaseDate') or ''),
