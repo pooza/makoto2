@@ -42,17 +42,26 @@ module Makoto
 
     # ⚠ **フィクスチャの曲データは 2 曲しかない**ので、並びを見るテストはここで作る。
     # 発売日を 1 日ずつずらして、整列の順が一意に決まるようにする。
-    def add(name, live: true, kind: 'vocal', day: 1, url: 'https://example.test/t', collection: nil)
+    DEFAULT_TRACK = {
+      live: true,
+      kind: 'vocal',
+      day: 1,
+      url: 'https://example.test/t',
+      collection: nil,
+    }.freeze
+
+    def add(name, **options)
+      values = DEFAULT_TRACK.merge(options)
       @id = (@id || 5000) + 1
       @db[:track].insert(
         id: @id,
         name: name,
         artist_name: "歌手#{@id}",
-        collection_name: collection,
-        release_date: Date.new(2013, 1, 1) + day,
-        url: url,
-        kind: kind,
-        live: live,
+        collection_name: values[:collection],
+        release_date: Date.new(2013, 1, 1) + values[:day],
+        url: values[:url],
+        kind: values[:kind],
+        live: values[:live],
         dedupe_key: TrackImporter.dedupe_key(name),
       )
       return @id
