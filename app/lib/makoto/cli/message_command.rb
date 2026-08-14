@@ -52,6 +52,24 @@ module Makoto
       exit 1
     end
 
+    option :prune, type: :boolean, default: false,
+      desc: '⚠ 取り込み元から消えた原稿を落とす。取り込み元の全体を指すときだけ使う'
+    option :dry_run, type: :boolean, default: false, desc: '書き込まずに、何が起きるかだけ表示する'
+    desc 'import PATH', 'ファイル（またはディレクトリ）から原稿を取り込む'
+    def import(path)
+      importer = ScriptImporter.new
+      return preview_import(importer, path) if options[:dry_run]
+      result = importer.import(path, prune: options[:prune])
+      puts result
+      result.pruned&.each {|slug| puts "削除: #{slug}"}
+    rescue Ginseng::ValidateError => e
+      warn error_message(e)
+      exit 1
+    rescue Sequel::DatabaseError => e
+      warn "取り込めませんでした。先に `rake migration:run` を実行してください: #{error_message(e)}"
+      exit 1
+    end
+
     desc 'remove ID', '原稿を消す'
     def remove(id)
       repository = MessageRepository.new
@@ -83,16 +101,22 @@ module Makoto
 
     private
 
+    # ⚠ **書き込む前に見る口。**`--prune` は行を消すので、本番でいきなり流させない。
+    def preview_import(importer, path)
+      entries = importer.read(path)
+      slugs = entries.map {|entry| entry[:slug]}
+      known = MessageRepository.new.by_slug(slugs).select_map(:slug)
+      puts "追加 #{slugs.size - known.size} / 更新 #{known.size}"
+      return unless options[:prune]
+      doomed = MessageRepository.new.by_slug.exclude(slug: slugs).order(:slug).select_map(:slug)
+      puts "削除 #{doomed.size}"
+      doomed.each {|slug| puts "削除: #{slug}"}
+    end
+
     # 'MM-DD'（毎年）と 'YYYY-MM-DD'（その年だけ）の両方を受ける。
+    # ⚠ **規則の正本は `ScriptImporter`**（取り込みと CLI で 2 つに割らない）。
     def parse_date(value)
-      return {year: nil, month: nil, day: nil} if value.blank?
-      if (matches = value.match(/\A(\d{4})-(\d{2})-(\d{2})\z/))
-        return {year: matches[1].to_i, month: matches[2].to_i, day: matches[3].to_i}
-      end
-      if (matches = value.match(/\A(\d{1,2})-(\d{1,2})\z/))
-        return {year: nil, month: matches[1].to_i, day: matches[2].to_i}
-      end
-      raise Ginseng::ValidateError, "日付は MM-DD か YYYY-MM-DD で指定してください（'#{value}'）"
+      return ScriptImporter.parse_date(value.presence)
     end
 
     def parse_season(value)

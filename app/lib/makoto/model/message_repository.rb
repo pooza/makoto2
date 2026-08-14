@@ -15,6 +15,13 @@ module Makoto
       return @db[:message]
     end
 
+    # ⚠ **取り込みが「全部入るか、1 件も入らないか」にするための口**（#50）。
+    # ⚠⚠ **`Database.connection` を呼ばせない** — テストが差し替えた DB ではなく
+    # 開発用の `tmp/db/makoto.db` を掴んでしまう。
+    def transaction(&)
+      return @db.transaction(&)
+    end
+
     def by_type(type)
       return filter_type(dataset, type)
     end
@@ -65,6 +72,56 @@ module Makoto
       end
     end
 
+    # `slug` を鍵に足すか差し替える（#50）。⚠ **同じ取り込みを 2 回流しても増えない。**
+    #
+    # ⚠⚠ **旧実装のように毎回クリアして入れ直さない。**変わっていない行はそのまま
+    # 残るので、id が安定し、⚠ **`makoto message list` の並びも取り込みのたびに
+    # 変わらない**。
+    #
+    # @return [Symbol] `:created` / `:updated`
+    def upsert(slug:, type:, body:, **options)
+      return @db.transaction do
+        row = dataset[slug: slug.to_s]
+        values = {
+          type: type.to_s,
+          body: body,
+          month: options[:month],
+          day: options[:day],
+          year: options[:year],
+          feature: options[:feature],
+        }
+        unless row
+          id = dataset.insert(values.merge(slug: slug.to_s))
+          replace_seasons(id, options[:seasons])
+          next :created
+        end
+        dataset.where(id: row[:id]).update(values)
+        replace_seasons(row[:id], options[:seasons])
+        next :updated
+      end
+    end
+
+    # ファイル由来の原稿（`slug` を持つ行）。⚠ **取り込みが消してよい範囲はここだけ。**
+    def by_slug(slugs = nil)
+      records = dataset.exclude(slug: nil)
+      return records if slugs.nil?
+      return records.where(slug: Array(slugs).map(&:to_s))
+    end
+
+    # 取り込み元から消えた原稿を落とす（#50 の `--prune`）。
+    #
+    # ⚠⚠ **`slug` を持たない行には絶対に触らない。**旧ダンプ 388 件と
+    # `makoto message add` で足した原稿がそこに居る。
+    #
+    # @param keep [Array<String>] 残す slug
+    # @return [Array<String>] 消した slug
+    def prune(keep)
+      records = by_slug.exclude(slug: Array(keep).map(&:to_s))
+      slugs = records.order(:slug).select_map(:slug)
+      dataset.where(slug: slugs).delete if slugs.any?
+      return slugs
+    end
+
     # 原稿を消す。⚠ **書き間違えた台本を SQL で直させないための口**（→ CLI の
     # `makoto message remove`）。季節の行は外部キーの `on_delete: :cascade` で落ちる。
     #
@@ -90,6 +147,16 @@ module Makoto
     end
 
     private
+
+    # ⚠ 差し替えなので一度消してから入れ直す。**季節は原稿に従属する情報**で、
+    # 単独では意味を持たないため、行ごとの差分を取る意味が無い。
+    def replace_seasons(id, seasons)
+      @db[:message_season].where(message_id: id).delete
+      Array(seasons).each do |value|
+        @db[:message_season].insert(message_id: id, month: value.to_i)
+      end
+      return nil
+    end
 
     # ⚠ 単数でも配列でも受ける。`nil` は絞り込まない。
     def filter_type(records, type, qualify: false)
