@@ -46,10 +46,16 @@ module Makoto
     # ⚠ **区切って、どれか 1 つでも歌手辞書に居れば真**とする。
     #
     # ⚠ 「歌っちゃ王」（カラオケレーベル）や「オルゴール」盤は辞書に居ないので、
-    # この判定だけで落ちる（→ #56 の誤分類とは別の防御）。
+    # この判定だけで落ちる（→ 曲データの `kind` の誤分類とは別の防御）。
+    #
+    # ⚠⚠ **分割する前に、名義そのものを辞書と突き合わせる。**辞書には
+    # 「キュア・カルテット」のように**区切り文字を名前の中に持つ名義**が居るので
+    # （66 名義中 6 つ）、いきなり割ると「キュア」＋「カルテット」になって
+    # **どちらも辞書に無い＝落ちる。**⚠ 実データで 9 行が落ちていた。
     def singer?(artist_name)
       names = singer_names
       return false if names.empty?
+      return true if names.include?(self.class.normalize(artist_name))
       return split_artist(artist_name).intersect?(names)
     end
 
