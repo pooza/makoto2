@@ -115,15 +115,51 @@ module Makoto
 
     # ⚠ 11/1〜11/3 は予告（#14）、11/4 はライブ当日。**予告も記念日として登録する**
     # ことで、日付を持たない予告の原稿が段 5 に混ざらない（→ Announcement）。
+    # ⚠⚠ **1 日に複数の type を持てる**（#13）。値は常に配列で返す。
     def test_anniversary_types_come_from_config
       expected = {
-        '11-01' => 'announcement',
-        '11-02' => 'announcement',
-        '11-03' => 'announcement',
-        '11-04' => 'birthday',
+        '11-01' => ['announcement'],
+        '11-02' => ['announcement'],
+        '11-03' => ['announcement', 'live_eve'],
+        '11-04' => ['birthday', 'live_open', 'live_mc', 'live_close'],
       }
 
       assert_equal(expected, selector.anniversary_types)
+    end
+
+    # ⚠ 設定に単数で書いても配列で返る（既存の書き方を壊さない）。
+    def test_a_single_type_is_wrapped_in_an_array
+      config['/message/anniversary/11-04'] = 'birthday'
+
+      assert_equal(['birthday'], selector.anniversary_types['11-04'])
+    end
+
+    # ⚠⚠ **許可リストに無い記念日の type は、その日でも選ばれない。**11/4 には誕生日と
+    # ライブの台本が同居するので、⚠ **朝挨拶がライブの台本を横取りしない**ことが要る。
+    def test_anniversary_types_on_respects_the_allow_list
+      assert_equal(['birthday'], selector(['birthday']).anniversary_types_on(Date.new(2026, 11, 4)))
+      assert_equal(['live_mc'], selector(['live_mc']).anniversary_types_on(Date.new(2026, 11, 4)))
+      assert_empty(selector(['birthday']).anniversary_types_on(Date.new(2026, 5, 15)))
+    end
+
+    # ⚠ 記念日として予約された type の全体。呼び出し側の登録漏れ検査に使う。
+    def test_reserved_types_are_flattened
+      assert_equal(['announcement', 'live_eve', 'birthday', 'live_open', 'live_mc', 'live_close'],
+        selector.reserved_types)
+    end
+
+    # ⚠⚠ **`list` は id 順で安定する。**ライブの MC は「原稿を頭から順に消化する」ので、
+    # ⚠ 乱択の `find` では同じ原稿が何度も出て、出ない原稿が残る（→ LiveProgram）。
+    def test_list_is_ordered_and_stable
+      ids = selector.list(jst(11, 4)).map {|row| row[:id]}
+
+      assert_equal(ids.sort, ids)
+      assert_equal(ids, selector.list(jst(11, 4)).map {|row| row[:id]})
+    end
+
+    # ⚠ 原稿が無ければ空配列（例外にしない）。
+    def test_list_is_empty_when_nothing_matches
+      assert_empty(selector(['live_mc']).list(jst(5, 15)))
     end
 
     def test_rejects_empty_types

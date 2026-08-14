@@ -53,6 +53,9 @@ module Makoto
     desc 'message SUBCOMMAND', '原稿の追加・確認・下見'
     subcommand 'message', MessageCommand
 
+    desc 'live SUBCOMMAND', 'バースデーライブの並び・枠の下見'
+    subcommand 'live', LiveCommand
+
     desc 'status', '常駐プロセスの健全性を表示（監視から叩く口）'
     long_desc <<~TEXT
       終了コード: 0 = 健全 / 1 = 異常（復旧させる）/ 2 = 警告（人が見る）
