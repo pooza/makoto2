@@ -115,5 +115,27 @@ module Makoto
       assert_equal('宮本佳那子', CureApiService.normalize('宮本　佳那子'))
       assert_equal('abc', CureApiService.normalize('ａ ｂ ｃ'))
     end
+
+    # ⚠⚠ **括弧の中は数えない。**CV 表記は「もう 1 人」ではない（#65）。
+    # ⚠ `split_artist`（歌手辞書に当てるほう）は括弧も `CV:` も割るので、
+    # **`パンプルル姫(CV:花澤香菜)` を 2 人と数えてしまう。当てる規則とは別物。**
+    def test_credit_count_ignores_the_voice_actor_note
+      assert_equal(1, CureApiService.credit_count('パンプルル姫(CV:花澤香菜)'))
+      assert_equal(1, CureApiService.credit_count('工藤真由'))
+      assert_equal(2, CureApiService.credit_count('秋元こまち(CV:永野 愛) & 水無月かれん(CV:前田 愛)'))
+      assert_equal(2, CureApiService.credit_count('立神あおい(CV:村中知)、岬あやね(CV:Machico)'))
+    end
+
+    # ⚠ 区切りは読点・カンマ・アンパサンド・スラッシュ。
+    def test_credit_count_splits_on_separators
+      assert_equal(2, CureApiService.credit_count('Machico/吉武千颯'))
+      assert_equal(6, CureApiService.credit_count('内田順子, 山野さと子, 中右貴久, 宮本佳那子, 岸野幸正 & 草尾毅'))
+    end
+
+    # ⚠ 空でも 0 にしない（重みの計算で割り算の分母にはしないが、1 人扱いが自然）。
+    def test_credit_count_never_returns_zero
+      assert_equal(1, CureApiService.credit_count(nil))
+      assert_equal(1, CureApiService.credit_count(''))
+    end
   end
 end
