@@ -35,6 +35,17 @@ module Makoto
       return dir
     end
 
+    def with_file_read_error(path, error)
+      read = File.method(:read)
+      File.define_singleton_method(:read) do |target, *args|
+        raise error if target == path
+        read.call(target, *args)
+      end
+      yield
+    ensure
+      File.define_singleton_method(:read, read)
+    end
+
     def beat(jobs: 1, at: nil)
       return Heartbeat.touch(jobs: jobs, now: at || now)
     end
@@ -117,6 +128,32 @@ module Makoto
       assert_nil(subject.orphans)
       assert_equal(Health::WARNING, subject.code)
       assert_true(subject.warnings.any? {|m| m.include?('/proc')})
+    end
+
+    # ⚠ `hidepid=1` では PID 自体は列挙できても、他ユーザーの cmdline は読めない。
+    # 「孤児なし」ではなく、確認不能として警告する。
+    def test_permission_denied_proc_is_reported
+      beat
+      dir = fake_process(4650, 'ruby bin/makoto_daemon.rb start')
+      subject = health
+
+      with_file_read_error(File.join(dir, 'cmdline'), Errno::EACCES) do
+        assert_equal(Health::WARNING, subject.code)
+        assert_nil(subject.orphans)
+        assert_equal(['cannot read /proc (orphan check skipped)'], subject.warnings)
+      end
+    end
+
+    # ⚠ 列挙後に消えたプロセスは正常な競合。他の孤児の検出を止めない。
+    def test_disappeared_process_does_not_mask_other_orphan
+      beat
+      disappeared = fake_process(4650, 'ruby bin/makoto_daemon.rb start')
+      fake_process(4651, 'ruby bin/makoto_daemon.rb start')
+      FileUtils.rm_f(File.join(disappeared, 'cmdline'))
+
+      assert_equal([4651], health.orphans)
+      assert_equal(Health::WARNING, health.code)
+      assert_equal(['orphan process: 4651'], health.warnings)
     end
 
     # ⚠ 異常が警告より優先される（復旧が先）。

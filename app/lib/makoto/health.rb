@@ -66,6 +66,8 @@ module Makoto
     def orphans
       return nil unless File.directory?(@proc_dir)
       return Dir.glob(File.join(@proc_dir, '[0-9]*')).filter_map {|dir| orphan_pid(dir)}.sort
+    rescue Errno::EACCES
+      return nil
     end
 
     # 復旧させるべき問題。⚠ **空なら健全。**
@@ -102,10 +104,10 @@ module Makoto
       return found
     end
 
-    # ⚠ 読めない `/proc/{pid}` は無視する。**列挙してから消えるプロセスがある。**
+    # ⚠ `ENOENT` は無視する。**列挙してから消えるプロセスがある。**
     def cmdline(dir)
       return File.read(File.join(dir, 'cmdline')).tr("\0", ' ')
-    rescue SystemCallError
+    rescue Errno::ENOENT
       return ''
     end
   end
