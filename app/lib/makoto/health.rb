@@ -65,7 +65,21 @@ module Makoto
     # 監視しているつもりで無防備になる。
     def orphans
       return nil unless File.directory?(@proc_dir)
-      return Dir.glob(File.join(@proc_dir, '[0-9]*')).filter_map {|dir| orphan_pid(dir)}.sort
+      unreadable = false
+      found = Dir.glob(File.join(@proc_dir, '[0-9]*')).filter_map do |dir|
+        orphan_pid(dir)
+      rescue Errno::EACCES
+        unreadable = true if File.owned?(dir)
+        next nil
+      rescue SystemCallError
+        unreadable = true
+        next nil
+      end
+      return found.sort if found.any?
+      return nil if unreadable
+      return []
+    rescue SystemCallError
+      return nil
     end
 
     # 復旧させるべき問題。⚠ **空なら健全。**
@@ -102,10 +116,10 @@ module Makoto
       return found
     end
 
-    # ⚠ 読めない `/proc/{pid}` は無視する。**列挙してから消えるプロセスがある。**
+    # ⚠ `ENOENT` / `ESRCH` は無視する。**列挙してから消えるプロセスがある。**
     def cmdline(dir)
       return File.read(File.join(dir, 'cmdline')).tr("\0", ' ')
-    rescue SystemCallError
+    rescue Errno::ENOENT, Errno::ESRCH
       return ''
     end
   end
