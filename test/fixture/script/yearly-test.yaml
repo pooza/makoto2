@@ -1,0 +1,14 @@
+# ⚠ `MM-DD` は「毎年」。`YYYY-MM-DD` と混ざったときの検査用。
+- slug: test-newyear
+  type: test_holiday
+  date: 01-01
+  body: あけましておめでとう。
+
+- slug: test-autumn
+  type: test_morning
+  season: [9, 10]
+  body: 秋の朝。
+
+- slug: test-plain
+  type: test_morning
+  body: 通年の朝。
