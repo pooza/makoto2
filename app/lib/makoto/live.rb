@@ -50,12 +50,14 @@ module Makoto
     end
 
     def open_job
-      return PostingJob.new(name: OPEN_NAME, timetable: timetable('open'), source: selector('open'))
+      return PostingJob.new(
+        name: OPEN_NAME, timetable: timetable('open'), source: tagged(selector('open')),
+      )
     end
 
     def close_job
       return PostingJob.new(
-        name: CLOSE_NAME, timetable: timetable('close'), source: selector('close'),
+        name: CLOSE_NAME, timetable: timetable('close'), source: tagged(selector('close')),
       )
     end
 
@@ -64,11 +66,23 @@ module Makoto
     # `MessageSelector` のままでよい。
     def eve_job
       source = ScriptRotation.new(selector: selector('eve'), timetable: timetable('eve'))
-      return PostingJob.new(name: EVE_NAME, timetable: timetable('eve'), source: source)
+      return PostingJob.new(name: EVE_NAME, timetable: timetable('eve'), source: tagged(source))
     end
 
     def program_job
-      return PostingJob.new(name: NAME, timetable: timetable, source: program)
+      return PostingJob.new(name: NAME, timetable: timetable, source: tagged(program))
+    end
+
+    # ⚠⚠ **ライブの枠はすべてここを通す**（#64）。⚠ 曲の投稿は原稿ではないので、
+    # 原稿の側に書き足す形にすると曲だけタグが付かない（→ `HashtagSource`）。
+    def tagged(source)
+      return HashtagSource.new(source: source, hashtag: hashtag)
+    end
+
+    # ⚠ 空なら付けない。**設定を消せば止まる**ので、機能のフラグを別に持たない
+    # （→ docs/CLAUDE.md「予告の日付は枠ではなく原稿が持つ」と同じ考え方）。
+    def hashtag
+      return config["#{PREFIX}/hashtag"].to_s
     end
 
     def program

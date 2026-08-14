@@ -60,6 +60,9 @@ properties:
       # 8 時間の進行。⚠ 12:00 と 20:00 は告知の枠なので曲は含めない。
       timetable:
         $ref: '#/definitions/timetable'
+      # ⚠ 投稿の最終行に足すハッシュタグ（#64）。空なら付けない。
+      hashtag:
+        type: string
       setlist:
         type: object
         properties:
@@ -74,6 +77,18 @@ properties:
             minimum: 0
           cover_prefix:
             type: string
+          # ⚠ 本編から外す曲（#63）。live フラグは触らない（Setlist#excluded?）。
+          exclude:
+            type: object
+            properties:
+              collections:
+                type: array
+                items:
+                  type: string
+              tracks:
+                type: array
+                items:
+                  type: string
         required:
           - opening
           - closing
