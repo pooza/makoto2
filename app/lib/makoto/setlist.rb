@@ -87,7 +87,7 @@ module Makoto
     # 並びが変わると、再起動で曲順がずれる）。
     def songs
       @songs ||= distinct(@repository.by_kind('vocal', @repository.live))
-        .order(:release_date, :id).all
+        .order(:release_date, :id).all.reject {|track| excluded?(track)}
       return @songs
     end
 
@@ -129,6 +129,32 @@ module Makoto
 
     def cover_size
       return config["#{PREFIX}/cover_size"].to_i
+    end
+
+    # 本編から外す曲（#63）。⚠ アルバム単位と曲単位。
+    #
+    # ⚠⚠ **`live` フラグを落とす形にしない。**フラグは「本編に出す曲」であると
+    # 同時に **「MAKOTO 本人の曲」の印**でもあり、`pick_covers` が
+    # 「`live` に無い vocal ＝ 他の歌手の持ち歌」としてカバー母集合を作っている。
+    # ⚠ 落とすと**本編から消えた本人の曲がカバーに流れ込む**（実測で 8 曲）。
+    # **並びの都合はここ（ライブの選曲）で持ち、データの区分は触らない。**
+    #
+    # ⚠ 間引く理由は量ではなく塊 — **発売日順に並べる以上、同じアルバムの曲は必ず
+    # 隣接する**ので、そのまま入れると 4 曲続けて流れる（→ docs/CLAUDE.md）。
+    def excluded?(track)
+      return true if exclusions('collections').include?(dedupe(track[:collection_name]))
+      return exclusions('tracks').include?(dedupe(track[:name]))
+    end
+
+    def exclusions(name)
+      @exclusions ||= {}
+      @exclusions[name] ||= Array(config["#{PREFIX}/exclude/#{name}"]).map {|value| dedupe(value)}
+      return @exclusions[name]
+    end
+
+    # ⚠ 曲名の同一視は取り込みと同じ規則を使う（規則を 2 つ持たない）。
+    def dedupe(value)
+      return TrackImporter.dedupe_key(value)
     end
 
     def opening_name

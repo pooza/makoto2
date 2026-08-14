@@ -79,23 +79,5 @@ module Makoto
         TrackImporter.dedupe_key('しまうまグルグル (オリジナル・カラオケ)'),
       )
     end
-
-    # ⚠⚠ **ライブ本編から間引いた曲が seed に戻っていないこと**（#63）。
-    #
-    # ⚠ `mark_live` は毎回 `live` を全行 false に落として立て直すので、**DB を手で
-    # 直しても次の取り込みで戻る。**正本は [seed/itunes_corpus.py](../seed/itunes_corpus.py)
-    # の `is_live_excluded` で、⚠ **そこを直さずに再生成すると静かに復活する。**
-    # 実データを読むのはここだけ（`seed/` は git 管理下なので CI でも読める）。
-    def test_live_seed_keeps_the_excluded_tracks_out
-      rows = JSON.parse(File.read(File.join(Environment.dir, 'seed', TrackImporter::LIVE)))
-      collections = rows.map {|row| row['collectionName'].to_s}
-      names = rows.map {|row| row['trackName'].to_s}
-
-      assert_empty(collections.grep(/あそび劇シアター/))
-      assert_not_includes(names, 'みんなでいこう![7月]')
-      # ⚠ 残すと決めた 2 曲は入っていること（間引きすぎの検知）。
-      assert_includes(names, 'おおきいはみがき ちいさいはみがき[6月]')
-      assert_includes(names, 'さよならさんかく[3月]')
-    end
   end
 end

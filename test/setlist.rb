@@ -42,12 +42,13 @@ module Makoto
 
     # ⚠ **フィクスチャの曲データは 2 曲しかない**ので、並びを見るテストはここで作る。
     # 発売日を 1 日ずつずらして、整列の順が一意に決まるようにする。
-    def add(name, live: true, kind: 'vocal', day: 1, url: 'https://example.test/t')
+    def add(name, live: true, kind: 'vocal', day: 1, url: 'https://example.test/t', collection: nil)
       @id = (@id || 5000) + 1
       @db[:track].insert(
         id: @id,
         name: name,
         artist_name: "歌手#{@id}",
+        collection_name: collection,
         release_date: Date.new(2013, 1, 1) + day,
         url: url,
         kind: kind,
@@ -257,6 +258,51 @@ module Makoto
       seed(songs: 8, covers: 0)
 
       assert_raise(Ginseng::ConfigError) {setlist(3)}
+    end
+
+    # ⚠ 本編から外す（#63）。**アルバム単位**。
+    def test_excludes_a_collection_from_the_program
+      seed(songs: 8, covers: 0)
+      add('童謡1', day: 20, collection: '劇のアルバム')
+      add('童謡2', day: 21, collection: '劇のアルバム')
+      config['/live/setlist/exclude/collections'] = ['劇のアルバム']
+
+      assert_not_includes(names(setlist(20).entries), '童謡1')
+      assert_not_includes(names(setlist(20).entries), '童謡2')
+    end
+
+    # ⚠ **曲単位**でも外せる。表記の揺れは取り込みと同じ規則で吸収する。
+    def test_excludes_a_track_by_name
+      seed(songs: 8, covers: 0)
+      add('外したい曲[7月]', day: 20)
+      config['/live/setlist/exclude/tracks'] = ['外したい曲［７月］']
+
+      assert_not_includes(names(setlist(20).entries), '外したい曲[7月]')
+    end
+
+    # ⚠⚠ **外した曲をカバーに流さない。**`live` フラグは「本編に出す曲」であると
+    # 同時に **「MAKOTO 本人の曲」の印**でもあり、`pick_covers` は「`live` に無い
+    # vocal ＝ 他の歌手の持ち歌」で母集合を作る。⚠ **seed の側で `live` を落として
+    # 外すと、本編から消えた本人の曲がそのままカバーとして出てくる**（実データで
+    # 8 曲流入するのを確認した）。だから外すのは `Setlist` の側。
+    def test_excluded_songs_do_not_leak_into_covers
+      seed(songs: 8, covers: 6)
+      add('童謡1', day: 20, collection: '劇のアルバム')
+      config['/live/setlist/exclude/collections'] = ['劇のアルバム']
+      list = setlist(20)
+
+      assert_not_includes(names(list.entries), '童謡1')
+      assert_not_includes(list.covers.map {|track| track[:name]}, '童謡1')
+    end
+
+    # ⚠ 設定が無ければ何も外さない（既定の挙動を変えない）。
+    def test_excludes_nothing_without_the_setting
+      seed(songs: 8, covers: 0)
+      add('童謡1', day: 20, collection: '劇のアルバム')
+      config['/live/setlist/exclude/collections'] = []
+      config['/live/setlist/exclude/tracks'] = []
+
+      assert_includes(names(setlist(20).entries), '童謡1')
     end
   end
 end
