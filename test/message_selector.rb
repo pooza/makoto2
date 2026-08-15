@@ -148,13 +148,29 @@ module Makoto
         selector.reserved_types)
     end
 
-    # ⚠⚠ **`list` は id 順で安定する。**ライブの MC は「原稿を頭から順に消化する」ので、
+    # ⚠⚠ **`list` は順序が安定する。**ライブの MC は「原稿を台本の順に消化する」ので、
     # ⚠ 乱択の `find` では同じ原稿が何度も出て、出ない原稿が残る（→ LiveProgram）。
     def test_list_is_ordered_and_stable
       ids = selector.list(jst(11, 4)).map {|row| row[:id]}
 
       assert_equal(ids.sort, ids)
       assert_equal(ids, selector.list(jst(11, 4)).map {|row| row[:id]})
+    end
+
+    # ⚠⚠ **並べる鍵は `slug`。id ではない**（#69）。⚠ **id は取り込んだ順**なので、
+    # **台本の途中に 1 本足すと、それが必ず末尾に来る。**台本は位置で意味が決まる
+    # （`最後の1曲。` は最後でなければ嘘になる）ので、ファイルの並びがそのまま出ること。
+    def test_list_follows_the_slug_not_the_insertion_order
+      ['live-mc-00', 'live-mc-01', 'live-mc-02'].each do |slug|
+        @repository.upsert(slug: slug, type: 'live_mc', body: slug, month: 11, day: 4, year: 2026)
+      end
+      # ⚠ あとから台本の途中に差し込む（id は最大になる）。
+      @repository.upsert(slug: 'live-mc-00a', type: 'live_mc', body: 'live-mc-00a',
+        month: 11, day: 4, year: 2026)
+      rows = selector(['live_mc']).list(jst(11, 4))
+
+      assert_equal(['live-mc-00', 'live-mc-00a', 'live-mc-01', 'live-mc-02'], rows.map {|row| row[:body]})
+      assert_operator(rows[1][:id], :>, rows.last[:id])
     end
 
     # ⚠ 原稿が無ければ空配列（例外にしない）。

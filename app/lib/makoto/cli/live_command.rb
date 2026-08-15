@@ -61,8 +61,7 @@ module Makoto
       slots = list.entries.count(&:mc?)
       scripts = mc_size(time)
       return "MC #{slots} 枠 / 原稿 #{scripts} 本" if scripts.zero? || slots <= scripts
-      repeated = slots - scripts
-      return "MC #{slots} 枠 / 原稿 #{scripts} 本（⚠ #{repeated} 本が 2 回目に入る）"
+      return "MC #{slots} 枠 / 原稿 #{scripts} 本（⚠ #{slots - scripts} 本が 2 回出る）"
     end
 
     # ⚠ **MC の本文は `LiveProgram` から引く。**「何本目がどの原稿か」の正本を
@@ -74,11 +73,16 @@ module Makoto
       return "#{entry}:#{repeat_mark(entry, time)} #{body.lines.first.to_s.chomp}"
     end
 
-    # ⚠ 2 周目に入った MC を目で拾えるようにする。
+    # ⚠ 同じ原稿が 2 回目に出る枠を目で拾えるようにする。⚠⚠ **原稿は進行の割合で
+    # 引く**ので（#69）、**続けて同じものが出るのが 2 回目の形**。前から数える。
     def repeat_mark(entry, time)
       scripts = mc_size(time)
-      return '' if scripts.zero? || entry.ordinal < scripts
-      return " ↻##{entry.ordinal % scripts}"
+      return '' if scripts.zero?
+      @used ||= Hash.new(0)
+      index = @live.program.script_index(entry, scripts)
+      @used[index] += 1
+      return '' if @used[index] < 2
+      return " ↻#{@used[index]}回目"
     end
 
     def mc_size(time)

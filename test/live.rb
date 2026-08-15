@@ -37,6 +37,12 @@ module Makoto
       return job.send(:instance_variable_get, :@source)
     end
 
+    # MC の枠の頭の時刻。⚠ 並びの中の位置と時刻を突き合わせるのに使う。
+    def mc_times(list, date = Date.new(2026, 11, 4))
+      times = live.timetable.times(date)
+      return list.entries.each_index.select {|i| list.at(i).mc?}.map {|i| times[i]}
+    end
+
     # ⚠⚠ **ライブの 4 枠すべてにハッシュタグが付く**（#64）。⚠ 曲の投稿は原稿では
     # ないので、原稿の側に書き足す形にすると**曲だけ付かない。**
     def test_every_slot_appends_the_hashtag
@@ -107,19 +113,50 @@ module Makoto
       assert_nil(live.program.call(jst(11, 4, 23, 0)))
     end
 
-    # ⚠⚠ **MC は原稿を頭から順に消化する。**乱択だと同じ原稿が何度も出て、出ない
-    # 原稿が残る。⚠ 用意した本数より枠が多ければ頭に戻る。
-    def test_mc_rotates_through_the_scripts_in_order
+    # ⚠⚠ **MC は原稿を台本の順に消化する。**乱択だと同じ原稿が何度も出て、出ない
+    # 原稿が残る。⚠ **枠のほうが多ければ同じ原稿が続くが、巻き戻らない。**
+    def test_mc_follows_the_script_order
       add('live_mc', 'MC その 1')
       add('live_mc', 'MC その 2')
       program = live.program
       list = program.setlist(jst(11, 4, 13, 0))
-      mc_times = list.entries.each_index.select {|i| list.at(i).mc?}
-        .map {|i| live.timetable.times(Date.new(2026, 11, 4))[i]}
+      texts = mc_times(list).map {|time| program.call(time)}
 
-      assert_operator(mc_times.size, :>=, 3)
-      assert_equal(['MC その 1', 'MC その 2', 'MC その 1'],
-        mc_times.first(3).map {|time| program.call(time)})
+      assert_operator(texts.size, :>=, 3)
+      assert_equal('MC その 1', texts.first)
+      assert_equal('MC その 2', texts.last)
+      assert_equal(texts, texts.sort)
+    end
+
+    # ⚠⚠ **台本は位置で意味が決まる**（#69）。`最後の1曲。` は最後でなければ嘘になる。
+    # ⚠ **枠が原稿より多くても、最初の枠は 1 本目・最後の枠は最後の 1 本。**
+    # ⚠⚠ **これが `ordinal % 原稿数` では成立しない**（`最後の1曲。` が中盤に出た）。
+    def test_mc_keeps_the_script_arc_when_slots_outnumber_scripts
+      3.times {|i| add('live_mc', "MC #{i}")}
+      program = live.program
+      list = program.setlist(jst(11, 4, 13, 0))
+      entries = list.entries.select(&:mc?)
+      texts = entries.map {|entry| program.mc_text(entry, jst(11, 4, 13, 0))}
+
+      assert_operator(entries.size, :>, 3)
+      assert_equal('MC 0', texts.first)
+      assert_equal('MC 2', texts.last)
+      # ⚠ 巻き戻らない＝一度進んだら戻らない。
+      assert_equal(texts, texts.sort)
+    end
+
+    # ⚠ **原稿を足しても引いても、端の 2 つは動かない。**⚠⚠ **本数と枠数を独立させる**
+    # のがこの規則の要点で、曲数が動けば MC の枠数も動く（#63 で 17 → 25 枠になった）。
+    def test_mc_arc_survives_a_different_script_count
+      8.times {|i| add('live_mc', 'MC %02d' % i)}
+      program = live.program
+      time = jst(11, 4, 13, 0)
+      entries = program.setlist(time).entries.select(&:mc?)
+      texts = entries.map {|entry| program.mc_text(entry, time)}
+
+      assert_equal('MC 00', texts.first)
+      assert_equal('MC 07', texts.last)
+      assert_equal(texts, texts.sort)
     end
 
     # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
@@ -130,12 +167,11 @@ module Makoto
       add('live_mc', 'MC その 2')
       program = live.program
       time = jst(11, 4, 13, 0)
-      list = program.setlist(time)
-      entries = list.entries.select(&:mc?)
+      entries = program.setlist(time).entries.select(&:mc?)
 
       assert_equal(2, program.mc_size(time))
-      assert_equal(['MC その 1', 'MC その 2', 'MC その 1'],
-        entries.first(3).map {|entry| program.mc_text(entry, time)})
+      assert_equal(entries.map {|entry| program.mc_text(entry, time)},
+        mc_times(program.setlist(time)).map {|at| program.call(at)})
     end
 
     # ⚠ 原稿が 1 本も無ければ下見の側も nil（枠が素通しになることを表示できる）。
