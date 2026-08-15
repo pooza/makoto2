@@ -170,6 +170,25 @@ properties:
         additionalProperties: false
     required:
       - anniversary
+  # 監視の口（#84）。⚠⚠ 3 つとも required にする — optional_config で既定値に
+  # 逃がすと、⚠ 設定を消しただけで監視の口が静かに閉じる（#77 の裏返し。
+  # /scheduler/posting/failure_limit と同じ判断）。
+  monitor:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      # ⚠ 既定は 127.0.0.1。開けるのは箱ごとに local.yaml で行う明示的な一手。
+      bind:
+        type: string
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+    required:
+      - enabled
+      - bind
+      - port
   package:
     type: object
     properties:
@@ -264,6 +283,7 @@ required:
   - logger
   - mastodon
   - message
+  - monitor
   - package
   - scheduler
   - sqlite3

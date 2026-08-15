@@ -159,6 +159,21 @@ logger:
     - api_key
     - authorization
     - code
+monitor:
+  # 監視（Uptime Kuma）が叩く HTTP の口（#84 → MonitorApp / MonitorServer）。
+  #
+  # ⚠⚠ **既定は 127.0.0.1。**⚠ **開けるのは箱ごとに config/local.yaml へ
+  # `bind: 0.0.0.0` を書く明示的な一手にする**ので、「開いていない」が既定のまま残る。
+  # ⚠⚠ **LAN 限定・読み取り専用の死活の口だけ**で、管理コンソールは作らない
+  # （→ docs/CLAUDE.md「管理操作は CLI で行う」）。
+  #
+  # ⚠ **切るとポートが開かないので Kuma からは「落ちている」と見える。**ここで
+  # 監視そのものを止めるつもりなら、Kuma 側のモニタも一緒に止めること。
+  enabled: true
+  bind: 127.0.0.1
+  # ⚠ tomato-shrieker と同じ番号。**別の箱なので衝突しない**（本番は非同居）。
+  # Kuma への登録を他の ginseng 系ボットと同じ形にしておく。
+  port: 4567
 package:
   authors:
     - Tatsuya Koishi
