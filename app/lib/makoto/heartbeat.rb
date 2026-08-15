@@ -36,6 +36,18 @@ module Makoto
     # 結末は**別のスレッド**（rufus）から来るので、**素に書くと片方の更新が消える。**
     MUTEX = Mutex.new
 
+    # 二重に数えないために覚えておく枠の数。
+    #
+    # ⚠⚠ **同じ枠が 2 回実行されうる。**`Scheduler` は**登録直後に初回 tick を叩いて
+    # から `every` で回す**ので、⚠ **拾う幅（既定 10 秒）の内側で 2 回来ることがある**。
+    # **再起動が挟まれば毎回そうなる。**⚠⚠ **成功は冪等キーで Mastodon 側が畳むのに、
+    # 失敗だけ畳まれず、落ちた枠 1 つで閾値を 2 つ消費していた**（#81 の指摘・実測）。
+    #
+    # ⚠ **覚える数を絞るのは、痕跡を無限に太らせないため。**同じ枠が重なるのは拾う幅
+    # （数秒）の内側だけなので、⚠⚠ **その間に来うる枠の数＝登録されたジョブの本数を
+    # 上回っていれば足りる**（いまは 5 本）。
+    COUNTED_SLOTS = 32
+
     class << self
       # ⚠ **テストは別のファイルに落とす。**`Environment.db` と同じ理由で、稼働中の
       # 痕跡をテストが書き換えると `makoto status` が嘘をつく。
@@ -61,9 +73,9 @@ module Makoto
       end
 
       # 枠が 1 つ投稿できた。⚠ **失敗の数を 0 に戻す。**
-      def record_success(now = nil)
+      def record_success(now: nil)
         return update do |record|
-          record.merge(posted_at: (now || Time.now).getutc.iso8601, failures: 0)
+          record.merge(posted_at: (now || Time.now).getutc.iso8601, failures: 0, slots: [])
         end
       end
 
@@ -73,11 +85,19 @@ module Makoto
       # のはハートビートの `STALE_FACTOR` と同じ考え方だが、⚠ **こちらは時間ではなく
       # 本数で見る** — MAKOTO は平常日に数本しか投稿しないので、**時間で見ると
       # ライブ当日（3 分間隔）と平常日で意味が変わってしまう。**
-      def record_failure(now = nil)
+      #
+      # @param slot [String] 枠の識別子（`PostingJob#idempotency_key`）。
+      #   ⚠⚠ **同じ枠を 2 度数えない**（→ `COUNTED_SLOTS`）。⚠ **省くと毎回数える。**
+      def record_failure(slot: nil, now: nil)
         return update do |record|
+          time = (now || Time.now).getutc.iso8601
+          counted = Array(record[:slots])
+          # ⚠ 既に数えた枠なら、時刻だけ進めて数は据え置く。
+          next record.merge(failed_at: time) if slot && counted.include?(slot)
           record.merge(
-            failed_at: (now || Time.now).getutc.iso8601,
+            failed_at: time,
             failures: record[:failures].to_i + 1,
+            slots: slot ? counted.push(slot).last(COUNTED_SLOTS) : counted,
           )
         end
       end

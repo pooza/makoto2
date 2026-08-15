@@ -227,6 +227,39 @@ module Makoto
       assert_nil(Heartbeat.posted_at)
     end
 
+    # ⚠⚠ **同じ枠を 2 度数えない**（#81 の Codex 指摘・実測で 2 進んでいた）。
+    # ⚠ **`Scheduler` は登録直後に初回 tick を叩いてから `every` で回す**ので、
+    # **拾う幅の内側で同じ枠が 2 回来る。再起動が挟まれば毎回そうなる。**
+    # ⚠⚠ **成功は冪等キーで Mastodon 側が畳むのに、失敗だけ二重に数えると、
+    # 落ちた枠 1 つで閾値を 2 つ消費する。**
+    def test_the_same_slot_is_counted_once
+      stub_request(:post, @url).to_return(status: 401, body: '{}')
+      job.exec(jst(12, 0))
+      job.exec(jst(12, 0, 5))
+
+      assert_requested(:post, @url, times: 2)
+      assert_equal(1, Heartbeat.failures)
+    end
+
+    # ⚠ **別の枠なら別に数える**（畳みすぎて検知が鈍らないこと）。
+    def test_different_slots_are_counted_separately
+      stub_request(:post, @url).to_return(status: 401, body: '{}')
+      job.exec(jst(12, 0))
+      job.exec(jst(12, 2))
+      job.exec(jst(12, 4))
+
+      assert_equal(3, Heartbeat.failures)
+    end
+
+    # ⚠ **`source` が落ちた枠も同じく 1 回。**投稿の失敗と経路が違うので別に見る。
+    def test_the_same_slot_is_counted_once_when_the_source_raises
+      broken = job(proc {raise Ginseng::ConfigError, 'missing key'})
+      broken.exec(jst(12, 0))
+      broken.exec(jst(12, 0, 5))
+
+      assert_equal(1, Heartbeat.failures)
+    end
+
     # ⚠ **1 本出れば数え直し。**復旧したのに警告が残り続けないこと。
     def test_a_success_resets_the_failures
       stub_request(:post, @url).to_return(status: 401, body: '{}')

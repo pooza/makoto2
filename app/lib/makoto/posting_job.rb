@@ -112,7 +112,7 @@ module Makoto
       return @source.call(slot).to_s
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
-      record(:failure)
+      record(:failure, slot)
       return nil
     end
 
@@ -126,19 +126,23 @@ module Makoto
         idempotency_key: idempotency_key(slot),
       )
       logger.info(post: @name, slot: format_slot(slot), status_id: response['id'])
-      record(:success)
+      record(:success, slot)
       return response
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
-      record(:failure)
+      record(:failure, slot)
       return nil
     end
 
     # ⚠⚠ **痕跡が書けなくても枠を落とさない。**ここは観測のためだけの書き込みで、
     # ⚠ **これに失敗して投稿の側を巻き込むと、監視を足したせいで壊れることになる。**
-    def record(outcome)
+    #
+    # ⚠ **失敗にも冪等キーを渡す。**⚠⚠ **同じ枠が 2 回実行されることがある**
+    # （初回 tick と `every` の重なり・再起動）ので、**成功だけ Mastodon 側で畳まれて
+    # 失敗が二重に数えられると、落ちた枠 1 つで閾値を 2 つ消費する**（#81）。
+    def record(outcome, slot)
       return Heartbeat.record_success if outcome == :success
-      return Heartbeat.record_failure
+      return Heartbeat.record_failure(slot: idempotency_key(slot))
     rescue => e
       logger.error(post: @name, heartbeat: outcome, error: e)
       return nil

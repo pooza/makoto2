@@ -314,7 +314,7 @@ module Makoto
     def test_consecutive_posting_failures_are_a_warning
       config['/scheduler/posting/failure_limit'] = 3
       beat
-      3.times {Heartbeat.record_failure(now)}
+      3.times {Heartbeat.record_failure(now: now)}
 
       assert_equal(Health::WARNING, health.code)
       assert_true(health.warnings.any? {|m| m.include?('posting failed 3 times')})
@@ -327,7 +327,7 @@ module Makoto
     def test_a_few_failures_are_not_a_warning
       config['/scheduler/posting/failure_limit'] = 3
       beat
-      2.times {Heartbeat.record_failure(now)}
+      2.times {Heartbeat.record_failure(now: now)}
 
       assert_equal(Health::OK, health.code)
     end
@@ -346,11 +346,11 @@ module Makoto
     def test_a_success_clears_the_warning
       config['/scheduler/posting/failure_limit'] = 3
       beat
-      3.times {Heartbeat.record_failure(now)}
+      3.times {Heartbeat.record_failure(now: now)}
 
       assert_equal(Health::WARNING, health.code)
 
-      Heartbeat.record_success(now)
+      Heartbeat.record_success(now: now)
 
       assert_equal(Health::OK, health.code)
       assert_equal(now, health.posted_at)
@@ -360,7 +360,7 @@ module Makoto
     def test_dead_daemon_does_not_add_the_posting_warning
       config['/scheduler/posting/failure_limit'] = 1
       beat
-      Heartbeat.record_failure(now)
+      Heartbeat.record_failure(now: now)
 
       assert_equal([], health(alive: false).warnings)
     end
@@ -369,7 +369,7 @@ module Makoto
     def test_posting_warning_and_orphan_are_both_reported
       config['/scheduler/posting/failure_limit'] = 1
       beat
-      Heartbeat.record_failure(now)
+      Heartbeat.record_failure(now: now)
       fake_process(4650, 'ruby bin/makoto_daemon.rb start')
 
       assert_equal(2, health.warnings.size)

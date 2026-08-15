@@ -86,14 +86,14 @@ module Makoto
     # ⚠⚠ **ここから #78。**投稿の結末を数える。
 
     def test_record_success_and_failure
-      Heartbeat.record_failure(now)
-      Heartbeat.record_failure(now + 60)
+      Heartbeat.record_failure(now: now)
+      Heartbeat.record_failure(now: now + 60)
 
       assert_equal(2, Heartbeat.failures)
       assert_equal(now + 60, Heartbeat.failed_at)
       assert_nil(Heartbeat.posted_at)
 
-      Heartbeat.record_success(now + 120)
+      Heartbeat.record_success(now: now + 120)
 
       assert_equal(0, Heartbeat.failures)
       assert_equal(now + 120, Heartbeat.posted_at)
@@ -108,7 +108,7 @@ module Makoto
     # ⚠⚠ **ハートビートは 1 時間ごとに書き直される。**素に書き直すと**枠の結末が
     # 毎時ぜんぶ消える。**
     def test_touch_keeps_the_posting_record
-      Heartbeat.record_failure(now)
+      Heartbeat.record_failure(now: now)
       Heartbeat.touch(jobs: 5, now: now + 60)
 
       assert_equal(1, Heartbeat.failures)
@@ -119,7 +119,7 @@ module Makoto
     # ⚠ **逆向きも。**枠の結末がハートビートの側を消さないこと。
     def test_record_keeps_the_heartbeat
       Heartbeat.touch(jobs: 5, now: now)
-      Heartbeat.record_success(now + 60)
+      Heartbeat.record_success(now: now + 60)
 
       assert_equal(5, Heartbeat.jobs)
       assert_equal(now.getutc.iso8601, Heartbeat.read[:at])
@@ -130,19 +130,51 @@ module Makoto
     def test_update_keeps_the_record_without_time
       FileUtils.mkdir_p(File.dirname(Heartbeat.path))
       File.write(Heartbeat.path, {failures: 2}.to_json)
-      Heartbeat.record_failure(now)
+      Heartbeat.record_failure(now: now)
 
       assert_nil(Heartbeat.read)
       assert_equal(3, Heartbeat.failures)
     end
 
+    # ⚠⚠ **同じ枠は 1 回しか数えない**（#81）。⚠ **時刻だけは進める**（最後に落ちた
+    # のがいつかは知りたい）。
+    def test_the_same_slot_is_counted_once
+      Heartbeat.record_failure(slot: 'live-1', now: now)
+      Heartbeat.record_failure(slot: 'live-1', now: now + 5)
+
+      assert_equal(1, Heartbeat.failures)
+      assert_equal(now + 5, Heartbeat.failed_at)
+
+      Heartbeat.record_failure(slot: 'live-2', now: now + 180)
+
+      assert_equal(2, Heartbeat.failures)
+    end
+
+    # ⚠ **1 本出れば覚えている枠も忘れる。**忘れないと、次に同じ枠が落ちても
+    # 数えられない（枠の識別子は日付を含むので実際には重ならないが、ここは対称に）。
+    def test_a_success_forgets_the_counted_slots
+      Heartbeat.record_failure(slot: 'live-1', now: now)
+      Heartbeat.record_success(now: now + 60)
+      Heartbeat.record_failure(slot: 'live-1', now: now + 120)
+
+      assert_equal(1, Heartbeat.failures)
+    end
+
+    # ⚠⚠ **覚える枠の数は上限つき。**痕跡を無限に太らせない（ライブ当日は 160 枠）。
+    def test_counted_slots_are_bounded
+      (Heartbeat::COUNTED_SLOTS + 10).times {|i| Heartbeat.record_failure(slot: "live-#{i}", now: now)}
+
+      assert_equal(Heartbeat::COUNTED_SLOTS + 10, Heartbeat.failures)
+      assert_equal(Heartbeat::COUNTED_SLOTS, Heartbeat.stored[:slots].size)
+    end
+
     def test_failing
       config['/scheduler/posting/failure_limit'] = 3
-      2.times {Heartbeat.record_failure(now)}
+      2.times {Heartbeat.record_failure(now: now)}
 
       assert_false(Heartbeat.failing?)
 
-      Heartbeat.record_failure(now)
+      Heartbeat.record_failure(now: now)
 
       assert_true(Heartbeat.failing?)
     end
