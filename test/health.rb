@@ -28,10 +28,16 @@ module Makoto
     end
 
     # `/proc/{pid}/cmdline` は NUL 区切り。
+    #
+    # ⚠⚠ **配列を渡せば argv の区切りをそのまま書ける。**文字列を渡すと空白で割るが、
+    # ⚠ **実機の常駐は `bin/makoto_daemon.rb start` が 1 要素**なので、その形を
+    # 表現できないと #61 の回帰テストが本物を模せない。
     def fake_process(pid, command)
       dir = File.join(@proc_dir, pid.to_s)
       FileUtils.mkdir_p(dir)
-      File.write(File.join(dir, 'cmdline'), command.split.join("\0"))
+      argv = command.is_a?(Array) ? command : command.split
+      # ⚠ 実機は末尾に NUL の詰め物が付く。空要素を落とせているかもここで見る。
+      File.write(File.join(dir, 'cmdline'), "#{argv.join("\0")}\0\0\0")
       return dir
     end
 
@@ -127,6 +133,41 @@ module Makoto
       fake_process(4650, 'ruby bin/makoto status')
 
       assert_equal([], health.orphans)
+    end
+
+    # ⚠⚠ **argv に文字列を含むだけの無関係なプロセスを孤児と報告しない**（#61）。
+    # ⚠ **踏みやすいのは運用側の経路** — 復旧のラッパースクリプト・デプロイのシェル・
+    # `pgrep` のワンライナー。**恒常的に踏むと本物の孤児が誤報に埋もれる。**
+    def test_unrelated_process_is_not_an_orphan
+      beat
+      fake_process(4650, 'sleep 60 makoto_daemon_dummy')
+      fake_process(4651, ['bash', '-lc', 'bundle exec bin/makoto_daemon.rb restart'])
+      fake_process(4652, ['/usr/local/bin/makoto_daemon-restart'])
+      fake_process(4653, ['pgrep', '-af', 'makoto_daemon'])
+
+      assert_equal([], health.orphans)
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **これと上の 2 つが揃って初めて #61 の回帰テストになる。片方だけでは通る。**
+    #
+    # ⚠ **実機（bydo・2026-08-15 実測）の常駐は argv が 1 要素**で、
+    # `bin/makoto_daemon.rb start` がまるごと入っている（bundler 経由の起動で `$0` が
+    # 書き換わるため）。**要素をそのまま突き合わせる実装だとここで取り逃がす。**
+    def test_real_daemon_argv_is_a_single_element
+      beat
+      fake_process(4650, ['bin/makoto_daemon.rb start'])
+
+      assert_equal([4650], health.orphans)
+      assert_equal(Health::WARNING, health.code)
+    end
+
+    # ⚠ インタプリタ経由（`ruby bin/makoto_daemon.rb start`）でも検知する。
+    def test_daemon_behind_an_interpreter_is_an_orphan
+      beat
+      fake_process(4650, '/home/deploy/.rbenv/versions/4.0.6/bin/ruby bin/makoto_daemon.rb restart')
+
+      assert_equal([4650], health.orphans)
     end
 
     # ⚠⚠ **`/proc` が読めないときに「孤児は無い」と嘘をつかない。**守っているつもりで

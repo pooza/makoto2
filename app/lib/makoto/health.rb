@@ -27,7 +27,19 @@ module Makoto
 
     PROC_DIR = '/proc'.freeze
     # ⚠ 常駐の実体。`bin/makoto` の CLI とは別物なので、これで CLI 自身は拾わない。
-    PROCESS_PATTERN = 'makoto_daemon'.freeze
+    PROCESS_NAME = 'makoto_daemon.rb'.freeze
+
+    # ⚠⚠ **argv の先頭 2 つしか見ない**（#61）。
+    #
+    # ⚠ **cmdline の部分一致にすると、argv にこの文字列を含むだけの無関係なプロセスを
+    # 孤児と報告する**（実測）。⚠⚠ **踏みやすいのは運用側の経路** — 復旧のラッパー
+    # スクリプト・デプロイのシェル・`pgrep` のワンライナー。**docs が「復旧コマンドは
+    # ラッパースクリプトに逃がす」と決めている以上、この形は運用に組み込まれる。**
+    #
+    # ⚠ **見るのは「実行されているスクリプト」で、それは argv の 0 番目か、
+    # インタプリタの次**（`ruby bin/makoto_daemon.rb start`）。**3 つ目以降に出るのは
+    # 引数や `-c` の文字列**なので、そこまで見ると部分一致に戻ってしまう。
+    PROCESS_ARGV_DEPTH = 2
 
     attr_reader :daemon
 
@@ -112,15 +124,29 @@ module Makoto
       return nil if found.zero?
       return nil if found == pid
       return nil if found == Process.pid
-      return nil unless cmdline(dir).include?(PROCESS_PATTERN)
+      return nil unless daemon?(argv(dir))
       return found
     end
 
+    # その argv は常駐のものか（→ 上記 `PROCESS_ARGV_DEPTH`）。
+    #
+    # ⚠⚠ **1 要素の中を空白で割ってから見る。**実機の常駐は
+    # **argv が `bin/makoto_daemon.rb start` という 1 要素**になっている（bundler 経由の
+    # 起動で `$0` が書き換わるため。2026-08-15 に bydo の `/proc` を実測）。
+    # ⚠ **要素をそのまま突き合わせると、本物の孤児を取り逃がす。**
+    def daemon?(argv)
+      return argv.first(PROCESS_ARGV_DEPTH).any? do |arg|
+        File.basename(arg.split.first.to_s) == PROCESS_NAME
+      end
+    end
+
+    # ⚠ `/proc/{pid}/cmdline` は NUL 区切り。**末尾に NUL の詰め物が付く**ので空要素を落とす。
     # ⚠ `ENOENT` / `ESRCH` は無視する。**列挙してから消えるプロセスがある。**
-    def cmdline(dir)
-      return File.read(File.join(dir, 'cmdline')).tr("\0", ' ')
+    # ⚠⚠ **`EACCES` は握らない**（読めなかったことを `orphans` 側に伝える → #54）。
+    def argv(dir)
+      return File.read(File.join(dir, 'cmdline')).split("\0").reject(&:empty?)
     rescue Errno::ENOENT, Errno::ESRCH
-      return ''
+      return []
     end
   end
 end
