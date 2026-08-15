@@ -307,5 +307,73 @@ module Makoto
 
       assert_equal(Health::ERROR, health.code)
     end
+
+    # ⚠⚠ **ここから #78。**「登録は 5 本あるのに 1 本も出ない」を拾う。
+
+    # ⚠ **これが #78 の再現。**⚠⚠ **これまでは 160 枠が全滅しても 0（健全）だった。**
+    def test_consecutive_posting_failures_are_a_warning
+      config['/scheduler/posting/failure_limit'] = 3
+      beat
+      3.times {Heartbeat.record_failure(now)}
+
+      assert_equal(Health::WARNING, health.code)
+      assert_true(health.warnings.any? {|m| m.include?('posting failed 3 times')})
+      # ⚠⚠ **異常（1）にはしない。**再起動しても直らないので、検知 → 再起動 →
+      # また失敗のループになる（→ Health の冒頭）。
+      assert_equal([], health.errors)
+    end
+
+    # ⚠ **閾値の手前では鳴らさない。**Mastodon 側の一時的な失敗で毎回鳴らない。
+    def test_a_few_failures_are_not_a_warning
+      config['/scheduler/posting/failure_limit'] = 3
+      beat
+      2.times {Heartbeat.record_failure(now)}
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **原稿が無いだけの日を警告にしない。**MAKOTO は 8/15〜10/31 の 2 か月半、
+    # **枠はあるのに 1 本も投稿しない**（本文の無い枠は数に入らない）。
+    def test_never_posted_is_not_a_warning
+      beat
+
+      assert_nil(health.posted_at)
+      assert_equal(0, health.posting_failures)
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠ **1 本出れば消える。**時間では薄れない（→ Health の冒頭）。
+    def test_a_success_clears_the_warning
+      config['/scheduler/posting/failure_limit'] = 3
+      beat
+      3.times {Heartbeat.record_failure(now)}
+
+      assert_equal(Health::WARNING, health.code)
+
+      Heartbeat.record_success(now)
+
+      assert_equal(Health::OK, health.code)
+      assert_equal(now, health.posted_at)
+    end
+
+    # ⚠ 死んでいるときは `errors` の側が言う。同じことを 2 度書かない。
+    def test_dead_daemon_does_not_add_the_posting_warning
+      config['/scheduler/posting/failure_limit'] = 1
+      beat
+      Heartbeat.record_failure(now)
+
+      assert_equal([], health(alive: false).warnings)
+    end
+
+    # ⚠ 孤児と重なったら両方出す（原因が別なので、片方に隠されると調べ損ねる）。
+    def test_posting_warning_and_orphan_are_both_reported
+      config['/scheduler/posting/failure_limit'] = 1
+      beat
+      Heartbeat.record_failure(now)
+      fake_process(4650, 'ruby bin/makoto_daemon.rb start')
+
+      assert_equal(2, health.warnings.size)
+      assert_equal(Health::WARNING, health.code)
+    end
   end
 end

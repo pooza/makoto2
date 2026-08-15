@@ -62,6 +62,9 @@ module Makoto
 
       ⚠ 生死だけでなく「投稿を持っているか」「ハートビートが止まっていないか」を見る。
       systemd はプロセスの死しか見ないので、常駐したまま何もしていない状態を拾えない。
+
+      ⚠⚠ jobs は「登録された本数」で「出た本数」ではない。投稿が実際に出ているかは
+      posting の行を見る（#78）。
     TEXT
     def status
       health = Health.new
@@ -69,6 +72,7 @@ module Makoto
         puts "running (PID #{health.pid})"
         puts "jobs: #{health.jobs || '(unknown)'}"
         puts "heartbeat: #{format_age(health.heartbeat_age)}"
+        puts "posting: #{format_posting(health)}"
         puts "orphans: #{health.orphans&.join(', ') || '(unknown)'}"
       else
         puts 'not running'
@@ -83,6 +87,14 @@ module Makoto
     def format_age(seconds)
       return '(unknown)' unless seconds
       return "#{seconds.round}s ago (limit #{Heartbeat.limit.round}s)"
+    end
+
+    # ⚠ **「一度も投稿していない」を異常に見せない。**⚠⚠ **11/1 まではこれが正常**
+    # （枠はあるが、その日の原稿が無い）なので、`never` とだけ言う。
+    def format_posting(health)
+      last = health.posted_at ? "last success #{health.posted_at.getutc.iso8601}" : 'never posted'
+      failures = "#{health.posting_failures} failures in a row (limit #{Heartbeat.failure_limit})"
+      return "#{last}, #{failures}"
     end
   end
 end
