@@ -170,6 +170,17 @@ module Makoto
       assert_equal([4650], health.orphans)
     end
 
+    # ⚠⚠ **インタプリタのオプションを読み飛ばす**（#68 のレビュー指摘）。
+    # ⚠ **スクリプトの位置を「インタプリタの次」と決め打つと、`--yjit` を付けた
+    # 起動を取り逃がす。**bydo の Ruby は YJIT 有効なので、実際に取りうる形。
+    def test_daemon_behind_interpreter_options_is_an_orphan
+      beat
+      fake_process(4650, 'ruby --yjit bin/makoto_daemon.rb start')
+      fake_process(4651, ['ruby', '-W0', '-Ilib', '/srv/makoto2/bin/makoto_daemon.rb', 'start'])
+
+      assert_equal([4650, 4651], health.orphans)
+    end
+
     # ⚠⚠ **`/proc` が読めないときに「孤児は無い」と嘘をつかない。**守っているつもりで
     # 無防備になるのを防ぐ。
     def test_unreadable_proc_is_reported
