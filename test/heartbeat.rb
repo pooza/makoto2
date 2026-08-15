@@ -1,11 +1,18 @@
 module Makoto
   class HeartbeatTest < TestCase
     setup do
-      FileUtils.rm_f(Heartbeat.path)
+      clear
     end
 
     teardown do
+      clear
+    end
+
+    # ⚠ 差し替え用の一時ファイルと鍵も片付ける（→ `Heartbeat#write` / `#with_lock`）。
+    def clear
       FileUtils.rm_f(Heartbeat.path)
+      FileUtils.rm_f(Heartbeat.lock_path)
+      FileUtils.rm_f(Dir.glob("#{Heartbeat.path}.*.tmp"))
     end
 
     def now
@@ -166,6 +173,53 @@ module Makoto
 
       assert_equal(Heartbeat::COUNTED_SLOTS + 10, Heartbeat.failures)
       assert_equal(Heartbeat::COUNTED_SLOTS, Heartbeat.stored[:slots].size)
+    end
+
+    # ⚠⚠ **書き込み中の痕跡を読ませない**（#81 のレビュー指摘）。`File.write` は
+    # **切り詰めてから書く**ので、⚠ **その隙に読んだ側は壊れた JSON を掴む。**
+    #
+    # 🔴 **これは「監視のせいで監視が誤報する」形。**読めない痕跡は `stale?` が true に
+    # なり、⚠⚠ **`makoto status` が 1（復旧させる）を返して monit が正常な常駐を
+    # 再起動する。**⚠ **投稿ごとに書くようになって窓が広がった**（実測で 2,000 回中
+    # 625 回が nil だった）。
+    def test_read_never_sees_a_partial_write
+      Heartbeat.touch(jobs: 5, now: now)
+      results = []
+      reader = Thread.new {500.times {results.push(Heartbeat.read)}}
+      500.times {|i| Heartbeat.record_failure(slot: "live-#{i}", now: now)}
+      reader.join
+
+      assert_equal([], results.select(&:nil?))
+    end
+
+    # ⚠ 差し替えに使った一時ファイルを残さない。
+    def test_write_leaves_no_temporary_file
+      Heartbeat.touch(jobs: 5, now: now)
+
+      assert_equal([], Dir.glob("#{Heartbeat.path}.*.tmp"))
+    end
+
+    # ⚠⚠ **`Mutex` はプロセス内のスレッドしか守らない**（#81 のレビュー指摘）。
+    # ⚠ **常駐は再起動で一時的に 2 本になりうる** — `Health` が孤児で復旧を叩かせない
+    # のはまさにそれが起きるからで、**同じ前提をここでも置く。**
+    # ⚠ **実測では 600 のはずが 142 しか数えられなかった。**
+    def test_update_is_serialized_across_processes
+      rounds = 100
+      Heartbeat.touch(jobs: 5, now: now)
+      # ⚠ **書き込み可能な SQLite の接続を持ったまま fork しない**（sqlite3 が警告を
+      # 出す。⚠⚠ **子の中で閉じても遅い** — 警告は fork の時点で出る）。
+      # ⚠ **他のテストが開いたものも含めて手放す** — この試験は痕跡のファイルしか
+      # 触らない。Sequel は次に使うときに繋ぎ直す。
+      Sequel::DATABASES.each(&:disconnect)
+      pid = fork do
+        rounds.times {|i| Heartbeat.record_failure(slot: "child-#{i}", now: now)}
+        # ⚠ `exit!` にする。テストの teardown を子で走らせない。
+        exit!(0)
+      end
+      rounds.times {|i| Heartbeat.record_failure(slot: "parent-#{i}", now: now)}
+      Process.waitpid(pid)
+
+      assert_equal(rounds * 2, Heartbeat.failures)
     end
 
     def test_failing

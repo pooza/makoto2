@@ -34,7 +34,17 @@ module Makoto
 
     # ⚠ **痕跡の更新は読んで書き直す形。**`Scheduler` のハートビートと `PostingJob` の
     # 結末は**別のスレッド**（rufus）から来るので、**素に書くと片方の更新が消える。**
+    #
+    # ⚠⚠ **これはプロセス内しか守らない。**プロセスをまたぐ側は `LOCK` が守る。
     MUTEX = Mutex.new
+
+    # ⚠⚠ **プロセスをまたいだ read-modify-write を直列化する**（#81 のレビュー指摘）。
+    # ⚠ **常駐が一時的に 2 本になりうる** — `Health` が孤児で復旧を叩かせないのは
+    # まさにそれが起きるからで、**同じ前提をこちらでも置く**。
+    #
+    # ⚠ **実測**: 別プロセスと 300 回ずつ更新して、⚠⚠ **600 のはずが 142 しか
+    # 数えられなかった**（458 回ぶんの更新が消えた）。
+    LOCK_SUFFIX = '.lock'.freeze
 
     # 二重に数えないために覚えておく枠の数。
     #
@@ -105,13 +115,23 @@ module Makoto
       # ⚠ **読んで書き直す。**⚠⚠ **`read` ではなく `stored` から読む** — 時刻の欠けた
       # 痕跡は `read` が nil にするので、そちらを使うと**書き直すたびに投稿の結末が
       # 消える。**
+      #
+      # ⚠ **守りは 2 段。**`MUTEX` がプロセス内のスレッド（rufus のハートビートと
+      # tick）、`flock` がプロセスまたぎ（再起動で一時的に 2 本になる形）。
       def update
         MUTEX.synchronize do
-          record = yield(stored)
-          FileUtils.mkdir_p(File.dirname(path))
-          File.write(path, record.to_json)
-          return record
+          with_lock do
+            record = yield(stored)
+            write(record)
+            return record
+          end
         end
+      end
+
+      # ⚠ **鍵は痕跡そのものとは別のファイル。**痕跡は `write` が rename で置き換える
+      # ので、⚠⚠ **同じファイルを掴むと、鍵を持ったまま実体が別の inode に入れ替わる。**
+      def lock_path
+        return path + LOCK_SUFFIX
       end
 
       # 保存されているものをそのまま。⚠ **`read` と違って `at` の有無を問わない。**
@@ -205,6 +225,37 @@ module Makoto
       # **原稿が無いだけの日は何本過ぎても false**（→ このクラスの冒頭の表）。
       def failing?
         return failures >= failure_limit
+      end
+
+      private
+
+      # ⚠ **プロセスをまたいだ read-modify-write を直列化する。**⚠⚠ **`Mutex` は
+      # プロセス内のスレッドしか守らない**ので、**再起動で一時的に 2 本になる形では
+      # 片方の更新が消える**（→ `LOCK_SUFFIX`）。
+      def with_lock
+        FileUtils.mkdir_p(File.dirname(path))
+        File.open(lock_path, File::CREAT | File::RDWR, 0o644) do |lock|
+          lock.flock(File::LOCK_EX)
+          return yield
+        end
+      end
+
+      # ⚠⚠ **書き込みは差し替えで行う。**`File.write` は**切り詰めてから書く**ので、
+      # ⚠ **その隙に読んだ側は壊れた JSON を掴む。**
+      #
+      # ⚠⚠ **これは「監視のせいで監視が誤報する」形だった** — 読めない痕跡は
+      # `stale?` が true になり、**`makoto status` が 1（復旧させる）を返して monit が
+      # 正常な常駐を再起動する。**⚠ **投稿ごとに書くようになって窓が一気に広がった**
+      # （1 時間に 1 回 → ライブ当日は 160 回）。⚠ **実測で 2,000 回中 625 回が nil。**
+      #
+      # ⚠ **rename は同じディレクトリの中なので不可分。**⚠⚠ **読む側は鍵を取らなくて
+      # よい**（`makoto status` を待たせない）。
+      def write(record)
+        temp = "#{path}.#{Process.pid}.tmp"
+        File.write(temp, record.to_json)
+        File.rename(temp, path)
+      ensure
+        FileUtils.rm_f(temp)
       end
     end
   end
