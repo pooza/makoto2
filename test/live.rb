@@ -229,6 +229,23 @@ module Makoto
       assert_equal(13, program.script_index(entry, fake_scripts(26)))
     end
 
+    # ⚠⚠ **名指しの台本は蝶番より前に出ない**（#76 のレビュー指摘）。
+    # ⚠ **継ぎ目を前半の終端にすると、丸めで蝶番の 1 つ手前にも出て 2 回言う**
+    # （`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6` が 5 に丸まる）。
+    def test_the_hinge_script_never_appears_before_the_hinge
+      program = live.program
+      config['/live/mc/hinge'] = 's5'
+      scripts = fake_scripts(25)
+      indexes = Array.new(26) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 26, mc_hinge: 13)
+        program.script_index(entry, scripts)
+      end
+
+      assert_equal(5, indexes[13])
+      assert_equal(13, indexes.index(5))
+      assert_empty(indexes.first(13).select {|index| index >= 5})
+    end
+
     # ⚠ 台本の順序は蝶番をまたいでも巻き戻らない。
     def test_the_hinge_split_stays_monotonic
       program = live.program

@@ -115,7 +115,10 @@ module Makoto
       straight = [0, total - 1, 0, scripts.size - 1]
       return straight unless hinge.positive? && pivot.positive?
       return straight unless hinge < total && pivot < scripts.size
-      return [0, hinge, 0, pivot] if entry.ordinal < hinge
+      # ⚠⚠ **前半は継ぎ目の 1 本手前まで。**⚠ 継ぎ目を前半の終端にすると、
+      # **丸めで名指しの台本が蝶番の前に出て、蝶番でもう一度出る**
+      # （`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6` が 5 に丸まる。#76 の指摘）。
+      return [0, hinge - 1, 0, pivot - 1] if entry.ordinal < hinge
       return [hinge, total - 1, pivot, scripts.size - 1]
     end
 
