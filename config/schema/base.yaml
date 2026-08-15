@@ -77,6 +77,10 @@ properties:
             minimum: 0
           cover_prefix:
             type: string
+          # ⚠ 単独名義を優先する重み（#65）。1 以下なら一様抽選。
+          cover_solo_weight:
+            type: integer
+            minimum: 0
           # ⚠ 本編から外す曲（#63）。live フラグは触らない（Setlist#excluded?）。
           exclude:
             type: object

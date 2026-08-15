@@ -75,6 +75,13 @@ module Makoto
       (1..covers).each {|i| add("他の歌手#{i}", live: false, day: 100 + i)}
     end
 
+    # カバー候補（ライブ用に入っていない曲）を、名義を指定して足す。
+    def add_cover(name, artist)
+      id = add(name, live: false, day: 200 + ((@id || 5000) % 100))
+      @db[:track].where(id: id).update(artist_name: artist)
+      return id
+    end
+
     def names(entries)
       return entries.map {|entry| entry.mc? ? "MC#{entry.ordinal}" : entry.track[:name]}
     end
@@ -302,6 +309,50 @@ module Makoto
 
       assert_not_includes(names(list.entries), '童謡1')
       assert_not_includes(list.covers.map {|track| track[:name]}, '童謡1')
+    end
+
+    # ⚠⚠ **単独名義を優先して引く**（#65）。MAKOTO は 1 人で歌うので、
+    # 本来複数の歌手で歌う曲を 1 人でカバーするのは不自然。
+    def test_covers_prefer_solo_credits
+      seed(songs: 8, covers: 0)
+      # ⚠ 単独 4 曲・2 名義 12 曲。**一様なら単独が 4 曲すべて選ばれる確率は低い。**
+      (1..4).each {|i| add_cover("単独#{i}", '歌手A')}
+      (1..12).each {|i| add_cover("連名#{i}", "歌手B#{i} & 歌手C#{i}")}
+      config['/live/setlist/cover_solo_weight'] = 50
+      names = setlist(20).covers.map {|track| track[:name]}
+
+      assert_equal(4, names.size)
+      assert_operator(names.count {|name| name.start_with?('単独')}, :>=, 3)
+    end
+
+    # ⚠ **排除ではなく寄せる。**重みを掛けても連名の曲が引かれる余地は残す。
+    def test_covers_still_include_groups
+      seed(songs: 8, covers: 0)
+      (1..12).each {|i| add_cover("連名#{i}", "歌手B#{i} & 歌手C#{i}")}
+      config['/live/setlist/cover_solo_weight'] = 50
+
+      assert_equal(4, setlist(20).covers.size)
+    end
+
+    # ⚠ 1 以下なら一様抽選（＝この機能を切る）。
+    def test_solo_weight_can_be_disabled
+      seed(songs: 8, covers: 6)
+      config['/live/setlist/cover_solo_weight'] = 0
+      uniform = setlist(20).covers.map {|track| track[:id]}
+      config['/live/setlist/cover_solo_weight'] = 1
+
+      assert_equal(uniform, setlist(20).covers.map {|track| track[:id]})
+    end
+
+    # ⚠⚠ **重みを入れても「同じ日付なら同じ並び」を壊さない。**壊すと再起動の
+    # たびに曲順が変わる。
+    def test_weighted_covers_are_stable
+      seed(songs: 8, covers: 0)
+      (1..4).each {|i| add_cover("単独#{i}", '歌手A')}
+      (1..12).each {|i| add_cover("連名#{i}", "歌手B#{i} & 歌手C#{i}")}
+      config['/live/setlist/cover_solo_weight'] = 3
+
+      assert_equal(setlist(20).covers.map {|t| t[:id]}, setlist(20).covers.map {|t| t[:id]})
     end
 
     # ⚠ 設定が無ければ何も外さない（既定の挙動を変えない）。

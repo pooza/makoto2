@@ -194,7 +194,43 @@ module Makoto
       pool = distinct(@repository.by_kind('vocal')).exclude(dedupe_key: live_keys).order(:id).all
         .select {|track| @cure_api.singer?(track[:artist_name])}
       return [] if pool.empty?
-      return pool.sample(total, random: Random.new(@date.strftime('%Y%m%d').to_i))
+      random = Random.new(@date.strftime('%Y%m%d').to_i)
+      return pool.sample(total, random: random) if solo_weight <= 1
+      return weighted_sample(pool, total, random)
+    end
+
+    # ⚠⚠ **単独名義を優先して引く**（#65）。**MAKOTO は 1 人で歌う**ので、
+    # 本来複数の歌手で歌う曲を 1 人でカバーするのは不自然。
+    #
+    # ⚠ **排除ではなく寄せる。**ありえなくはないので、重みで確率を変えるだけにする。
+    # ⚠ **1 以下なら一様抽選**（＝この機能を切る。設定を消せば元の挙動）。
+    def solo_weight
+      return config["#{PREFIX}/cover_solo_weight"].to_i
+    end
+
+    def weight_of(track)
+      return CureApiService.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
+    end
+
+    # 重み付きの非復元抽出。⚠⚠ **同じ日付なら毎回同じ並びになること**を壊さない
+    # （種は日付から作る。壊すと再起動で曲順が変わる）。
+    def weighted_sample(pool, total, random)
+      remaining = pool.dup
+      results = []
+      while results.size < total && remaining.any?
+        results.push(remaining.delete_at(pick_index(remaining, random)))
+      end
+      return results
+    end
+
+    def pick_index(remaining, random)
+      weights = remaining.map {|track| weight_of(track)}
+      point = random.rand(weights.sum.to_f)
+      weights.each_with_index do |weight, index|
+        point -= weight
+        return index if point.negative?
+      end
+      return remaining.size - 1
     end
 
     def build
