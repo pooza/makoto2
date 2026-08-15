@@ -1,0 +1,355 @@
+module Makoto
+  class LiveTest < TestCase
+    def setup
+      super
+      @messages = MessageRepository.new(corpus_db)
+      @tracks = TrackRepository.new(corpus_db)
+      seed_tracks
+    end
+
+    def live
+      return Live.new(repository: @messages, tracks: @tracks)
+    end
+
+    def jst(month, day, hour = 12, minute = 0, year: 2026)
+      return Time.new(year, month, day, hour, minute, 0, '+09:00')
+    end
+
+    # ⚠ フィクスチャの曲は 2 曲しかないので、8 時間の並びを見るぶんだけ足す。
+    def seed_tracks
+      config['/live/setlist/opening'] = 'ライブの 1 曲目'
+      config['/live/setlist/closing'] = 'ライブの最終曲'
+      config['/live/setlist/cover_size'] = 0
+      ['ライブの 1 曲目', '本編A', '本編B', '本編C', 'ライブの最終曲'].each_with_index do |name, i|
+        corpus_db[:track].insert(
+          id: 7000 + i, name: name, artist_name: "歌手#{i}",
+          release_date: Date.new(2013, 1, 1) + i, url: "https://example.test/t/#{i}",
+          kind: 'vocal', live: true, dedupe_key: TrackImporter.dedupe_key(name)
+        )
+      end
+    end
+
+    def add(type, body, month: 11, day: 4, year: 2026)
+      return @messages.create(type: type, body: body, year: year, month: month, day: day)
+    end
+
+    def job_source(job)
+      return job.send(:instance_variable_get, :@source)
+    end
+
+    # ⚠ 台本の代わり。`script_index` は本文を見ないので slug だけあればよい。
+    def fake_scripts(size)
+      return Array.new(size) {|i| {slug: "s#{i}", body: "MC #{i}"}}
+    end
+
+    # MC の枠の頭の時刻。⚠ 並びの中の位置と時刻を突き合わせるのに使う。
+    def mc_times(list, date = Date.new(2026, 11, 4))
+      times = live.timetable.times(date)
+      return list.entries.each_index.select {|i| list.at(i).mc?}.map {|i| times[i]}
+    end
+
+    # ⚠⚠ **ライブの 4 枠すべてにハッシュタグが付く**（#64）。⚠ 曲の投稿は原稿では
+    # ないので、原稿の側に書き足す形にすると**曲だけ付かない。**
+    def test_every_slot_appends_the_hashtag
+      add('live_eve', '明日はバースデーライブです', day: 3)
+      add('live_open', 'スタートです')
+      add('live_close', 'おしまいです')
+      tag = config['/live/hashtag']
+
+      assert_equal(
+        [true, true, true, true],
+        [
+          job_source(live.eve_job).call(jst(11, 3, 13, 0)),
+          job_source(live.open_job).call(jst(11, 4, 12, 0)),
+          # ⚠ 曲の枠。`TrackPresenter` の出力（URL の後ろ）に付くこと。
+          job_source(live.program_job).call(jst(11, 4, 12, 2)),
+          job_source(live.close_job).call(jst(11, 4, 20, 0)),
+        ].map {|text| text.to_s.lines.last == tag},
+      )
+    end
+
+    # ⚠⚠ **本文が無い枠にタグだけ出さない。**nil は「その枠は投稿しない」の合図で、
+    # ⚠ ここでタグを足すと**タグだけの投稿が毎日出る。**
+    def test_hashtag_is_not_posted_alone
+      assert_nil(job_source(live.open_job).call(jst(6, 15, 12, 0)))
+      assert_nil(job_source(live.program_job).call(jst(6, 15, 13, 0)))
+    end
+
+    # ⚠ 枠は 4 つ。**前日増量・開始告知・8 時間の進行・終了告知。**
+    def test_registers_four_jobs
+      assert_equal(['live-eve', 'live-open', 'live', 'live-close'], live.jobs.map(&:name))
+    end
+
+    # ⚠ **12:00 と 20:00 は告知の枠。**曲は 12:02 から始まり 20:00 を含まない
+    # （含めると告知と曲が同じ時刻に重なる）。
+    def test_announcements_do_not_collide_with_songs
+      assert_equal([jst(11, 4, 12, 0)], live.timetable('open').times(Date.new(2026, 11, 4)))
+      assert_equal([jst(11, 4, 20, 0)], live.timetable('close').times(Date.new(2026, 11, 4)))
+      songs = live.timetable.times(Date.new(2026, 11, 4))
+
+      assert_equal(jst(11, 4, 12, 2), songs.first)
+      assert_equal(jst(11, 4, 19, 59), songs.last)
+    end
+
+    # ⚠ 冪等キーは枠の頭から作る。再起動で同じ枠を処理しても Mastodon が畳む。
+    def test_idempotency_key_comes_from_the_slot
+      assert_equal('live-20261104T030200Z', live.program_job.idempotency_key(jst(11, 4, 12, 2)))
+    end
+
+    # ⚠⚠ **ライブ当日は曲が出る。**開始直後は 1 曲目（ライブ名の由来の曲）。
+    def test_program_plays_the_opening_song_first
+      assert_includes(live.program.call(jst(11, 4, 12, 2)), 'ライブの 1 曲目')
+    end
+
+    # ⚠⚠⚠ **ライブ当日以外は 1 本も出さない。**告知や MC は「その日の原稿が無ければ
+    # 出ない」で黙るが、⚠ **曲は原稿ではないので黙らせるものが無い。**これが抜けると
+    # 毎日 12:02〜20:00 に 8 時間ぶんの曲が流れる。
+    def test_program_is_silent_on_every_other_day
+      times = [jst(1, 1, 12, 2), jst(6, 15, 15, 2), jst(11, 1, 12, 2), jst(11, 3, 12, 2),
+        jst(11, 5, 12, 2), jst(12, 24, 18, 2)]
+
+      assert_empty(times.filter_map {|time| live.program.call(time)})
+    end
+
+    # ⚠ 枠の外（12:00 の告知の時刻・20:00 以降）では曲を返さない。
+    def test_program_is_silent_outside_the_slot
+      assert_nil(live.program.call(jst(11, 4, 12, 0)))
+      assert_nil(live.program.call(jst(11, 4, 20, 0)))
+      assert_nil(live.program.call(jst(11, 4, 23, 0)))
+    end
+
+    # ⚠⚠ **MC は原稿を台本の順に消化する。**乱択だと同じ原稿が何度も出て、出ない
+    # 原稿が残る。⚠ **枠のほうが多ければ同じ原稿が続くが、巻き戻らない。**
+    def test_mc_follows_the_script_order
+      add('live_mc', 'MC その 1')
+      add('live_mc', 'MC その 2')
+      program = live.program
+      list = program.setlist(jst(11, 4, 13, 0))
+      texts = mc_times(list).map {|time| program.call(time)}
+
+      assert_operator(texts.size, :>=, 3)
+      assert_equal('MC その 1', texts.first)
+      assert_equal('MC その 2', texts.last)
+      assert_equal(texts, texts.sort)
+    end
+
+    # ⚠⚠ **台本は位置で意味が決まる**（#69）。`最後の1曲。` は最後でなければ嘘になる。
+    # ⚠ **枠が原稿より多くても、最初の枠は 1 本目・最後の枠は最後の 1 本。**
+    # ⚠⚠ **これが `ordinal % 原稿数` では成立しない**（`最後の1曲。` が中盤に出た）。
+    def test_mc_keeps_the_script_arc_when_slots_outnumber_scripts
+      3.times {|i| add('live_mc', "MC #{i}")}
+      program = live.program
+      list = program.setlist(jst(11, 4, 13, 0))
+      entries = list.entries.select(&:mc?)
+      texts = entries.map {|entry| program.mc_text(entry, jst(11, 4, 13, 0))}
+
+      assert_operator(entries.size, :>, 3)
+      assert_equal('MC 0', texts.first)
+      assert_equal('MC 2', texts.last)
+      # ⚠ 巻き戻らない＝一度進んだら戻らない。
+      assert_equal(texts, texts.sort)
+    end
+
+    # ⚠ **原稿を足しても引いても、端の 2 つは動かない。**⚠⚠ **本数と枠数を独立させる**
+    # のがこの規則の要点で、曲数が動けば MC の枠数も動く（#63 で 17 → 25 枠になった）。
+    def test_mc_arc_survives_a_different_script_count
+      8.times {|i| add('live_mc', 'MC %02d' % i)}
+      program = live.program
+      time = jst(11, 4, 13, 0)
+      entries = program.setlist(time).entries.select(&:mc?)
+      texts = entries.map {|entry| program.mc_text(entry, time)}
+
+      assert_equal('MC 00', texts.first)
+      assert_equal('MC 07', texts.last)
+      assert_equal(texts, texts.sort)
+    end
+
+    # ⚠⚠ **原稿のほうが多い日でも、最後の枠は最後の 1 本**（#71 のレビュー指摘）。
+    # ⚠ `ordinal × 原稿数 ÷ 枠数` だと 25 本 24 枠で 24 番目が永久に出ない。
+    # ⚠⚠ **`最後の1曲。` が出ないという、#69 が消そうとした壊れ方そのもの。**
+    def test_script_index_matches_both_ends
+      program = live.program
+      [[24, 25], [24, 17], [25, 25], [23, 25], [2, 25]].each do |slots, size|
+        first = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: slots)
+        last = Setlist::Entry.new(kind: :mc, ordinal: slots - 1, mc_total: slots)
+
+        assert_equal(0, program.script_index(first, fake_scripts(size)), "#{slots} 枠 / #{size} 本")
+        assert_equal(size - 1, program.script_index(last, fake_scripts(size)),
+          "#{slots} 枠 / #{size} 本")
+      end
+    end
+
+    # ⚠ 枠が 1 つしか無い日は、両端に合わせようがない。**台本の頭を出す**
+    # （`最後の1曲。` を単独で出すより、始まりの 1 本のほうが破綻しない）。
+    def test_a_single_mc_slot_uses_the_first_script
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: 1)
+
+      assert_equal(0, live.program.script_index(entry, fake_scripts(25)))
+    end
+
+    # ⚠ 総数が分からない項目（`Setlist` 以外が作ったもの）は従来どおり巻き戻す。
+    def test_script_index_falls_back_without_a_total
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 5)
+
+      assert_equal(2, live.program.script_index(entry, fake_scripts(3)))
+    end
+
+    # ⚠⚠ **中間アンカーは蝶番の直後に来る**（#73）。⚠ **両端だけでは足りない** —
+    # 台本は「MC の何番目か」、蝶番は「曲の何番目か」で位置が決まるので、
+    # ⚠⚠ **曲数が 1 曲動くだけで `後半。` が蝶番の前に出る**（#58 で実際に起きた）。
+    def test_the_hinge_script_lands_right_after_the_hinge
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      # ⚠ 枠数を変えても、蝶番の MC には必ず `s12` が来ること。
+      [[26, 13], [24, 12], [30, 15], [20, 10]].each do |slots, hinge|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: hinge, mc_total: slots, mc_hinge: hinge)
+
+        assert_equal(12, program.script_index(entry, fake_scripts(25)), "#{slots} 枠 / 蝶番 #{hinge}")
+      end
+    end
+
+    # ⚠ 中間アンカーを名指ししても、両端は動かない。
+    def test_the_hinge_script_does_not_move_the_ends
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      first = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: 26, mc_hinge: 13)
+      last = Setlist::Entry.new(kind: :mc, ordinal: 25, mc_total: 26, mc_hinge: 13)
+
+      assert_equal(0, program.script_index(first, fake_scripts(25)))
+      assert_equal(24, program.script_index(last, fake_scripts(25)))
+    end
+
+    # ⚠⚠ **名指しした台本が引けなければ、落ちずに通常の割合で引く**
+    # （`Setlist` のアンカーと同じ判断 — 引けなければ黙って別のものを置かない）。
+    def test_a_missing_hinge_script_falls_back_to_the_straight_line
+      program = live.program
+      config['/live/mc/hinge'] = '存在しない slug'
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 13, mc_total: 26, mc_hinge: 13)
+
+      assert_equal(13, program.script_index(entry, fake_scripts(26)))
+    end
+
+    # ⚠⚠ **名指しの台本は蝶番より前に出ない**（#76 のレビュー指摘）。
+    # ⚠ **継ぎ目を前半の終端にすると、丸めで蝶番の 1 つ手前にも出て 2 回言う**
+    # （`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6` が 5 に丸まる）。
+    def test_the_hinge_script_never_appears_before_the_hinge
+      program = live.program
+      config['/live/mc/hinge'] = 's5'
+      scripts = fake_scripts(25)
+      indexes = Array.new(26) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 26, mc_hinge: 13)
+        program.script_index(entry, scripts)
+      end
+
+      assert_equal(5, indexes[13])
+      assert_equal(13, indexes.index(5))
+      assert_empty(indexes.first(13).select {|index| index >= 5})
+    end
+
+    # ⚠ 台本の順序は蝶番をまたいでも巻き戻らない。
+    def test_the_hinge_split_stays_monotonic
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      indexes = Array.new(26) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 26, mc_hinge: 13)
+        program.script_index(entry, fake_scripts(25))
+      end
+
+      assert_equal(indexes, indexes.sort)
+      assert_equal(12, indexes[13])
+    end
+
+    # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
+    # ⚠ **「何本目の MC がどの原稿になるか」の正本を 2 つに割らない** — 下見と実際の
+    # 投稿が食い違うと、下見そのものが信用できなくなる。
+    def test_mc_text_is_shared_with_the_preview
+      add('live_mc', 'MC その 1')
+      add('live_mc', 'MC その 2')
+      program = live.program
+      time = jst(11, 4, 13, 0)
+      entries = program.setlist(time).entries.select(&:mc?)
+
+      assert_equal(2, program.mc_size(time))
+      assert_equal(entries.map {|entry| program.mc_text(entry, time)},
+        mc_times(program.setlist(time)).map {|at| program.call(at)})
+    end
+
+    # ⚠ 原稿が 1 本も無ければ下見の側も nil（枠が素通しになることを表示できる）。
+    def test_mc_text_without_scripts_is_nil
+      program = live.program
+      time = jst(11, 4, 13, 0)
+      entry = program.setlist(time).entries.find(&:mc?)
+
+      assert_equal(0, program.mc_size(time))
+      assert_nil(program.mc_text(entry, time))
+    end
+
+    # ⚠ MC の原稿が 1 本も無ければその枠は投稿しない（例外にしない）。
+    def test_mc_without_scripts_posts_nothing
+      list = live.program.setlist(jst(11, 4, 13, 0))
+      index = list.entries.each_index.find {|i| list.at(i).mc?}
+
+      assert_nil(live.program.call(live.timetable.times(Date.new(2026, 11, 4))[index]))
+    end
+
+    # ⚠⚠ **開始告知にはミュート導線を書く**（#13 の完了条件・参加は任意）。
+    # 仕組みとしては「その日の原稿が出ること」まで。
+    def test_open_and_close_use_the_script
+      add('live_open', 'SONGBIRD PARTY 2026 スタートです！聴きたくない方はミュートしてくださいね')
+      add('live_close', 'これでおしまいです。また来年、会いに来てね')
+
+      assert_includes(live.selector('open').call(jst(11, 4, 12, 0)), 'ミュート')
+      assert_includes(live.selector('close').call(jst(11, 4, 20, 0)), 'また来年')
+    end
+
+    # ⚠ 告知は当日以外には出ない（枠は毎日あるので、ここが nil を返さないと毎日出る）。
+    def test_open_is_silent_on_other_days
+      add('live_open', 'スタートです')
+
+      assert_nil(live.selector('open').call(jst(6, 15, 12, 0)))
+    end
+
+    # ⚠ 前日（11/3）の増量は**別の枠**。予告の枠を広げると 11/1 と 11/2 も一緒に増える。
+    def test_eve_is_a_separate_slot_on_the_day_before
+      add('live_eve', '明日はバースデーライブです', day: 3)
+
+      assert_equal(8, live.timetable('eve').size(Date.new(2026, 11, 3)))
+      assert_equal("明日はバースデーライブです\n#{config['/live/hashtag']}",
+        job_source(live.eve_job).call(jst(11, 3, 13, 0)))
+    end
+
+    # ⚠⚠ **前日増量は 1 日に 8 本出る。乱択だと同じ原稿が何度も出て、出ない原稿が残る。**
+    # 枠の順に頭から消化すること。
+    def test_eve_consumes_the_scripts_in_order
+      ['1 本目', '2 本目', '3 本目'].each {|body| add('live_eve', body, day: 3)}
+      source = ScriptRotation.new(selector: live.selector('eve'), timetable: live.timetable('eve'))
+      times = live.timetable('eve').times(Date.new(2026, 11, 3))
+
+      assert_equal(['1 本目', '2 本目', '3 本目', '1 本目'],
+        times.first(4).map {|time| source.call(time)})
+    end
+
+    # ⚠ 前日以外には出ない（枠は毎日あるので、ここが nil を返さないと毎日出る）。
+    def test_eve_is_silent_on_other_days
+      add('live_eve', '明日はバースデーライブです', day: 3)
+      source = ScriptRotation.new(selector: live.selector('eve'), timetable: live.timetable('eve'))
+
+      assert_nil(source.call(jst(11, 4, 13, 0)))
+      assert_nil(source.call(jst(6, 15, 13, 0)))
+    end
+
+    # ⚠⚠ **台本の type が記念日に登録されていなければ作らせない。**登録が無いと
+    # 日付を持たない台本が段 5 に混ざって毎日出るが、それは 11/4 まで気付けない。
+    def test_rejects_a_type_that_is_not_an_anniversary
+      config['/live/mc/type'] = 'chatter'
+
+      assert_raise(Ginseng::ConfigError) {live.jobs}
+    end
+
+    # ⚠ ライブの日の正本は /message/anniversary（設定を 2 箇所に割らない）。
+    def test_live_day_comes_from_the_anniversary_registration
+      assert(live.program.live_day?(jst(11, 4, 13, 0)))
+      refute(live.program.live_day?(jst(11, 3, 13, 0)))
+    end
+  end
+end

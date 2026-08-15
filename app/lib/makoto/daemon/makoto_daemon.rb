@@ -17,7 +17,9 @@ module Makoto
 
     def start(args = [])
       logger.info(daemon: app_name, version: Package.version, message: 'start')
+      # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。
       connect_db
+      register_jobs
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -27,6 +29,19 @@ module Makoto
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
       Scheduler.instance.shutdown
+    end
+
+    # 常駐が回す投稿を並べる。
+    #
+    # ⚠ **投稿の中身はここに書かない。**何を投稿するかは各機能が自分の `PostingJob`
+    # を作って持つ（→ `Scheduler`）。ここは並べるだけ。
+    # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
+    def register_jobs
+      Scheduler.instance.register(Announcement.new.job)
+      # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
+      # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
+      Live.new.jobs.each {|job| Scheduler.instance.register(job)}
+      return Scheduler.instance
     end
 
     private

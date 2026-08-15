@@ -4,7 +4,38 @@
 $schema: http://json-schema.org/draft-06/schema#
 title: makoto2 config
 type: object
+definitions:
+  # 投稿の枠（→ Makoto::Timetable）。⚠ 3 つのうち 1 つでも欠けると枠が作れない。
+  timetable:
+    type: object
+    properties:
+      start:
+        type: string
+      finish:
+        type: string
+      interval:
+        type: string
+    required:
+      - start
+      - finish
+      - interval
+  # 前もって用意した原稿を出す枠。⚠ type は /message/anniversary にも登録すること。
+  scripted_slot:
+    type: object
+    properties:
+      type:
+        type: string
+      timetable:
+        $ref: '#/definitions/timetable'
+    required:
+      - type
+      - timetable
 properties:
+  # 予告投稿（#14）。⚠ 欠けると PostingJob が作れず、11/1 に予告が出ない。
+  # ⚠⚠ 出ないことは 11/1 まで分からないので、設定の検証で止める。
+  # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
+  announcement:
+    $ref: '#/definitions/scripted_slot'
   corpus:
     type: object
     properties:
@@ -12,6 +43,86 @@ properties:
         type: string
     required:
       - dir
+  # プリキュアの情報の取得先。⚠ 欠けるとライブのゲストコーナーが静かに空になる。
+  cure_api:
+    type: object
+    properties:
+      url:
+        type: string
+        format: uri
+    required:
+      - url
+  # バースデーライブ（#13）。⚠ 欠けると PostingJob が作れず、11/4 に何も起きない。
+  # ⚠⚠ 起きないことは 11/4 まで分からないので、設定の検証で止める。
+  live:
+    type: object
+    properties:
+      # 8 時間の進行。⚠ 12:00 と 20:00 は告知の枠なので曲は含めない。
+      timetable:
+        $ref: '#/definitions/timetable'
+      # ⚠ 投稿の最終行に足すハッシュタグ（#64）。空なら付けない。
+      hashtag:
+        type: string
+      setlist:
+        type: object
+        properties:
+          # ⚠ アンカーの曲名。引けなければその位置を諦める（Setlist）。
+          opening:
+            type: string
+          closing:
+            type: string
+          # ゲストコーナー 1 つあたりの曲数。⚠ 0 ならカバーを置かない。
+          cover_size:
+            type: integer
+            minimum: 0
+          cover_prefix:
+            type: string
+          # ⚠ 単独名義を優先する重み（#65）。1 以下なら一様抽選。
+          cover_solo_weight:
+            type: integer
+            minimum: 0
+          # ⚠ 本編から外す曲（#63）。live フラグは触らない（Setlist#excluded?）。
+          exclude:
+            type: object
+            properties:
+              collections:
+                type: array
+                items:
+                  type: string
+              tracks:
+                type: array
+                items:
+                  type: string
+        required:
+          - opening
+          - closing
+          - cover_size
+      # ⚠ 4 つの type はすべて /message/anniversary にも登録すること
+      # （登録が無いと台本が毎日出る。Live#validate が起動時に落とす）。
+      open:
+        $ref: '#/definitions/scripted_slot'
+      close:
+        $ref: '#/definitions/scripted_slot'
+      eve:
+        $ref: '#/definitions/scripted_slot'
+      mc:
+        type: object
+        properties:
+          type:
+            type: string
+          # ⚠ 蝶番の直後に置く台本の slug（#73）。⚠⚠ 必須にしない —
+          # 引けなければ通常の割合で引く（Setlist のアンカーと同じ判断）。
+          hinge:
+            type: string
+        required:
+          - type
+    required:
+      - timetable
+      - setlist
+      - open
+      - mc
+      - close
+      - eve
   environment:
     enum:
       - development
@@ -40,6 +151,25 @@ properties:
     required:
       - url
       - token
+  message:
+    type: object
+    properties:
+      # 記念日。⚠ キーは `MM-DD`、値はその日に使う原稿の type。
+      # ⚠⚠ ここに挙げた type は、その日以外では選ばれない。
+      # ⚠ 1 日に複数の type を持てる（11/4 は誕生日とライブの台本が同居する → #13）。
+      anniversary:
+        type: object
+        patternProperties:
+          '^\d{2}-\d{2}$':
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+                minItems: 1
+        additionalProperties: false
+    required:
+      - anniversary
   package:
     type: object
     properties:
@@ -60,6 +190,17 @@ properties:
             type: string
         required:
           - interval
+      timezone:
+        type: string
+      # ⚠ 枠の頭を拾う間隔。欠けると PostingJob が作れず、投稿が 1 本も出ない。
+      tick:
+        type: string
+    # ⚠ timezone が欠けるとホストのローカルタイムに落ちる。ライブの開始時刻がずれても
+    # 「何も起きない」だけなので、設定の検証で止める。
+    required:
+      - heartbeat
+      - timezone
+      - tick
   sqlite3:
     type: object
     properties:
@@ -67,11 +208,50 @@ properties:
         type: string
     required:
       - db
+  track:
+    type: object
+    properties:
+      dir:
+        type: string
+      # 抽選の重み。⚠ 5 つの kind は収集スクリプトが付ける閉じた集合なので、
+      # すべて required にする。欠けると、その kind が黙って永久に出なくなる。
+      weight:
+        type: object
+        properties:
+          vocal:
+            type: integer
+            minimum: 0
+          bgm:
+            type: integer
+            minimum: 0
+          karaoke:
+            type: integer
+            minimum: 0
+          tv_size:
+            type: integer
+            minimum: 0
+          instrumental:
+            type: integer
+            minimum: 0
+        required:
+          - vocal
+          - bgm
+          - karaoke
+          - tv_size
+          - instrumental
+    required:
+      - dir
+      - weight
 required:
+  - announcement
   - corpus
+  - cure_api
   - environment
+  - live
   - logger
   - mastodon
+  - message
   - package
   - scheduler
   - sqlite3
+  - track

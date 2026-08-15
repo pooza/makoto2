@@ -1,0 +1,17 @@
+# 取り込みの検査用。⚠ **実データではない**（var/ の台本は public リポジトリに置かない）。
+- slug: test-eve-01
+  type: test_eve
+  date: 2026-11-03
+  body: |-
+    前日の 1 本目。
+    2 行あります。
+
+- slug: test-eve-02
+  type: test_eve
+  date: 2026-11-03
+  body: 前日の 2 本目。
+
+- slug: test-open
+  type: test_open
+  date: 2026-11-04
+  body: はじまります。
