@@ -76,8 +76,8 @@ module Makoto
     # ⚠ 同じ原稿が 2 回目に出る枠を目で拾えるようにする。⚠⚠ **原稿は進行の割合で
     # 引く**ので（#69）、**続けて同じものが出るのが 2 回目の形**。前から数える。
     def repeat_mark(entry, time)
-      scripts = mc_size(time)
-      return '' if scripts.zero?
+      scripts = mc_scripts(time)
+      return '' if scripts.empty?
       @used ||= Hash.new(0)
       index = @live.program.script_index(entry, scripts)
       @used[index] += 1
@@ -85,9 +85,14 @@ module Makoto
       return " ↻#{@used[index]}回目"
     end
 
+    # ⚠ 1 回だけ引く（160 枠ぶん引き直さない）。
+    def mc_scripts(time)
+      @mc_scripts ||= @live.program.mc_scripts(time)
+      return @mc_scripts
+    end
+
     def mc_size(time)
-      @mc_size ||= @live.program.mc_size(time)
-      return @mc_size
+      return mc_scripts(time).size
     end
 
     # ⚠⚠ **日付のまま渡す。**時刻を作るとホストの TZ で解釈され、日本の外で

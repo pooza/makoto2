@@ -39,7 +39,11 @@ module Makoto
     # ⚠⚠ **`ordinal`（何本目か）だけでなく `mc_total`（全部で何本か）も持つ**（#69）。
     # **台本は位置で意味が決まる**（`最後の1曲。` は最後でなければ嘘になる）ので、
     # ⚠ **`LiveProgram` が「進行の何割か」で原稿を引けるようにする。**
-    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, keyword_init: true) do
+    #
+    # ⚠⚠ **`mc_hinge` は蝶番（アンカーの再演）の直後に来る MC の番号**（#73）。
+    # ⚠ **台本の中間アンカー（`後半。`）はここに合わせる。**両端（`ordinal 0` と
+    # `mc_total - 1`）だけでは、⚠⚠ **中間が曲数の増減で蝶番をまたいでずれる。**
+    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, :mc_hinge, keyword_init: true) do
       def song?
         return kind == :song
       end
@@ -249,13 +253,28 @@ module Makoto
       return with_mc_total(compose(opening, closing, body[0...half], body[half..] || [], fillers))
     end
 
-    # ⚠⚠ **MC の総数を各 MC に配る**（#69）。⚠ **組み終わるまで総数が確定しない**ので
-    # 最後に 1 回だけ回る。⚠ **これが無いと `LiveProgram` は「何割の位置か」を出せず、
-    # 台本が枠数に合わなくなった瞬間に頭から巻き戻る**（`最後の1曲。` が中盤に出た）。
+    # ⚠⚠ **MC の総数と蝶番の位置を各 MC に配る**（#69 / #73）。⚠ **組み終わるまで
+    # どちらも確定しない**ので最後に 1 回だけ回る。⚠ **これが無いと `LiveProgram` は
+    # 「何割の位置か」を出せず、台本が枠数に合わなくなった瞬間に頭から巻き戻る**
+    # （`最後の1曲。` が中盤に出た）。
     def with_mc_total(entries)
       total = entries.count(&:mc?)
-      entries.each {|entry| entry.mc_total = total if entry.mc?}
+      hinge = hinge_mc_ordinal(entries)
+      entries.each do |entry|
+        next unless entry.mc?
+        entry.mc_total = total
+        entry.mc_hinge = hinge
+      end
       return entries
+    end
+
+    # 蝶番（アンカーの再演）の**直後に来る最初の MC の番号**。⚠ 無ければ nil。
+    #
+    # ⚠ **位置は組むときに記録する**（`@hinge_index`）。⚠⚠ **あとから曲名で探し直さない** —
+    # `opening` が引けなかった日に別の曲を蝶番と取り違える。
+    def hinge_mc_ordinal(entries)
+      return nil unless @hinge_index
+      return entries[@hinge_index..].find(&:mc?)&.ordinal
     end
 
     # 前半・後半に埋め草（カバーと MC）を割り振って 1 本に繋ぐ。
@@ -272,6 +291,8 @@ module Makoto
       results = []
       results.push(Entry.new(kind: :song, track: opening)) if opening
       results.concat(half(first, first_corner, first_extra, 0))
+      # ⚠ **蝶番の位置をここで覚える**（#73）。アンカーが引けなければ蝶番も無い。
+      @hinge_index = results.size if opening
       results.push(Entry.new(kind: :song, track: opening)) if opening
       results.concat(half(second, corners[1], fillers - first_extra,
         first_extra - first_corner.size))

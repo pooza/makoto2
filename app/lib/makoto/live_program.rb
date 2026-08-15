@@ -62,9 +62,14 @@ module Makoto
     # どの原稿になるか」の正本を 2 つに割らない** — 下見で見た並びと実際の投稿が
     # 食い違うと、下見そのものが信用できなくなる。
     def mc_text(entry, time = nil)
-      scripts = @mc_selector.list(time || Time.now)
+      scripts = mc_scripts(time)
       return nil if scripts.empty?
-      return scripts[script_index(entry, scripts.size)][:body]
+      return scripts[script_index(entry, scripts)][:body]
+    end
+
+    # 用意されている MC の原稿。⚠ **下見も同じものを見る**（→ `LiveCommand`）。
+    def mc_scripts(time = nil)
+      return @mc_selector.list(time || Time.now)
     end
 
     # ⚠⚠ **原稿は「進行の何割の位置か」で引く**（#69）。**台本は位置で意味が決まる**
@@ -80,21 +85,55 @@ module Makoto
     # ⚠ **`最後の1曲。` が出ないという、この修正が消そうとした壊れ方そのもの**
     # （#71 のレビュー指摘）。**最初の枠は 1 本目、最後の枠は最後の 1 本**になる式にする。
     #
+    # ⚠⚠ **両端だけでは足りない。**⚠ **中間の `後半。` は蝶番（`〜SONGBIRD〜` の再演）の
+    # 直後でなければ嘘になる**が、⚠⚠ **台本は「MC の何番目か」、蝶番は「曲の何番目か」で
+    # 位置が決まる**ので、**曲数が 1 曲動くだけで入れ替わる**（#73・実際に #58 で起きた）。
+    # **蝶番で 2 本の直線に割り、その継ぎ目に名指しの台本を置く。**
+    #
     # ⚠ **総数が分からなければ従来どおり巻き戻す**（`Setlist` 以外が作った項目への保険）。
-    def script_index(entry, size)
+    def script_index(entry, scripts)
+      size = scripts.size
       total = entry.mc_total.to_i
       return entry.ordinal % size if total < 1
       return 0 if total < 2 || size < 2
-      # ⚠ 浮動小数を使わない（同じ日付なら同じ並び、が前提 → Setlist）。
-      return Rational(entry.ordinal * (size - 1), total - 1).round.clamp(0, size - 1)
+      from, to, script_from, script_to = segment(entry, total, scripts)
+      return interpolate(entry.ordinal, from, to, script_from, script_to).clamp(0, size - 1)
     end
 
     # 用意されている MC の原稿の本数。⚠ **下見が「何本が 2 回出るか」を出すのに使う。**
     def mc_size(time = nil)
-      return @mc_selector.list(time || Time.now).size
+      return mc_scripts(time).size
     end
 
     private
+
+    # 台本を割る継ぎ目。⚠ **中間アンカーが引けなければ 1 本の直線に戻す**
+    # （`Setlist` のアンカーと同じ判断 — 引けなければ黙って別のものを置かない）。
+    def segment(entry, total, scripts)
+      hinge = entry.mc_hinge.to_i
+      pivot = hinge_index(scripts).to_i
+      straight = [0, total - 1, 0, scripts.size - 1]
+      return straight unless hinge.positive? && pivot.positive?
+      return straight unless hinge < total && pivot < scripts.size
+      # ⚠⚠ **前半は継ぎ目の 1 本手前まで。**⚠ 継ぎ目を前半の終端にすると、
+      # **丸めで名指しの台本が蝶番の前に出て、蝶番でもう一度出る**
+      # （`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6` が 5 に丸まる。#76 の指摘）。
+      return [0, hinge - 1, 0, pivot - 1] if entry.ordinal < hinge
+      return [hinge, total - 1, pivot, scripts.size - 1]
+    end
+
+    # ⚠ 蝶番の直後に置く台本（`/live/mc/hinge` の `slug`）。⚠ 無ければ nil。
+    def hinge_index(scripts)
+      slug = config['/live/mc/hinge'].to_s
+      return nil if slug.empty?
+      return scripts.index {|script| script[:slug] == slug}
+    end
+
+    # ⚠ 浮動小数を使わない（同じ日付なら同じ並び、が前提 → `Setlist`）。
+    def interpolate(ordinal, from, to, script_from, script_to)
+      return script_from if to <= from
+      return script_from + Rational((ordinal - from) * (script_to - script_from), to - from).round
+    end
 
     # ⚠ ホストの TZ ではなく `/scheduler/timezone`（→ `Timetable` と同じ正本）。
     def date_of(time)
