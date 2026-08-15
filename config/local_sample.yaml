@@ -7,3 +7,9 @@ mastodon:
   url: https://st2.precure.ml
   acct: test
   token: CHANGE_ME
+# 監視の口（#84）。⚠ **既定は 127.0.0.1 なので、箱の外（Uptime Kuma）から叩くには
+# ここで開ける。**⚠⚠ **LAN 限定の読み取り専用の口**であり、管理コンソールではない。
+# ⚠ 開けるのは稼働ホストだけでよい（手元の開発では既定のまま）。
+# monitor:
+#   bind: 0.0.0.0
+

@@ -20,15 +20,26 @@ module Makoto
       # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。
       connect_db
       register_jobs
+      # ⚠ 監視の口は登録のあとに開ける（#84）。⚠⚠ **先に開けると、まだ 0 本の
+      # `jobs` を見た `/healthz` が「投稿を 1 本も持たない」と赤くする。**
+      monitor_server.start
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
       raise
     end
 
+    # ⚠ `run_start` の trap から同じインスタンスの `stop` が呼ばれる（→ Ginseng::Daemon）
+    # ので、⚠⚠ **常駐が畳まれるときに監視の口も一緒に閉じる。**
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
+      monitor_server.stop
       Scheduler.instance.shutdown
+    end
+
+    def monitor_server
+      @monitor_server ||= MonitorServer.new
+      return @monitor_server
     end
 
     # 常駐が回す投稿を並べる。
