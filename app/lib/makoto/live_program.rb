@@ -55,15 +55,24 @@ module Makoto
       return @setlists[date]
     end
 
-    private
-
     # ⚠ **原稿が尽きたら頭に戻る。**用意した本数より MC の枠が多くても、無言の枠を
     # 作らない。⚠ 1 本も無ければ nil（＝その枠は投稿しない）。
-    def mc_text(entry, time)
-      scripts = @mc_selector.list(time)
+    #
+    # ⚠⚠ **下見（`makoto live setlist`）もここを呼ぶ**（#62）。**「何本目の MC が
+    # どの原稿になるか」の正本を 2 つに割らない** — 下見で見た並びと実際の投稿が
+    # 食い違うと、下見そのものが信用できなくなる。
+    def mc_text(entry, time = nil)
+      scripts = @mc_selector.list(time || Time.now)
       return nil if scripts.empty?
       return scripts[entry.ordinal % scripts.size][:body]
     end
+
+    # 用意されている MC の原稿の本数。⚠ **下見が「何本が 2 回出るか」を出すのに使う。**
+    def mc_size(time = nil)
+      return @mc_selector.list(time || Time.now).size
+    end
+
+    private
 
     # ⚠ ホストの TZ ではなく `/scheduler/timezone`（→ `Timetable` と同じ正本）。
     def date_of(time)

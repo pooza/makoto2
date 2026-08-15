@@ -13,9 +13,11 @@ module Makoto
 
     option :date, type: :string, desc: '下見する日付（既定は今日）。YYYY-MM-DD'
     option :limit, type: :numeric, desc: '表示する枠の数（既定は全部）'
+    option :mc, type: :boolean, default: false, desc: 'MC の原稿の本文も表示する'
     desc 'setlist', 'その日の並び（曲・カバー・MC）を表示する'
     def setlist
-      timetable = Live.new.timetable
+      @live = Live.new
+      timetable = @live.timetable
       date = preview_date(options[:date])
       dump(Setlist.new(date: date, slots: timetable.size(date)), timetable, date)
     rescue Ginseng::ValidateError, Ginseng::ConfigError => e
@@ -45,9 +47,43 @@ module Makoto
       times = timetable.times(date)
       puts "#{date} #{timetable} / #{list.size} 枠"
       puts "本編 #{list.songs.size} 曲 / カバー #{list.covers.size} 曲"
+      puts mc_summary(list, times.first)
       list.entries.first(options[:limit] || list.size).each_with_index do |entry, index|
-        puts "#{times[index]&.strftime('%H:%M') || '--:--'} [#{index}] #{entry}"
+        at = times[index]
+        puts "#{at&.strftime('%H:%M') || '--:--'} [#{index}] #{label(entry, at)}"
       end
+    end
+
+    # ⚠⚠ **MC は本番でいちばん本数の出る要素なのに、圧縮リハーサルでは構造的に
+    # 出ない**（埋め草は `枠数 − 曲数 − アンカー`）。⚠ **下見で本数と繰り返しを
+    # 読めるようにしておく**（→ #62）。
+    def mc_summary(list, time)
+      slots = list.entries.count(&:mc?)
+      scripts = mc_size(time)
+      return "MC #{slots} 枠 / 原稿 #{scripts} 本" if scripts.zero? || slots <= scripts
+      repeated = slots - scripts
+      return "MC #{slots} 枠 / 原稿 #{scripts} 本（⚠ #{repeated} 本が 2 回目に入る）"
+    end
+
+    # ⚠ **MC の本文は `LiveProgram` から引く。**「何本目がどの原稿か」の正本を
+    # 下見の側に写さない（写すと下見と実際の投稿が食い違いうる）。
+    def label(entry, time)
+      return entry.to_s unless entry.mc? && options[:mc]
+      body = @live.program.mc_text(entry, time)
+      return "#{entry}: （原稿が無いので投稿しない）" if body.blank?
+      return "#{entry}:#{repeat_mark(entry, time)} #{body.lines.first.to_s.chomp}"
+    end
+
+    # ⚠ 2 周目に入った MC を目で拾えるようにする。
+    def repeat_mark(entry, time)
+      scripts = mc_size(time)
+      return '' if scripts.zero? || entry.ordinal < scripts
+      return " ↻##{entry.ordinal % scripts}"
+    end
+
+    def mc_size(time)
+      @mc_size ||= @live.program.mc_size(time)
+      return @mc_size
     end
 
     # ⚠⚠ **日付のまま渡す。**時刻を作るとホストの TZ で解釈され、日本の外で
