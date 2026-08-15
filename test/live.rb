@@ -159,6 +159,35 @@ module Makoto
       assert_equal(texts, texts.sort)
     end
 
+    # ⚠⚠ **原稿のほうが多い日でも、最後の枠は最後の 1 本**（#71 のレビュー指摘）。
+    # ⚠ `ordinal × 原稿数 ÷ 枠数` だと 25 本 24 枠で 24 番目が永久に出ない。
+    # ⚠⚠ **`最後の1曲。` が出ないという、#69 が消そうとした壊れ方そのもの。**
+    def test_script_index_matches_both_ends
+      program = live.program
+      [[24, 25], [24, 17], [25, 25], [23, 25], [2, 25]].each do |slots, size|
+        first = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: slots)
+        last = Setlist::Entry.new(kind: :mc, ordinal: slots - 1, mc_total: slots)
+
+        assert_equal(0, program.script_index(first, size), "#{slots} 枠 / #{size} 本")
+        assert_equal(size - 1, program.script_index(last, size), "#{slots} 枠 / #{size} 本")
+      end
+    end
+
+    # ⚠ 枠が 1 つしか無い日は、両端に合わせようがない。**台本の頭を出す**
+    # （`最後の1曲。` を単独で出すより、始まりの 1 本のほうが破綻しない）。
+    def test_a_single_mc_slot_uses_the_first_script
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: 1)
+
+      assert_equal(0, live.program.script_index(entry, 25))
+    end
+
+    # ⚠ 総数が分からない項目（`Setlist` 以外が作ったもの）は従来どおり巻き戻す。
+    def test_script_index_falls_back_without_a_total
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 5)
+
+      assert_equal(2, live.program.script_index(entry, 3))
+    end
+
     # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
     # ⚠ **「何本目の MC がどの原稿になるか」の正本を 2 つに割らない** — 下見と実際の
     # 投稿が食い違うと、下見そのものが信用できなくなる。
