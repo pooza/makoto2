@@ -12,10 +12,36 @@ module Makoto
   # 8 時間の進行そのものは走らせる**（→ docs/CLAUDE.md「LLM が落ちてもライブは走る」と
   # 同じ判断）。⚠ **ただし黙って素通ししない** — 引けなければカバーを置かずに警告を残す
   # （「静かに出ない」を避ける）。
+  #
+  # ## 🔴 引けたものは写しに残す（#88）
+  #
+  # ⚠⚠ **「落ちてもライブは止めない」だけでは足りなかった。**⚠ **`LiveProgram` は
+  # その日の並びを最初の枠で 1 回だけ組む**ので、**12:02 の一瞬の不通が「その日は
+  # ゲストコーナーが無い」に直結する。**⚠⚠ **しかも再起動を挟むと、生きていた日と
+  # 落ちていた日で並びそのものが変わる**（実測で 160 枠中 127 枠の中身が違った）。
+  #
+  # **そこで、引けた名義をローカルの写しに残し、引けないときはそれを使う。**
+  #
+  # - ⚠ **これは状態ではなく写し。**消しても次に引けば作り直せるので、
+  #   **「進行位置は状態ではなく計算で出す」とは衝突しない**（`Heartbeat` と同じ扱い）
+  # - ⚠⚠ **黙って古いものを使わない。**写しから読んだことは `stale?` で外に出す
+  # - ⚠ **写しを使い始めたら、その process では引き直さない。**⚠⚠ **ライブの最中に
+  #   cure-api が復活して並びが変わるほうが困る**（→ 上記「同じ日付なら同じ並び」）
   class CureApiService
     include Package
 
     PREFIX = '/cure_api'.freeze
+
+    # 引けなかったあと、次に試すまでの間隔（秒）。
+    #
+    # ⚠⚠ **失敗を焼き付けない**（#88・#80 の黄 4）。⚠ **旧実装は `||=` だったので、
+    # 失敗時の `[]` も真になり、常駐を入れ直すまで二度と引き直さなかった。**
+    #
+    # ⚠ **かといって毎回引き直せない** — `singer?` は `pool` の `select` の中で
+    # ⚠⚠ **曲の数だけ呼ばれる**（実データで 800 回超）。**間を置く。**
+    RETRY_INTERVAL = 60
+
+    CACHE_NAME = 'cure_api_singers.json'.freeze
 
     # ⚠ **名義を「何人並んでいるか」で割る区切り**（#65・`credit_count`）。
     # ⚠⚠ **`split_artist` の区切りとは別物**（あちらは括弧も `CV:` も割る）。
@@ -50,6 +76,14 @@ module Makoto
     def initialize(http: nil)
       @http = http
       @cache = {}
+      @stale = false
+      @failed_at = nil
+    end
+
+    # ⚠ **いま返している名義が、ローカルの写しから来ているか**（#88）。
+    # ⚠⚠ **カバーを置く側が警告を出すために見る**（黙って古いもので組まない）。
+    def stale?
+      return @stale
     end
 
     def url
@@ -63,8 +97,17 @@ module Makoto
     # あり、グループ名だけでは照合できない。
     #
     # @return [Array<String>] 正規化済みの名義。⚠ 引けなければ空配列
+    #
+    # ⚠⚠ **`||=` にしない**（#88）。**失敗時の `[]` も真**なので、⚠ **数秒の不通が
+    # 常駐の寿命ぶん続く形**だった。⚠⚠ **引けたときと、写しで代われたときだけ覚える。**
     def singer_names
-      return @cache[:singer_names] ||= fetch_singer_names
+      return @cache[:singer_names] if @cache[:singer_names]
+      # ⚠ 失敗した直後は引き直さない（`select` の中から曲の数だけ呼ばれる）。
+      return [] unless retryable?
+      names = fetch_singer_names
+      return @cache[:singer_names] = store_singer_names(names) if names.any?
+      @failed_at = Time.now
+      return fall_back_to_stored
     end
 
     # その名義がプリキュア歌手か。
@@ -117,7 +160,58 @@ module Makoto
       return value.to_s.unicode_normalize(:nfkc).gsub(/[[:space:]]/, '')
     end
 
+    # 引けた名義の写しの置き場。⚠ **テストは別のファイルに落とす**（`Heartbeat` と
+    # 同じ理由 — 稼働中の写しをテストが書き換えると、当日の並びが変わる）。
+    def self.cache_path
+      name = Environment.test? ? 'cure_api_singers_test.json' : CACHE_NAME
+      return File.join(Environment.dir, 'tmp/cache', name)
+    end
+
     private
+
+    def retryable?
+      return true unless @failed_at
+      return (Time.now - @failed_at) > RETRY_INTERVAL
+    end
+
+    # ⚠ **引けたら写しを更新する。**⚠⚠ **書けなくても引けた名義はそのまま返す**
+    # （写しは保険であって、これが無いと動かないものではない）。
+    def store_singer_names(names)
+      path = self.class.cache_path
+      temp = "#{path}.#{Process.pid}.tmp"
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(temp, names.to_json)
+      # ⚠ **差し替えで書く**（切り詰めてから書くと、その隙に読んだ側が壊れた JSON を
+      # 掴む → `Heartbeat#write` と同じ）。
+      File.rename(temp, path)
+      return names
+    rescue SystemCallError => e
+      logger.error(cure_api: 'singers', error: e)
+      return names
+    ensure
+      FileUtils.rm_f(temp) if temp
+    end
+
+    # ⚠ **引けなければ写しで代わる**（#88）。⚠⚠ **黙って代わらない。**
+    def fall_back_to_stored
+      names = stored_singer_names
+      return [] if names.empty?
+      @stale = true
+      logger.warn(cure_api: 'singers', message: 'falling back to the stored copy',
+        count: names.size)
+      # ⚠⚠ **ここは覚える。**⚠ **ライブの最中に cure-api が復活して並びが変わるほうが
+      # 困る**（→ 上記「写しを使い始めたら、その process では引き直さない」）。
+      return @cache[:singer_names] = names
+    end
+
+    def stored_singer_names
+      path = self.class.cache_path
+      return [] unless File.file?(path)
+      names = JSON.parse(File.read(path))
+      return Array(names).map(&:to_s).reject(&:empty?)
+    rescue JSON::ParserError, SystemCallError, TypeError
+      return []
+    end
 
     def http
       return @http ||= HTTP.new
