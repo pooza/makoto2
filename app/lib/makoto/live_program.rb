@@ -20,7 +20,7 @@ module Makoto
 
     # カバーに添える断り。⚠ 設定から直に読む（呼び出し側に横流しさせない）。
     def cover_prefix
-      return config['/live/setlist/cover_prefix']
+      return optional_config('/live/setlist/cover_prefix')
     end
 
     # 枠の頭の時刻 → 投稿の本文。⚠ **枠の外・ライブ当日でない・並びの外・原稿が
@@ -124,7 +124,7 @@ module Makoto
 
     # ⚠ 蝶番の直後に置く台本（`/live/mc/hinge` の `slug`）。⚠ 無ければ nil。
     def hinge_index(scripts)
-      slug = config['/live/mc/hinge'].to_s
+      slug = optional_config('/live/mc/hinge').to_s
       return nil if slug.empty?
       return scripts.index {|script| script[:slug] == slug}
     end

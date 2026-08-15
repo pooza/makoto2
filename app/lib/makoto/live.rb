@@ -79,10 +79,13 @@ module Makoto
       return HashtagSource.new(source: source, hashtag: hashtag)
     end
 
-    # ⚠ 空なら付けない。**設定を消せば止まる**ので、機能のフラグを別に持たない
+    # ⚠ 空でも消しても付けない。**機能のフラグを別に持たない**
     # （→ docs/CLAUDE.md「予告の日付は枠ではなく原稿が持つ」と同じ考え方）。
+    #
+    # ⚠⚠ **`optional_config` で読む。**素の `config[]` は**キーが無ければ例外**なので、
+    # ⚠ **「消せば止まる」と書きながら、消すと常駐が起動しなかった**（#77）。
     def hashtag
-      return config["#{PREFIX}/hashtag"].to_s
+      return optional_config("#{PREFIX}/hashtag").to_s
     end
 
     def program

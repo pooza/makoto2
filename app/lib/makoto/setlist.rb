@@ -156,7 +156,8 @@ module Makoto
 
     def exclusions(name)
       @exclusions ||= {}
-      @exclusions[name] ||= Array(config["#{PREFIX}/exclude/#{name}"]).map {|value| dedupe(value)}
+      values = Array(optional_config("#{PREFIX}/exclude/#{name}"))
+      @exclusions[name] ||= values.map {|value| dedupe(value)}
       return @exclusions[name]
     end
 
@@ -211,9 +212,10 @@ module Makoto
     # 本来複数の歌手で歌う曲を 1 人でカバーするのは不自然。
     #
     # ⚠ **排除ではなく寄せる。**ありえなくはないので、重みで確率を変えるだけにする。
-    # ⚠ **1 以下なら一様抽選**（＝この機能を切る。設定を消せば元の挙動）。
+    # ⚠ **1 以下なら一様抽選**（＝この機能を切る。⚠ **設定を消しても同じ**）。
+    # ⚠⚠ **`optional_config` で読む**（素の `config[]` は消すと例外 → #77）。
     def solo_weight
-      return config["#{PREFIX}/cover_solo_weight"].to_i
+      return optional_config("#{PREFIX}/cover_solo_weight").to_i
     end
 
     def weight_of(track)
