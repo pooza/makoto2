@@ -110,6 +110,10 @@ properties:
         properties:
           type:
             type: string
+          # ⚠ 蝶番の直後に置く台本の slug（#73）。⚠⚠ 必須にしない —
+          # 引けなければ通常の割合で引く（Setlist のアンカーと同じ判断）。
+          hinge:
+            type: string
         required:
           - type
     required:

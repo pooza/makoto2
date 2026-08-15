@@ -37,6 +37,11 @@ module Makoto
       return job.send(:instance_variable_get, :@source)
     end
 
+    # ⚠ 台本の代わり。`script_index` は本文を見ないので slug だけあればよい。
+    def fake_scripts(size)
+      return Array.new(size) {|i| {slug: "s#{i}", body: "MC #{i}"}}
+    end
+
     # MC の枠の頭の時刻。⚠ 並びの中の位置と時刻を突き合わせるのに使う。
     def mc_times(list, date = Date.new(2026, 11, 4))
       times = live.timetable.times(date)
@@ -168,8 +173,9 @@ module Makoto
         first = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: slots)
         last = Setlist::Entry.new(kind: :mc, ordinal: slots - 1, mc_total: slots)
 
-        assert_equal(0, program.script_index(first, size), "#{slots} 枠 / #{size} 本")
-        assert_equal(size - 1, program.script_index(last, size), "#{slots} 枠 / #{size} 本")
+        assert_equal(0, program.script_index(first, fake_scripts(size)), "#{slots} 枠 / #{size} 本")
+        assert_equal(size - 1, program.script_index(last, fake_scripts(size)),
+          "#{slots} 枠 / #{size} 本")
       end
     end
 
@@ -178,14 +184,62 @@ module Makoto
     def test_a_single_mc_slot_uses_the_first_script
       entry = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: 1)
 
-      assert_equal(0, live.program.script_index(entry, 25))
+      assert_equal(0, live.program.script_index(entry, fake_scripts(25)))
     end
 
     # ⚠ 総数が分からない項目（`Setlist` 以外が作ったもの）は従来どおり巻き戻す。
     def test_script_index_falls_back_without_a_total
       entry = Setlist::Entry.new(kind: :mc, ordinal: 5)
 
-      assert_equal(2, live.program.script_index(entry, 3))
+      assert_equal(2, live.program.script_index(entry, fake_scripts(3)))
+    end
+
+    # ⚠⚠ **中間アンカーは蝶番の直後に来る**（#73）。⚠ **両端だけでは足りない** —
+    # 台本は「MC の何番目か」、蝶番は「曲の何番目か」で位置が決まるので、
+    # ⚠⚠ **曲数が 1 曲動くだけで `後半。` が蝶番の前に出る**（#58 で実際に起きた）。
+    def test_the_hinge_script_lands_right_after_the_hinge
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      # ⚠ 枠数を変えても、蝶番の MC には必ず `s12` が来ること。
+      [[26, 13], [24, 12], [30, 15], [20, 10]].each do |slots, hinge|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: hinge, mc_total: slots, mc_hinge: hinge)
+
+        assert_equal(12, program.script_index(entry, fake_scripts(25)), "#{slots} 枠 / 蝶番 #{hinge}")
+      end
+    end
+
+    # ⚠ 中間アンカーを名指ししても、両端は動かない。
+    def test_the_hinge_script_does_not_move_the_ends
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      first = Setlist::Entry.new(kind: :mc, ordinal: 0, mc_total: 26, mc_hinge: 13)
+      last = Setlist::Entry.new(kind: :mc, ordinal: 25, mc_total: 26, mc_hinge: 13)
+
+      assert_equal(0, program.script_index(first, fake_scripts(25)))
+      assert_equal(24, program.script_index(last, fake_scripts(25)))
+    end
+
+    # ⚠⚠ **名指しした台本が引けなければ、落ちずに通常の割合で引く**
+    # （`Setlist` のアンカーと同じ判断 — 引けなければ黙って別のものを置かない）。
+    def test_a_missing_hinge_script_falls_back_to_the_straight_line
+      program = live.program
+      config['/live/mc/hinge'] = '存在しない slug'
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 13, mc_total: 26, mc_hinge: 13)
+
+      assert_equal(13, program.script_index(entry, fake_scripts(26)))
+    end
+
+    # ⚠ 台本の順序は蝶番をまたいでも巻き戻らない。
+    def test_the_hinge_split_stays_monotonic
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      indexes = Array.new(26) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 26, mc_hinge: 13)
+        program.script_index(entry, fake_scripts(25))
+      end
+
+      assert_equal(indexes, indexes.sort)
+      assert_equal(12, indexes[13])
     end
 
     # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
