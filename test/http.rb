@@ -58,9 +58,13 @@ module Makoto
       end
     end
 
-    # ⚠⚠ **1 本の投稿が枠を跨がないこと。**⚠ **再送を含めた最悪の滞留が、いちばん
-    # 短いライブの枠間隔（180 秒）より短いこと**を、設定の値だけで確かめる。
-    def test_worst_case_stays_inside_a_live_slot
+    # 設定した予算（タイムアウト × 再送 ＋ 待ち）が、ライブの枠間隔より短いこと。
+    #
+    # ⚠⚠ **これは wall-clock の上限ではない**（2026-08-16・#91 のレビュー指摘・#92）。
+    # ⚠ **HTTParty の `timeout` は Net::HTTP の 1 回の socket 操作ごとに効く**ので、
+    # ⚠⚠ **チャンクを 30 秒未満の間隔で送り続ける相手は、この予算を超えて掴んでいられる。**
+    # **ここが見ているのは「設定の値どうしが噛み合っているか」まで。**
+    def test_configured_budget_stays_inside_a_live_slot
       worst = config['/http/timeout/seconds'] * config['/http/retry/limit']
       worst += config['/http/retry/seconds'] * (config['/http/retry/limit'] - 1)
       interval = Fugit::Duration.parse(config['/live/timetable/interval']).to_sec
