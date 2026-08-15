@@ -38,13 +38,21 @@ module Makoto
     end
 
     def start
-      return nil unless enabled?
+      # ⚠ **切ったこともログに残す。**⚠⚠ **「ポートが開かない」を設定で切ったせいだと
+      # 切り分けられないと、Kuma の赤が常駐の異常に見える。**
+      unless enabled?
+        logger.info(monitor: 'disabled')
+        return nil
+      end
       @server = Puma::Server.new(MonitorApp.new)
       @server.add_tcp_listener(bind, port)
       @server.run
       logger.info(monitor: 'start', bind: bind, port: ports.first)
       return @server
     rescue => e
+      # ⚠ **起こせなかったものを掴んだままにしない。**待ち受けていない `Puma::Server`
+      # を `stop` が畳もうとする形になる。
+      @server = nil
       logger.error(monitor: 'start', error: e)
       return nil
     end

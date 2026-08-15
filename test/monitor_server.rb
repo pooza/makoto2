@@ -78,6 +78,8 @@ module Makoto
 
       assert_nothing_raised {server.start}
       assert_empty(server.ports)
+      # ⚠ 起こせなかったものを掴んだままにしない（`stop` が畳もうとする形にしない）。
+      assert_nothing_raised {server.stop}
     end
   end
 end
