@@ -17,6 +17,13 @@ module Makoto
     DAILY = 'makoto_tracks_daily.json'.freeze
     LIVE = 'makoto_tracks_live.json'.freeze
 
+    # ⚠⚠ **供給元が間違えている曲名の訂正表**（#58）。⚠ **表記ゆれとは別物**で、
+    # あちらは `dedupe_key` の正規化で吸収する。**誤記は正規化では解けない。**
+    #
+    # ⚠ **`seed/` に置く**（git 管理下）。⚠⚠ **収集をやり直しても効く**ことが要件で、
+    # 収集スクリプトの側を直すと「気づいた順に足す」形が成立しない。
+    CORRECTIONS = 'track_corrections.yaml'.freeze
+
     # 重複判定から落とす文字。⚠ **`duration` は鍵に使えない**（同一曲でも盤に
     # よって 1〜3 秒ばらつく。実測）。正規化した曲名だけで寄せる。
     NOISE = /[[:space:][:punct:]♪☆★〜～＋×]/
@@ -69,10 +76,11 @@ module Makoto
 
     def import_daily
       rows(DAILY).each do |row|
+        name = corrected_name(row)
         upsert(:track, {
           id: row[:trackId],
           collection_id: row[:collectionId],
-          name: row[:trackName],
+          name: name,
           artist_name: row[:artistName],
           collection_name: row[:collectionName],
           release_date: release_date(row),
@@ -83,9 +91,53 @@ module Makoto
           artwork_url: row[:artworkUrl100],
           kind: row[:kind],
           live: false,
-          dedupe_key: self.class.dedupe_key(row[:trackName]),
+          # ⚠ **鍵は訂正後の曲名から作る**（#58）。訂正前で作ると重複がたたまれない。
+          dedupe_key: self.class.dedupe_key(name),
         })
       end
+    end
+
+    # 訂正表を当てた曲名（→ 上記 `CORRECTIONS`）。
+    #
+    # ⚠⚠ **`from` が一致したときだけ訂正する。**⚠ **訂正表に無い曲名は 1 文字も
+    # 変わらない**（無条件に当てると、供給元が別の誤記に差し替えたときに気付けない）。
+    #
+    # ⚠ **一致しなくなったら訂正せず、警告を残す。**⚠⚠ **どちらの形でも「この行は
+    # 消せる」という同じ合図**なので、黙らせない。**黙ると、消せる行がいつまでも表に残る。**
+    #
+    # ⚠⚠ **`to` と一致する形（供給元が直した）をとくに黙らせないこと。****上流が直す
+    # ときの一番ありふれた形**がこれで、⚠ **ここを素通しにすると片付けの合図が
+    # 永久に出ない**（#72 のレビュー指摘）。
+    def corrected_name(row)
+      name = row[:trackName].to_s
+      correction = corrections[row[:trackId]]
+      return name unless correction
+      return correction[:to] if name == correction[:from]
+      logger.warn(track: 'correction', id: row[:trackId], state: correction_state(name, correction),
+        expected: correction[:from], actual: name)
+      return name
+    end
+
+    # ⚠ 消せる理由を分けて残す。**`fixed` なら供給元が直した / `unknown` なら別物に
+    # 変わった**（後者は訂正表そのものを見直す）。
+    def correction_state(name, correction)
+      return 'fixed' if name == correction[:to]
+      return 'unknown'
+    end
+
+    # ⚠ 訂正表は無くてもよい（あとから足せる）。
+    def corrections
+      @corrections ||= load_corrections.to_h {|entry| [entry[:id], entry]}
+      return @corrections
+    end
+
+    def load_corrections
+      return [] unless File.exist?(path(CORRECTIONS))
+      # ⚠⚠ **`safe_load` を使う**（`noticed: 2026-08-14` は Psych が `Date` にする）。
+      return Array(YAML.safe_load_file(path(CORRECTIONS),
+        permitted_classes: [Date], symbolize_names: true))
+    rescue Psych::Exception => e
+      raise Ginseng::ValidateError, "#{CORRECTIONS}: YAML を読めません: #{error_message(e)}"
     end
 
     # ⚠ **`live` は毎回 false に落としてから立て直す。**ライブ用の定義が変わって
