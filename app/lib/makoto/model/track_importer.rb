@@ -102,16 +102,27 @@ module Makoto
     # ⚠⚠ **`from` が一致したときだけ訂正する。**⚠ **訂正表に無い曲名は 1 文字も
     # 変わらない**（無条件に当てると、供給元が別の誤記に差し替えたときに気付けない）。
     #
-    # ⚠ **一致しなくなったら供給元が直した合図。**そのときは警告を出して**訂正しない** —
-    # ⚠⚠ **黙って当て続けると、消せる行がいつまでも表に残る。**
+    # ⚠ **一致しなくなったら訂正せず、警告を残す。**⚠⚠ **どちらの形でも「この行は
+    # 消せる」という同じ合図**なので、黙らせない。**黙ると、消せる行がいつまでも表に残る。**
+    #
+    # ⚠⚠ **`to` と一致する形（供給元が直した）をとくに黙らせないこと。****上流が直す
+    # ときの一番ありふれた形**がこれで、⚠ **ここを素通しにすると片付けの合図が
+    # 永久に出ない**（#72 のレビュー指摘）。
     def corrected_name(row)
       name = row[:trackName].to_s
       correction = corrections[row[:trackId]]
       return name unless correction
       return correction[:to] if name == correction[:from]
-      return name if name == correction[:to]
-      logger.warn(track: 'correction', id: row[:trackId], expected: correction[:from], actual: name)
+      logger.warn(track: 'correction', id: row[:trackId], state: correction_state(name, correction),
+        expected: correction[:from], actual: name)
       return name
+    end
+
+    # ⚠ 消せる理由を分けて残す。**`fixed` なら供給元が直した / `unknown` なら別物に
+    # 変わった**（後者は訂正表そのものを見直す）。
+    def correction_state(name, correction)
+      return 'fixed' if name == correction[:to]
+      return 'unknown'
     end
 
     # ⚠ 訂正表は無くてもよい（あとから足せる）。

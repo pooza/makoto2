@@ -75,6 +75,18 @@ module Makoto
               'noticed' => Date.new(2026, 8, 14), 'reason' => 'テスト'}
     end
 
+    # ⚠ 取り込み中の警告を拾う。**訂正表を片付ける合図が実際に出ること**を見る。
+    def import_with_warnings(dir, db)
+      importer = TrackImporter.new(dir, db: db)
+      warnings = []
+      logger = Object.new
+      logger.define_singleton_method(:warn) {|message| warnings.push(message)}
+      logger.define_singleton_method(:info) {|message| message}
+      importer.instance_variable_set(:@logger, logger)
+      importer.exec
+      return warnings.select {|message| message[:track] == 'correction'}
+    end
+
     # ⚠⚠ **供給元が間違えた曲名を訂正する**（#58）。⚠ **鍵は訂正後の曲名から作る** —
     # 訂正前で作ると重複がたたまれず、ライブの並びで同じ曲が隣接したままになる。
     def test_correction_fixes_the_name_and_the_dedupe_key
@@ -99,24 +111,39 @@ module Makoto
       end
     end
 
-    # ⚠⚠ **`from` が一致しなければ訂正しない。**⚠ **供給元が直した合図**なので、
-    # 黙って当て続けると**消せる行がいつまでも表に残る。**
+    # ⚠⚠ **`from` が一致しなければ訂正しない。**⚠ 訂正表そのものを見直す合図として
+    # 警告を残す。
     def test_correction_is_skipped_when_the_source_changed
       with_corrections([correction(1010, 'もう存在しない曲名', 'テスト組曲')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        warnings = import_with_warnings(dir, db)
 
         assert_equal('日付が壊れている曲', db[:track][id: 1010][:name])
+        assert_equal(1, warnings.size)
+        assert_equal('unknown', warnings.first[:state])
       end
     end
 
-    # ⚠ 供給元が既に直していれば、訂正表が残っていても結果は同じ（警告も出さない）。
-    def test_correction_accepts_an_already_fixed_source
-      with_corrections([correction(1010, 'テスト組曲', '日付が壊れている曲')]) do |dir|
+    # ⚠⚠ **供給元が直した形（曲名が `to` と一致）でも黙らない**（#72 のレビュー指摘）。
+    # ⚠ **上流が直すときの一番ありふれた形がこれ**で、素通しにすると
+    # **「この行はもう消せる」という合図が永久に出ない。**
+    def test_an_upstream_fix_is_reported_as_obsolete
+      with_corrections([correction(1010, 'もう存在しない曲名', '日付が壊れている曲')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        warnings = import_with_warnings(dir, db)
 
+        # ⚠ 曲名は供給元のまま（訂正はしない）。
         assert_equal('日付が壊れている曲', db[:track][id: 1010][:name])
+        assert_equal(1, warnings.size)
+        assert_equal('fixed', warnings.first[:state])
+        assert_equal(1010, warnings.first[:id])
+      end
+    end
+
+    # ⚠ 訂正が当たっている間は警告を出さない（片付けの合図と混ざらない）。
+    def test_an_applied_correction_is_quiet
+      with_corrections([correction(1010, '日付が壊れている曲', 'テスト組曲')]) do |dir|
+        assert_empty(import_with_warnings(dir, empty_db))
       end
     end
 
