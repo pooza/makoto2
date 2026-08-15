@@ -558,6 +558,10 @@ bin/makoto corpus stat     # 件数を確認する
   - ⚠ **テストは「キーはあるが空」ではなく、本物の「無い」を見る**（`test/optional_config.rb`）。⚠⚠ **旧 `test_excludes_nothing_without_the_setting` は名前に反して空配列しか見ておらず、素通ししていた**
 - **fail-open な `rescue` の内側で設定値を読まない。** 設定パスの typo が例外として飲まれ、ガードが恒常 no-op になる（モロヘイヤで実際に踏んだ「守っているつもりで無防備」という静かな穴）。ガードのパラメータは定数化するか rescue の外で評価し、**「実際にブロックする」正テストを必ず書く**
 - ⚠ **例外メッセージを埋め込むときは `error_message` を通す。** Sequel / SQLite の例外は **ASCII-8BIT** で上がるので、台詞のような非 ASCII を含む SQL が失敗すると `"...: #{e.message}"` が `Encoding::CompatibilityError` になる。**エラー処理そのものが落ちて本当のエラーが隠れる**（無人で動くボットでは誰も気付けない）
+  - ⚠⚠ **ログの側は覚えなくてよい。**`Makoto::Logger#create_message` が**出口 1 つで scrub する**ので、`logger.error(error: e)` はどこから呼んでも安全（2026-08-15・#79）。⚠ **`error_message` は「例外を文字列に埋める」ため、こちらは「ログに出す」ため**で経路が違う（`raise "...: #{error_message(e)}"` はログを通らない）
+  - 🔴 **直す場所を「呼び出し側 6 箇所」にしなかった理由** — ⚠ **7 箇所目が生えた瞬間に破れる**うえ、⚠⚠ **破れても静かに壊れる**（テストが落ちるのは、その新しい呼び出しに不正なバイト列が来たときだけ）。**規約で守るより、通り道を 1 つにする**
+  - ⚠ **踏むのは「壊れた／切り詰められたバイト列」**（`Net::HTTPBadResponse` の `wrong status line: "..."` など）。**ASCII-8BIT でも中身が妥当な UTF-8 なら落ちない**ので、Sequel の例外では踏まない。⚠⚠ **確率は低いが、踏むと `logger.error` 自身が再送出し、`Scheduler#tick` の rescue も貫通して stderr へ抜け、`bin/makoto_daemon.rb` が `/dev/null` に落とすので 1 行も残らなかった**
+  - ⚠ **いま入っている ginseng-core（1.15.28）の `mask` はキー名でしか落とせない。**⚠⚠ **値の文字列に埋まったトークン（`url: "...?access_token=xxx"`）は素通りする**（上流の新しい版には `mask_url` がある）。**MAKOTO は Bearer ヘッダで投げ、cure-api の URL にも秘密が無い**ので、いまは踏まない
 - ⚠ **テストの共通処理は `setup` メソッドではなくコールバック（`setup do ... end`）で登録する。** メソッドにすると、サブクラスが `setup` を定義して `super` を忘れた瞬間に外れる。**忘れても落ちない**ので素通しに気付けない（WebMock の通信遮断で実際に起きうる形だった）
 - **秘密情報はログに出さない。** OAuth 認可コード・アクセストークン・API キーは scrub 対象に入れる
 
