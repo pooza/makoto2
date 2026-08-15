@@ -13,11 +13,30 @@ module Makoto
   # | --- | --- | --- |
   # | 0 | 健全 | 何もしない |
   # | 1 | ⚠ **異常** — 死んでいる／投稿を 1 本も持たない／ハートビートが止まった | **復旧させる** |
-  # | 2 | ⚠ **警告** — 孤児プロセスがある | **人が見る。復旧は叩かせない** |
+  # | 2 | ⚠ **警告** — 孤児プロセスがある／**投稿が続けて落ちている** | **人が見る。復旧は叩かせない** |
   #
   # ⚠⚠ **孤児で復旧を叩かせないのは、再起動の瞬間に一時的に 2 本になりうるから。**
   # ここで再起動を叩くと、検知 → 再起動 → 検知のループになる。⚠ **孤児は「溜まる」
   # のが問題**（旧実装は 11 日分溜めた）なので、即時の自動復旧より人の目が要る。
+  #
+  # ## ⚠ 投稿の失敗を「異常」ではなく「警告」に置く理由（#78）
+  #
+  # ⚠⚠ **再起動で直らないから。**投稿が落ちる原因は**トークンの失効・設定の欠落
+  # （#77）・`source` の不具合・Mastodon 側の障害**で、**どれも常駐を入れ直しても
+  # 変わらない。**⚠ ここを 1（復旧させる）にすると、**検知 → 再起動 → また失敗**を
+  # 延々と繰り返し、⚠⚠ **ライブ当日には再起動のたびに初回 tick が走る**
+  # （→ `Scheduler#schedule_posts`）。**孤児で復旧を叩かせないのと同じ形。**
+  #
+  # ⚠ **#78 の起票は `errors` に置く案だったが、上の理由で `warnings` にした。**
+  # **検知できること自体が目的**で、**8 時間 1 回きりのライブでは、機械の再起動より
+  # 人が見るほうが要る。**
+  #
+  # ## ⚠⚠ この警告は自然には消えない
+  #
+  # ⚠ **消えるのは「次に 1 本投稿できたとき」だけ。**時間で薄れない。
+  # **MAKOTO は平常日でも数本しか投稿しない**ので、⚠⚠ **時間で消える形にすると
+  # 「投稿していない期間」＝ 検証されていない期間に、警告のほうが先に消える。**
+  # ⚠ **直したあと、次の枠が来るまで黄色が残るのは意図した挙動。**
   class Health
     include Package
 
@@ -62,6 +81,16 @@ module Makoto
       return Heartbeat.age(now)
     end
 
+    # 最後の成功からの、連続した失敗の数。⚠ **本文の無い枠は数に入っていない。**
+    def posting_failures
+      return Heartbeat.failures
+    end
+
+    # 最後に投稿できた時刻。⚠ **一度も無ければ nil**（起動直後・原稿がまだ無い時期）。
+    def posted_at
+      return Heartbeat.posted_at
+    end
+
     # pid ファイルに無い常駐プロセス。⚠ **旧実装が孤児プロセスを 11 日分撒いた件の
     # 再発検知**（→ docs/CLAUDE.md「プロセスの寿命を設計に含める」）。
     #
@@ -97,10 +126,11 @@ module Makoto
 
     # 人が見るべき問題。⚠ **復旧は叩かせない。**
     def warnings
-      found = orphans
-      return ['cannot read /proc (orphan check skipped)'] if found.nil?
-      return [] if found.empty?
-      return ["orphan process: #{found.join(', ')}"]
+      results = []
+      # ⚠ 死んでいるときは `errors` の側が言うので、ここでは重ねない。
+      results.push(posting_failure_message) if alive? && Heartbeat.failing?
+      results.push(*orphan_messages)
+      return results
     end
 
     def code
@@ -110,6 +140,20 @@ module Makoto
     end
 
     private
+
+    # ⚠ **「何本続けて落ちたか」と「最後に出たのはいつか」を両方出す。**
+    # ⚠⚠ **人が見る前提の警告**なので、次に何を確かめればよいかがここで分かること。
+    def posting_failure_message
+      last = posted_at ? posted_at.getutc.iso8601 : 'never'
+      return "posting failed #{posting_failures} times in a row (last success: #{last})"
+    end
+
+    def orphan_messages
+      found = orphans
+      return ['cannot read /proc (orphan check skipped)'] if found.nil?
+      return [] if found.empty?
+      return ["orphan process: #{found.join(', ')}"]
+    end
 
     def orphan_pid(dir)
       found = File.basename(dir).to_i

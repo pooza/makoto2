@@ -45,12 +45,21 @@ module Makoto
     end
 
     # 枠の頭なら投稿する。⚠ 枠の外・枠の途中・本文が空なら何もしない。
+    #
+    # ⚠⚠ **戻り値は 3 つの結末を区別しない**（投稿しなかったものはどれも nil）。
+    # **区別は `Heartbeat` に記録する側で付ける**（→ #78）。呼ぶ側は
+    # `Scheduler#tick` だけで、そちらは結末を使わない。
     def exec(time = nil)
       slot = due_slot(time)
       return nil unless slot
       text = create_text(slot)
+      # ⚠ **nil は `source` が落ちたことを指す**（`create_text` が記録済み）。
+      # ⚠⚠ **空文字と混ぜない** — 混ぜると #77 の「設定を消すと枠の中で例外が上がる」
+      # 形が「原稿の無い日」に化けて、**160 枠が沈黙しても健全に見える。**
+      return nil if text.nil?
       if text.blank?
         # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
+        # ⚠⚠ **成功にも失敗にも数えない。**→ `Heartbeat` 冒頭の表。
         logger.info(post: @name, slot: format_slot(slot), message: 'no text')
         return nil
       end
@@ -93,10 +102,17 @@ module Makoto
     end
 
     # ⚠ **`source` の失敗で常駐を落とさない。**本文が作れなければその枠は欠落する。
+    #
+    # ⚠⚠ **落ちたことを `Heartbeat` に残す。**ログにも出ているが、⚠ **監視から読むには
+    # ログの置き場と書式に依存する**ので、痕跡の側にも 1 つ数を持たせる（→ #78）。
+    #
+    # ⚠ **`source` が nil や空文字を返したときは失敗にしない。**そちらは「今日は
+    # 投稿しない」であって、**`source` は正しく動いている。**
     def create_text(slot)
       return @source.call(slot).to_s
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
+      record(:failure, slot)
       return nil
     end
 
@@ -110,9 +126,25 @@ module Makoto
         idempotency_key: idempotency_key(slot),
       )
       logger.info(post: @name, slot: format_slot(slot), status_id: response['id'])
+      record(:success, slot)
       return response
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
+      record(:failure, slot)
+      return nil
+    end
+
+    # ⚠⚠ **痕跡が書けなくても枠を落とさない。**ここは観測のためだけの書き込みで、
+    # ⚠ **これに失敗して投稿の側を巻き込むと、監視を足したせいで壊れることになる。**
+    #
+    # ⚠ **失敗にも冪等キーを渡す。**⚠⚠ **同じ枠が 2 回実行されることがある**
+    # （初回 tick と `every` の重なり・再起動）ので、**成功だけ Mastodon 側で畳まれて
+    # 失敗が二重に数えられると、落ちた枠 1 つで閾値を 2 つ消費する**（#81）。
+    def record(outcome, slot)
+      return Heartbeat.record_success if outcome == :success
+      return Heartbeat.record_failure(slot: idempotency_key(slot))
+    rescue => e
+      logger.error(post: @name, heartbeat: outcome, error: e)
       return nil
     end
 

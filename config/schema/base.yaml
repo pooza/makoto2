@@ -195,12 +195,25 @@ properties:
       # ⚠ 枠の頭を拾う間隔。欠けると PostingJob が作れず、投稿が 1 本も出ない。
       tick:
         type: string
+      # 投稿が続けて落ちたことの検知（#78）。
+      posting:
+        type: object
+        properties:
+          # ⚠ 何本続けて落ちたら警告にするか。⚠⚠ 欠けると makoto status が
+          # ConfigError で落ちる。既定値に逃がさないのは #77 の裏返しで、
+          # 設定を消しただけで検知が静かに緩む形を作らないため。
+          failure_limit:
+            type: integer
+            minimum: 1
+        required:
+          - failure_limit
     # ⚠ timezone が欠けるとホストのローカルタイムに落ちる。ライブの開始時刻がずれても
     # 「何も起きない」だけなので、設定の検証で止める。
     required:
       - heartbeat
       - timezone
       - tick
+      - posting
   sqlite3:
     type: object
     properties:
