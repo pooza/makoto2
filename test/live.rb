@@ -122,6 +122,32 @@ module Makoto
         mc_times.first(3).map {|time| program.call(time)})
     end
 
+    # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
+    # ⚠ **「何本目の MC がどの原稿になるか」の正本を 2 つに割らない** — 下見と実際の
+    # 投稿が食い違うと、下見そのものが信用できなくなる。
+    def test_mc_text_is_shared_with_the_preview
+      add('live_mc', 'MC その 1')
+      add('live_mc', 'MC その 2')
+      program = live.program
+      time = jst(11, 4, 13, 0)
+      list = program.setlist(time)
+      entries = list.entries.select(&:mc?)
+
+      assert_equal(2, program.mc_size(time))
+      assert_equal(['MC その 1', 'MC その 2', 'MC その 1'],
+        entries.first(3).map {|entry| program.mc_text(entry, time)})
+    end
+
+    # ⚠ 原稿が 1 本も無ければ下見の側も nil（枠が素通しになることを表示できる）。
+    def test_mc_text_without_scripts_is_nil
+      program = live.program
+      time = jst(11, 4, 13, 0)
+      entry = program.setlist(time).entries.find(&:mc?)
+
+      assert_equal(0, program.mc_size(time))
+      assert_nil(program.mc_text(entry, time))
+    end
+
     # ⚠ MC の原稿が 1 本も無ければその枠は投稿しない（例外にしない）。
     def test_mc_without_scripts_posts_nothing
       list = live.program.setlist(jst(11, 4, 13, 0))
