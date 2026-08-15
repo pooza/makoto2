@@ -20,10 +20,30 @@ module Makoto
     # ⚠ **名義を「何人並んでいるか」で割る区切り**（#65・`credit_count`）。
     # ⚠⚠ **`split_artist` の区切りとは別物**（あちらは括弧も `CV:` も割る）。
     #
-    # ⚠ **`and` は入れない。**実データに ` and ` を含む名義は 0 件で、しかも
-    # ⚠⚠ **`\band\b` は非 ASCII の隣で効かない**（`つぼみandえりか` は割れない）。
-    # 効かない指定を残すと「対応済み」に見えるだけ害になる。
-    CREDIT_SEPARATOR = %r{[,、&＆/／]}
+    # ⚠ **`with` / `feat.` は入れる。**実データの名義 15 件に出て、⚠⚠ **全件が
+    # 「単独の歌手 ＋ もう 1 組」の区切り**（`うちやえゆか with Splash Stars`）。
+    # 入れないと**この形が単独名義として重みを 2 倍もらう**（#67 のレビュー指摘）。
+    # ⚠ **`\b` は使わない。**`normalize` が空白を落とすので `うちやえゆかwithSplashStars`
+    # になり、⚠⚠ **`\bwith\b` は非 ASCII の隣で効かない**（`and` と同じ罠）。
+    #
+    # ⚠ **`and` は入れない。**実データに `and` を含む名義は 0 件。⚠ **`with` と違って
+    # 出てこないので、書いても「対応済み」に見えるだけ害になる。**
+    CREDIT_SEPARATOR = %r{[,、&＆/／]|with|feat\.?}i
+
+    # ⚠⚠ **中黒は「2 つ以上あるときだけ」区切りとみなす**（#65・#67 のレビュー指摘）。
+    #
+    # ⚠ **中黒は名前の中にも入る** — `キュア・カルテット` `ヤング・フレッシュ`
+    # `ルールー・アムール` はどれも 1 組。無条件に割ると**単独名義が複数名義に化ける。**
+    # ⚠ 一方 `Machico・吉武千颯・北川理恵・ローラ・…`（8 人）は**割らないと単独名義**
+    # として重みを 2 倍もらう。実データではこの 2 つが中黒の数で分かれる。
+    #
+    # ⚠ **括弧を落としてから数える。**`キュア・レインボーズ(五條真由美・うちやえゆか・…)`
+    # は括弧の中に中黒が並ぶだけで、名義そのものは 1 組。
+    #
+    # ⚠ **例外は `ピョートル・イリイチ・チャイコフスキー`**（1 人だが中黒 2 つ）。
+    # ⚠⚠ **カバーの母集合はプリキュア歌手に絞ってあるので届かない**（実測）。
+    MIDDLE_DOT = '・'.freeze
+    MIDDLE_DOT_THRESHOLD = 2
 
     # 取得したものはプロセスの寿命だけ持つ。⚠ **8 時間のライブ中に何度も引かない**
     # （並びは日付ごとに 1 回組むだけだが、キャッシュが無いと再起動のたびに引く）。
@@ -80,7 +100,14 @@ module Makoto
     # ⚠ **括弧の中は数えない**（CV 表記・コーラス表記は「もう 1 人」ではない）。
     def self.credit_count(value)
       stripped = normalize(value).gsub(/[(（\[「][^)）\]」]*[)）\]」]/, '')
-      return [stripped.split(CREDIT_SEPARATOR).map(&:strip).count {|part| !part.empty?}, 1].max
+      parts = stripped.split(credit_separator(stripped)).map(&:strip)
+      return [parts.count {|part| !part.empty?}, 1].max
+    end
+
+    # ⚠ **中黒を区切りに足すかは名義ごとに決まる**（→ 上記 `MIDDLE_DOT`）。
+    def self.credit_separator(stripped)
+      return CREDIT_SEPARATOR if stripped.count(MIDDLE_DOT) < MIDDLE_DOT_THRESHOLD
+      return Regexp.union(CREDIT_SEPARATOR, MIDDLE_DOT)
     end
 
     # ⚠ 表記の揺れを落とす。cure-api 側の `Datasource.normalize_name` と同じ規則

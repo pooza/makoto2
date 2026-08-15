@@ -132,6 +132,41 @@ module Makoto
       assert_equal(6, CureApiService.credit_count('内田順子, 山野さと子, 中右貴久, 宮本佳那子, 岸野幸正 & 草尾毅'))
     end
 
+    # ⚠⚠ **`with` を落とすと「単独の歌手 ＋ もう 1 組」が単独名義に化ける**（#67）。
+    # ⚠ **`\b` は使えない**（`normalize` が空白を落とすので `うちやえゆかwithSplashStars`)。
+    def test_credit_count_splits_on_with
+      assert_equal(2, CureApiService.credit_count('うちやえゆか with Splash Stars'))
+      assert_equal(2, CureApiService.credit_count('工藤真由withフェアリートーン'))
+      assert_equal(2, CureApiService.credit_count('吉武千颯 with わんだふるぷりきゅあ!(CV:長縄まりあ・種﨑敦美)'))
+      assert_equal(2, CureApiService.credit_count('宮本佳那子 feat. 工藤真由'))
+    end
+
+    # ⚠⚠ **中黒は 2 つ以上あるときだけ区切りとみなす。**
+    # ⚠ **名前の中の中黒で単独名義を割らない**（`キュア・カルテット` は 1 組）。
+    def test_credit_count_keeps_a_single_middle_dot_inside_the_name
+      assert_equal(1, CureApiService.credit_count('キュア・カルテット'))
+      assert_equal(1, CureApiService.credit_count('ヤング・フレッシュ'))
+      assert_equal(2, CureApiService.credit_count('ヤング・フレッシュ & 沖 佳苗(as キュアピーチ)'))
+      assert_equal(2, CureApiService.credit_count('愛崎えみる(CV:田村奈央)、ルールー・アムール(CV:田村ゆかり)'))
+    end
+
+    # ⚠ **括弧を落としてから数える** — 括弧の中に構成員が並ぶだけの名義は 1 組。
+    def test_credit_count_splits_on_repeated_middle_dots
+      credits = [
+        'Machico',
+        '吉武千颯',
+        '北川理恵',
+        'ローラ(CV:日高里菜)',
+        '夏海まなつ(CV:ファイルーズあい)',
+        '涼村さんご(CV:花守ゆみり)',
+        '一之瀬みのり(CV:石川由依)',
+        '滝沢あすか(CV:瀬戸麻沙美)',
+      ]
+
+      assert_equal(8, CureApiService.credit_count(credits.join('・')))
+      assert_equal(1, CureApiService.credit_count('キュア・レインボーズ(五條真由美・うちやえゆか・工藤真由)'))
+    end
+
     # ⚠ 空でも 0 にしない（重みの計算で割り算の分母にはしないが、1 人扱いが自然）。
     def test_credit_count_never_returns_zero
       assert_equal(1, CureApiService.credit_count(nil))
