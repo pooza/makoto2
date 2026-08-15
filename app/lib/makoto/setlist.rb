@@ -34,8 +34,12 @@ module Makoto
     PREFIX = '/live/setlist'.freeze
 
     # 項目 1 つ。⚠ `kind` は `:song`（本編）/ `:cover`（ゲストコーナー）/ `:mc`。
-    # ⚠ MC は原稿の側で中身が決まるので、ここでは何本目かだけ持つ。
-    Entry = Struct.new(:kind, :track, :ordinal, keyword_init: true) do
+    # ⚠ MC は原稿の側で中身が決まるので、ここでは位置だけ持つ。
+    #
+    # ⚠⚠ **`ordinal`（何本目か）だけでなく `mc_total`（全部で何本か）も持つ**（#69）。
+    # **台本は位置で意味が決まる**（`最後の1曲。` は最後でなければ嘘になる）ので、
+    # ⚠ **`LiveProgram` が「進行の何割か」で原稿を引けるようにする。**
+    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, keyword_init: true) do
       def song?
         return kind == :song
       end
@@ -242,7 +246,16 @@ module Makoto
       anchors = [opening, opening, closing].compact
       half = body.size / 2
       fillers = @slots - body.size - anchors.size
-      return compose(opening, closing, body[0...half], body[half..] || [], fillers)
+      return with_mc_total(compose(opening, closing, body[0...half], body[half..] || [], fillers))
+    end
+
+    # ⚠⚠ **MC の総数を各 MC に配る**（#69）。⚠ **組み終わるまで総数が確定しない**ので
+    # 最後に 1 回だけ回る。⚠ **これが無いと `LiveProgram` は「何割の位置か」を出せず、
+    # 台本が枠数に合わなくなった瞬間に頭から巻き戻る**（`最後の1曲。` が中盤に出た）。
+    def with_mc_total(entries)
+      total = entries.count(&:mc?)
+      entries.each {|entry| entry.mc_total = total if entry.mc?}
+      return entries
     end
 
     # 前半・後半に埋め草（カバーと MC）を割り振って 1 本に繋ぐ。

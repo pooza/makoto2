@@ -60,16 +60,24 @@ module Makoto
       return pick(records)
     end
 
-    # 選ばれた段の原稿を、id 順に並べたもの。⚠ **無ければ空配列。**
+    # 選ばれた段の原稿を、台本の順に並べたもの。⚠ **無ければ空配列。**
     #
     # ⚠⚠ **`find` が乱択なのに対し、こちらは順序が安定する。**ライブの MC（#13）は
-    # 「用意した原稿を頭から順に消化する」ので、枠ごとに引き直すと**同じ原稿が何度も
+    # 「用意した原稿を台本の順に消化する」ので、枠ごとに引き直すと**同じ原稿が何度も
     # 出て、出ない原稿が残る**。⚠ **順に消化したい呼び出し側はこちらを使う。**
+    #
+    # ⚠⚠ **並べる鍵は `slug`。id ではない**（#69）。**id は採番の順＝取り込んだ順**なので、
+    # ⚠ **あとから台本の途中に 1 本足すと、それが必ず末尾に来る。**台本は位置で意味が
+    # 決まるので、⚠ **ファイルの並びがそのまま出る形にする**（`slug` は `ScriptImporter`
+    # の upsert の鍵でもあり、原稿の側が持つ唯一の安定した順序）。
+    #
+    # ⚠ **`slug` を持たない原稿は後ろ**（旧ダンプ 388 件。`list` を使う台本の type には
+    # 混ざらないが、混ざっても台本の順序を壊さない位置に落とす）。
     def list(time = nil)
       date = date_of(time || Time.now)
       records = candidates(date)
       return [] unless records
-      return records.order(Sequel[:message][:id]).all
+      return records.order(Sequel.asc(:slug, nulls: :last), Sequel[:message][:id]).all
     end
 
     # その日に使える記念日の type。⚠ 許可リストに無いものは外す。設定に無い日なら空。

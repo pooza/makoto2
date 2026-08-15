@@ -55,8 +55,8 @@ module Makoto
       return @setlists[date]
     end
 
-    # ⚠ **原稿が尽きたら頭に戻る。**用意した本数より MC の枠が多くても、無言の枠を
-    # 作らない。⚠ 1 本も無ければ nil（＝その枠は投稿しない）。
+    # ⚠ **無言の枠を作らない。**用意した本数より MC の枠が多くても何かは出す。
+    # ⚠ 1 本も無ければ nil（＝その枠は投稿しない）。
     #
     # ⚠⚠ **下見（`makoto live setlist`）もここを呼ぶ**（#62）。**「何本目の MC が
     # どの原稿になるか」の正本を 2 つに割らない** — 下見で見た並びと実際の投稿が
@@ -64,7 +64,29 @@ module Makoto
     def mc_text(entry, time = nil)
       scripts = @mc_selector.list(time || Time.now)
       return nil if scripts.empty?
-      return scripts[entry.ordinal % scripts.size][:body]
+      return scripts[script_index(entry, scripts.size)][:body]
+    end
+
+    # ⚠⚠ **原稿は「進行の何割の位置か」で引く**（#69）。**台本は位置で意味が決まる**
+    # （`ここで半分。` / `6時間。` / `最後の1曲。`）ので、⚠ **頭から順に消化して尽きたら
+    # 巻き戻す形にすると、`最後の1曲。` が中盤に出て `ここで半分。` が最後に出る。**
+    #
+    # ⚠ **原稿の本数と枠の数を独立させられる**のが要点。**曲数が動けば MC の枠数も動く**
+    # （埋め草は `枠数 − 曲数 − カバー`）ので、⚠⚠ **本数を枠数に合わせて数えるのは
+    # 運用に載らない** — 実際、#63 で本編を 8 曲間引いた瞬間に 17 枠が 25 枠になった。
+    #
+    # ⚠⚠ **両端で合わせる。**⚠ `ordinal × 原稿数 ÷ 枠数` だと、**原稿のほうが多いときに
+    # 最後の 1 本が永久に出ない**（25 本 24 枠なら `23 × 25 ÷ 24 = 23` で 24 番目が出ない）。
+    # ⚠ **`最後の1曲。` が出ないという、この修正が消そうとした壊れ方そのもの**
+    # （#71 のレビュー指摘）。**最初の枠は 1 本目、最後の枠は最後の 1 本**になる式にする。
+    #
+    # ⚠ **総数が分からなければ従来どおり巻き戻す**（`Setlist` 以外が作った項目への保険）。
+    def script_index(entry, size)
+      total = entry.mc_total.to_i
+      return entry.ordinal % size if total < 1
+      return 0 if total < 2 || size < 2
+      # ⚠ 浮動小数を使わない（同じ日付なら同じ並び、が前提 → Setlist）。
+      return Rational(entry.ordinal * (size - 1), total - 1).round.clamp(0, size - 1)
     end
 
     # 用意されている MC の原稿の本数。⚠ **下見が「何本が 2 回出るか」を出すのに使う。**
