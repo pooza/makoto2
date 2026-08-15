@@ -100,7 +100,6 @@ module Makoto
     end
 
     # ⚠⚠ **資格情報のマスクを壊さない**（ginseng-core 側の `mask`）。
-    # ⚠ **安全網はマスクの後に掛かる**ので、順番が入れ替わっていないことを見る。
     #
     # ⚠ **いま入っている ginseng-core（1.15.28）が落とせるのはキー名だけ**で、
     # ⚠⚠ **値の文字列に埋まったトークン（`url: "...?access_token=xxx"`）は素通りする**
@@ -111,6 +110,43 @@ module Makoto
 
       assert_not_include(message.keys, :token)
       assert_equal('live', message[:post])
+    end
+
+    # 🔴 **`Ginseng::Logger#create_message` は内部で例外を握ると、渡された Hash を
+    # マスクを通さずにそのまま返す。**⚠ **実際に踏むのは `backtrace` を持たない例外**
+    # （`raise` していない例外を `error:` に渡した形）。
+    #
+    # ⚠⚠ **#79 の scrub はこれを悪化させた** — **修正前は syslog で落ちて「ログごと
+    # 消えて」いたものが、出力できるようになった結果、秘密がそのまま書かれる。**
+    # **「ログが消える」を「秘密が漏れる」に変えていた。**
+    def test_secrets_are_dropped_even_when_the_superclass_mask_is_skipped
+      [Ginseng::GatewayError.new('boom'), Ginseng::GatewayError.new(broken)].each do |error|
+        message = logger.create_message(token: 'SECRET', post: 'live', error: error)
+
+        assert_not_include(message.keys, :token)
+        assert_not_include(message.to_json, 'SECRET')
+      end
+    end
+
+    # ⚠ 入れ子の中の秘密も落とす。
+    def test_nested_secrets_are_dropped
+      payload = {
+        context: {access_token: 'SECRET'},
+        list: [{api_key: 'SECRET'}],
+        error: Ginseng::GatewayError.new('boom'),
+      }
+      message = logger.create_message(payload)
+
+      assert_not_include(message.to_json, 'SECRET')
+    end
+
+    # ⚠⚠ **設定が無くてもマスクしない方向へ倒さない。**設定の不備で秘密が平文に
+    # 戻るほうが事故が大きい（→ `Logger::MASK_FIELDS`）。
+    def test_masking_falls_back_to_the_default_list
+      config.delete('/logger/mask_fields')
+      message = Logger.new.create_message(token: 'SECRET', error: Ginseng::GatewayError.new('boom'))
+
+      assert_not_include(message.to_json, 'SECRET')
     end
 
     # ⚠⚠ **呼び出し側 6 箇所を直す案にしなかった理由の担保。**

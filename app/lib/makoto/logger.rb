@@ -36,31 +36,70 @@ module Makoto
   class Logger < Ginseng::Logger
     include Package
 
+    # ⚠ 資格情報を落とす既定のキー名。⚠⚠ **設定が無いときにここへ倒す** —
+    # **マスクしない方向へは倒さない**（設定の不備で秘密が平文に戻るほうが事故が大きい）。
+    MASK_FIELDS = [
+      'password', 'secret', 'token', 'access_token', 'api_key', 'authorization', 'code'
+    ].freeze
+
     # ⚠ **`info` / `error` / `warn` のすべてがここを通る**（ginseng-core 側で
     # `create_message(message).to_json` の形に揃っている）。
     def create_message(src)
-      return scrub(super)
+      return drop_secrets(scrub(super))
     end
 
     private
+
+    # 🔴 **秘密を出口でもう一度落とす**（#82 のレビュー指摘）。
+    #
+    # ⚠⚠ **`Ginseng::Logger#create_message` は内部で例外を握ると、渡された Hash を
+    # マスクを通さずにそのまま返す。**⚠ **実際に踏むのは `backtrace` を持たない例外**
+    # （`error.backtrace.first` が `NoMethodError`）で、⚠⚠ **`raise` していない例外を
+    # `error:` に渡すとこの形になる。**
+    #
+    # 🔴 **しかも #79 の scrub がこれを悪化させた。**⚠ **修正前は syslog の
+    # `String#strip` で落ちて「ログごと消えて」いた**が、**scrub で出力できるように
+    # なった結果、秘密がそのまま書かれる。**⚠⚠ **「ログが消える」を「秘密が漏れる」に
+    # 変えていた**（2026-08-15 実測）。
+    #
+    # ⚠ **上流の挙動に依存せず、出口で必ず落とす形にする。**
+    def drop_secrets(value)
+      case value
+      when Hash
+        value.reject {|key, _| secret?(key)}.transform_values {|entry| drop_secrets(entry)}
+      when Array then value.map {|entry| drop_secrets(entry)}
+      else value
+      end
+    end
+
+    def secret?(key)
+      return mask_fields.include?(key.to_s.downcase)
+    end
+
+    def mask_fields
+      @mask_fields ||= (optional_config('/logger/mask_fields') || MASK_FIELDS).to_set do |field|
+        field.to_s.downcase
+      end
+    end
 
     # ⚠⚠ **入れ子の中まで見る。**落ちるのは `error.message` だけとは限らない —
     # ⚠ **投稿の本文・URL・曲名**も同じ経路でログに載る。
     #
     # ⚠⚠ **キーも見る**（#82 のレビュー指摘）。**値だけ直すと、壊れたキーを持つ
-    # Hash がそのまま出口を抜ける。**⚠ **`create_message` は `symbolize_keys` で
-    # `to_sym` を呼び、壊れた文字列に対して `EncodingError` を上げる** — そこで
-    # ginseng 側の rescue が**渡された Hash を生のまま返す**ので、⚠⚠ **マスクも
-    # 掛からないまま syslog まで届く。**
+    # Hash がそのまま出口を抜け、syslog の `String#strip` で落ちる。**
+    # ⚠ **`to_json` は不正なバイト列をそのまま通す**ので、そこでは止まらない。
     #
-    # ⚠ **例外オブジェクトが素で残る場合がある** — 上と同じ経路で `error:` の値が
-    # 例外のまま来る。⚠⚠ **その `to_json` は `to_s` を呼ぶので、ここで潰さないと
+    # ⚠ **例外オブジェクトが素で残る場合がある** — 上記の rescue の経路で `error:` の
+    # 値が例外のまま来る。⚠⚠ **その `to_json` は `to_s` を呼ぶので、ここで潰さないと
     # 同じ場所で落ちる。**
     # ⚠⚠ **`Symbol` も見る。**⚠ **「不正なバイト列の Symbol は作れない」で済ませない** —
     # `String#to_sym` が `EncodingError` を上げるのは**不正なバイト列のときだけ**で、
     # ⚠⚠ **Windows-31J のように「別の符号化として妥当」な文字列は、その符号化を
     # 持ったまま Symbol になれる**（`symbolize_keys` がまさにそれを作る）。**実測で
     # ここだけ落ち残った。**
+    #
+    # ⚠ **`symbolize_keys` そのものは壊れたキーで落ちない**（ActiveSupport が
+    # `key.to_sym rescue key` で握る）。**キーが原因でマスクが飛ぶことは無い。**
     #
     # ⚠ **型は変えない**（`Symbol` は `Symbol` のまま）。⚠⚠ **`String` にすると
     # ginseng 側の `mask_fields`（キー名で資格情報を落とす）の見え方が変わる。**

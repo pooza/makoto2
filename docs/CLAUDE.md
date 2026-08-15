@@ -560,7 +560,9 @@ bin/makoto corpus stat     # 件数を確認する
 - ⚠ **例外メッセージを埋め込むときは `error_message` を通す。** Sequel / SQLite の例外は **ASCII-8BIT** で上がるので、台詞のような非 ASCII を含む SQL が失敗すると `"...: #{e.message}"` が `Encoding::CompatibilityError` になる。**エラー処理そのものが落ちて本当のエラーが隠れる**（無人で動くボットでは誰も気付けない）
   - ⚠⚠ **ログの側は覚えなくてよい。**`Makoto::Logger#create_message` が**出口 1 つで scrub する**ので、`logger.error(error: e)` はどこから呼んでも安全（2026-08-15・#79）。⚠ **`error_message` は「例外を文字列に埋める」ため、こちらは「ログに出す」ため**で経路が違う（`raise "...: #{error_message(e)}"` はログを通らない）
   - 🔴 **直す場所を「呼び出し側 6 箇所」にしなかった理由** — ⚠ **7 箇所目が生えた瞬間に破れる**うえ、⚠⚠ **破れても静かに壊れる**（テストが落ちるのは、その新しい呼び出しに不正なバイト列が来たときだけ）。**規約で守るより、通り道を 1 つにする**
-  - ⚠⚠ **キーも見ること。**値だけ直すと、**壊れたキーを持つ Hash がそのまま出口を抜ける**。⚠ **しかも `create_message` は `symbolize_keys` で `to_sym` を呼ぶので、そこで `EncodingError` が上がると ginseng 側の rescue が Hash を生のまま返し、マスクも掛からない**
+  - ⚠⚠ **キーも見ること。**値だけ直すと、**壊れたキーを持つ Hash がそのまま出口を抜け、syslog の `String#strip` で落ちる**。⚠ **`to_json` は不正なバイト列をそのまま通す**ので、そこでは止まらない（⚠ **`symbolize_keys` 自体は落ちない** — ActiveSupport が `key.to_sym rescue key` で握る）
+  - 🔴 **秘密は出口でもう一度落とすこと**（`Logger#drop_secrets`）。⚠⚠ **`Ginseng::Logger#create_message` は内部で例外を握ると、渡された Hash をマスクを通さずにそのまま返す** — ⚠ **実際に踏むのは `backtrace` を持たない例外**（`raise` していない例外を `error:` に渡した形）。⚠⚠ **しかも #79 の scrub がこれを悪化させた** — **修正前は syslog で落ちて「ログごと消えて」いたものが、出力できるようになった結果、秘密がそのまま書かれる。「ログが消える」を「秘密が漏れる」に変えていた**（2026-08-15 実測・#82 のレビュー指摘）。⚠ **安全網を足すときは「何が出せるようになったか」を数える**
+  - ⚠ **マスクの設定が無いときは既定のリストへ倒す。**⚠⚠ **マスクしない方向へは倒さない**（設定の不備で秘密が平文に戻るほうが事故が大きい）
   - ⚠ **「不正なバイト列の Symbol は作れない」で済ませない**（2026-08-15 に一度これで落ち残した）。**`String#to_sym` が `EncodingError` を上げるのは不正なバイト列のときだけ**で、⚠⚠ **Windows-31J のように「別の符号化として妥当」な文字列は、その符号化を持ったまま Symbol になれる**
   - ⚠ **踏むのは「壊れた／切り詰められたバイト列」**（`Net::HTTPBadResponse` の `wrong status line: "..."` など）。**ASCII-8BIT でも中身が妥当な UTF-8 なら落ちない**ので、Sequel の例外では踏まない。⚠⚠ **確率は低いが、踏むと `logger.error` 自身が再送出し、`Scheduler#tick` の rescue も貫通して stderr へ抜け、`bin/makoto_daemon.rb` が `/dev/null` に落とすので 1 行も残らなかった**
   - ⚠ **いま入っている ginseng-core（1.15.28）の `mask` はキー名でしか落とせない。**⚠⚠ **値の文字列に埋まったトークン（`url: "...?access_token=xxx"`）は素通りする**（上流の新しい版には `mask_url` がある）。**MAKOTO は Bearer ヘッダで投げ、cure-api の URL にも秘密が無い**ので、いまは踏まない
