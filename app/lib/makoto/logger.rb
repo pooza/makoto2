@@ -47,15 +47,29 @@ module Makoto
     # ⚠⚠ **入れ子の中まで見る。**落ちるのは `error.message` だけとは限らない —
     # ⚠ **投稿の本文・URL・曲名**も同じ経路でログに載る。
     #
-    # ⚠ **例外オブジェクトが素で残る場合がある** — `create_message` は内部で
-    # 例外を握ると**渡された Hash をそのまま返す**ので、`error:` の値が
+    # ⚠⚠ **キーも見る**（#82 のレビュー指摘）。**値だけ直すと、壊れたキーを持つ
+    # Hash がそのまま出口を抜ける。**⚠ **`create_message` は `symbolize_keys` で
+    # `to_sym` を呼び、壊れた文字列に対して `EncodingError` を上げる** — そこで
+    # ginseng 側の rescue が**渡された Hash を生のまま返す**ので、⚠⚠ **マスクも
+    # 掛からないまま syslog まで届く。**
+    #
+    # ⚠ **例外オブジェクトが素で残る場合がある** — 上と同じ経路で `error:` の値が
     # 例外のまま来る。⚠⚠ **その `to_json` は `to_s` を呼ぶので、ここで潰さないと
     # 同じ場所で落ちる。**
+    # ⚠⚠ **`Symbol` も見る。**⚠ **「不正なバイト列の Symbol は作れない」で済ませない** —
+    # `String#to_sym` が `EncodingError` を上げるのは**不正なバイト列のときだけ**で、
+    # ⚠⚠ **Windows-31J のように「別の符号化として妥当」な文字列は、その符号化を
+    # 持ったまま Symbol になれる**（`symbolize_keys` がまさにそれを作る）。**実測で
+    # ここだけ落ち残った。**
+    #
+    # ⚠ **型は変えない**（`Symbol` は `Symbol` のまま）。⚠⚠ **`String` にすると
+    # ginseng 側の `mask_fields`（キー名で資格情報を落とす）の見え方が変わる。**
     def scrub(value)
       case value
-      when Hash then value.transform_values {|entry| scrub(entry)}
+      when Hash then value.to_h {|key, entry| [scrub(key), scrub(entry)]}
       when Array then value.map {|entry| scrub(entry)}
       when String then value.dup.force_encoding(Encoding::UTF_8).scrub
+      when Symbol then scrub(value.to_s).to_sym
       when Exception then "#{value.class}: #{scrub(value.message)}"
       else value
       end

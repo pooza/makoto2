@@ -53,6 +53,35 @@ module Makoto
       assert_true(message[:track][:artists].first.valid_encoding?)
     end
 
+    # ⚠⚠ **キーも見る**（#82 のレビュー指摘）。⚠ **値だけ直すと、壊れたキーを持つ
+    # Hash がそのまま出口を抜ける。**
+    #
+    # ⚠ **`create_message` は `symbolize_keys` で `to_sym` を呼ぶ** — 不正なバイト列なら
+    # `EncodingError` を上げ、ginseng 側の rescue が**渡された Hash を生のまま返す**
+    # （⚠⚠ **マスクも掛からない**）。**落ちるのは `to_json` ではなく、その先の
+    # syslog（`String#strip`）。**
+    def test_string_keys_are_scrubbed
+      assert_nothing_raised {logger.info(context: {broken => 'value'})}
+      assert_nothing_raised {logger.info(context: [{broken => 'value'}])}
+    end
+
+    # ⚠⚠ **「不正なバイト列の Symbol は作れない」で済ませない。**`String#to_sym` が
+    # `EncodingError` を上げるのは**不正なバイト列のときだけ**で、⚠ **Windows-31J の
+    # ように「別の符号化として妥当」な文字列は、その符号化を持ったまま Symbol になれる**
+    # （`symbolize_keys` がまさにそれを作る）。⚠ **実測でここだけ落ち残った。**
+    def test_keys_valid_in_another_encoding_are_scrubbed
+      assert_nothing_raised {logger.info(context: {'真琴'.encode('Windows-31J') => 'value'})}
+    end
+
+    # ⚠ **キーの型を変えない。**⚠⚠ `String` にすると ginseng 側の `mask_fields`
+    # （キー名で資格情報を落とす）の見え方が変わる。
+    def test_key_types_are_preserved
+      message = logger.create_message(post: 'live', 'text' => broken)
+
+      assert_include(message.keys, :post)
+      assert_include(message.keys, 'text')
+    end
+
     # ⚠ **例外オブジェクトが素で残る場合がある** — `create_message` は内部で例外を
     # 握ると**渡された Hash をそのまま返す**（バックトレースの無い例外など）。
     # ⚠⚠ **その `to_json` は `to_s` を呼ぶので、ここで潰さないと同じ場所で落ちる。**
