@@ -59,6 +59,30 @@ module Makoto
 
     private
 
+    # 🔴 **答えている自分が、pid ファイルの常駐かを先に確かめる**（2026-08-16・#87 の
+    # レビュー指摘）。⚠⚠ **違えば、この口が返す答えは全部あてにならない。**
+    #
+    # ⚠ **口が塞がっていても常駐を止めない**（→ `MonitorServer`）ということは、
+    # ⚠⚠ **古い常駐がポートを掴んだまま、新しい常駐がその横で動く形が作れる**という
+    # こと。**そのとき Kuma に答えるのは古いほう**で、⚠ **痕跡も pid ファイルも新しい
+    # ほうが書いている**ので、⚠⚠ **3 つの口が揃って 200 を返す。**
+    #
+    # ⚠ **孤児の口さえ緑になる** — `Health` は**自分自身（`Process.pid`）と pid ファイル
+    # の常駐**を走査から除くので、**2 本ある状態が、どちらから見ても見えない。**
+    # ⚠⚠ **monit が退役していて Kuma しか見ていない**以上、これは無防備そのもの。
+    #
+    # ⚠ **実測（2026-08-16）** — 2 本立てると `makoto status` は `orphan process: 912621`
+    # で `2` を返したのに、⚠⚠ **`/healthz` / `/healthz/posting` / `/healthz/orphans` は
+    # 3 つとも 200 だった。**
+    #
+    # ⚠ **再起動の一瞬（pid ファイルが消えている窓）もここに掛かる。**⚠⚠ **短い 503 は
+    # 誤報ではない** — その瞬間、この口に答えているのは畳まれる途中の常駐。
+    def stale_messages(health)
+      return [] if health.pid == Process.pid
+      found = health.pid || 'none'
+      return ["monitor is served by a stale process (PID #{Process.pid}, pid file says #{found})"]
+    end
+
     # ⚠⚠ **例外は 503 に倒す。**⚠ **200 に倒すと、`Health` が落ちている間だけ監視が
     # 緑になる** — 設定の欠落（#77）やハートビートの閾値の不正で `Health` 自身が
     # 例外を上げうるので、**判定できないことを健全と答えない。**
@@ -66,7 +90,11 @@ module Makoto
     # ⚠ **ここでしかログを書かない。**Kuma は 1 分ごとに叩くので、⚠⚠ **正常な応答を
     # 書くと 1 日 4,000 行を超え、平常日のログが監視で埋まる。**
     def respond
-      messages = yield(@health.call)
+      health = @health.call
+      # ⚠ **身元が食い違うなら、そこで止める。**⚠⚠ **中身の答えを足しても意味が無い**
+      # （その `Health` は別の常駐のことを見ている）。
+      messages = stale_messages(health)
+      messages = yield(health) if messages.empty?
       return [200, HEADERS, ["OK\n"]] if messages.empty?
       return [503, HEADERS, ["#{messages.join("\n")}\n"]]
     rescue => e

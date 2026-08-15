@@ -16,14 +16,16 @@ module Makoto
       return Time.new(2026, 11, 4, 12, 0, 0, '+09:00')
     end
 
-    def daemon(alive: true, pid: 4649)
+    # ⚠ **既定は自分の pid。**⚠⚠ **口は常駐の中から答える**ので、**pid ファイルが自分を
+    # 指しているのが正常**（→ `MonitorApp#stale_messages`）。
+    def daemon(alive: true, pid: Process.pid)
       stub = MakotoDaemon.new
       stub.define_singleton_method(:alive?) {alive}
       stub.define_singleton_method(:pid) {pid}
       return stub
     end
 
-    def app(alive: true, pid: 4649, proc_dir: nil)
+    def app(alive: true, pid: Process.pid, proc_dir: nil)
       health = Health.new(
         daemon: daemon(alive: alive, pid: pid),
         now: now,
@@ -161,6 +163,34 @@ module Makoto
 
       assert_equal(503, get(app, '/healthz/orphans')[:status])
       assert_include(get(app, '/healthz/orphans')[:body], 'orphan process: 1234')
+    end
+
+    # 🔴 **古い常駐がポートを掴んだまま新しい常駐が動く形**（2026-08-16・#87 の
+    # レビュー指摘）。⚠⚠ **答えているのは古いほうなのに、痕跡も pid ファイルも新しい
+    # ほうが書いている**ので、**身元を見ないと 3 つの口が揃って 200 を返す。**
+    #
+    # ⚠ **孤児の口さえ緑になる** — `Health` は自分自身と pid ファイルの常駐を走査から
+    # 除くため、⚠⚠ **2 本ある状態がどちらから見ても見えない。**
+    def test_stale_process_is_unhealthy
+      healthy_heartbeat
+      stale = app(pid: Process.pid + 1)
+
+      ['/healthz', '/healthz/posting', '/healthz/orphans'].each do |path|
+        response = get(stale, path)
+
+        assert_equal(503, response[:status], path)
+        assert_include(response[:body], 'stale process', path)
+      end
+    end
+
+    # ⚠ **pid ファイルが消えている窓もここに掛かる**（再起動の一瞬）。⚠⚠ **短い 503 は
+    # 誤報ではない** — その瞬間に答えているのは畳まれる途中の常駐。
+    def test_missing_pid_file_is_unhealthy
+      healthy_heartbeat
+      response = get(app(pid: nil), '/healthz')
+
+      assert_equal(503, response[:status])
+      assert_include(response[:body], 'pid file says none')
     end
 
     def test_unknown_path_returns_not_found
