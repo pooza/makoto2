@@ -181,6 +181,24 @@ module Makoto
       )
     end
 
+    # ⚠⚠ **`♯`（U+266F・嬰記号）は約物ではないので `[[:punct:]]` で落ちない**（#74）。
+    # ⚠ **`#`（U+0023）は約物なので落ちる。**片方だけ落ちると、
+    # **`#キボウレインボウ#` と `♯キボウレインボウ♯` が別の曲になる。**
+    # ⚠ **NFKC でも寄らない**（U+266F に互換分解が無い）ので、明示して落とす。
+    def test_dedupe_key_absorbs_the_music_sharp_sign
+      assert_equal(
+        TrackImporter.dedupe_key('#キボウレインボウ#'),
+        TrackImporter.dedupe_key('♯キボウレインボウ♯'),
+      )
+    end
+
+    # ⚠ `♭` `♮` も同じ仲間として揃える（実データには 0 件だが、`♪` と同じ扱い）。
+    def test_dedupe_key_absorbs_the_other_music_signs
+      assert_equal('a', TrackImporter.dedupe_key('A♭'))
+      assert_equal('a', TrackImporter.dedupe_key('A♮'))
+      assert_equal('a', TrackImporter.dedupe_key('A♪'))
+    end
+
     def test_dedupe_key_keeps_different_songs_apart
       assert_not_equal(
         TrackImporter.dedupe_key('しまうまグルグル'),
