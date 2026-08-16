@@ -170,6 +170,25 @@ properties:
         additionalProperties: false
     required:
       - anniversary
+  # 監視の口（#84）。⚠⚠ 3 つとも required にする — optional_config で既定値に
+  # 逃がすと、⚠ 設定を消しただけで監視の口が静かに閉じる（#77 の裏返し。
+  # /scheduler/posting/failure_limit と同じ判断）。
+  monitor:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      # ⚠ 既定は 127.0.0.1。開けるのは箱ごとに local.yaml で行う明示的な一手。
+      bind:
+        type: string
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+    required:
+      - enabled
+      - bind
+      - port
   package:
     type: object
     properties:
@@ -195,6 +214,10 @@ properties:
       # ⚠ 枠の頭を拾う間隔。欠けると PostingJob が作れず、投稿が 1 本も出ない。
       tick:
         type: string
+      # ⚠ 枠の頭を拾う幅（#90）。⚠⚠ optional_config で既定値に逃がさない —
+      # 消しただけで拾う幅が tick まで縮み、静かに余裕がゼロに戻る（#77 の裏返し）。
+      tolerance:
+        type: string
       # 投稿が続けて落ちたことの検知（#78）。
       posting:
         type: object
@@ -213,6 +236,7 @@ properties:
       - heartbeat
       - timezone
       - tick
+      - tolerance
       - posting
   sqlite3:
     type: object
@@ -264,6 +288,7 @@ required:
   - logger
   - mastodon
   - message
+  - monitor
   - package
   - scheduler
   - sqlite3

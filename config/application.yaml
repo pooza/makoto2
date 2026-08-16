@@ -159,6 +159,21 @@ logger:
     - api_key
     - authorization
     - code
+monitor:
+  # 監視（Uptime Kuma）が叩く HTTP の口（#84 → MonitorApp / MonitorServer）。
+  #
+  # ⚠⚠ **既定は 127.0.0.1。**⚠ **開けるのは箱ごとに config/local.yaml へ
+  # `bind: 0.0.0.0` を書く明示的な一手にする**ので、「開いていない」が既定のまま残る。
+  # ⚠⚠ **LAN 限定・読み取り専用の死活の口だけ**で、管理コンソールは作らない
+  # （→ docs/CLAUDE.md「管理操作は CLI で行う」）。
+  #
+  # ⚠ **切るとポートが開かないので Kuma からは「落ちている」と見える。**ここで
+  # 監視そのものを止めるつもりなら、Kuma 側のモニタも一緒に止めること。
+  enabled: true
+  bind: 127.0.0.1
+  # ⚠ tomato-shrieker と同じ番号。**別の箱なので衝突しない**（本番は非同居）。
+  # Kuma への登録を他の ginseng 系ボットと同じ形にしておく。
+  port: 4567
 package:
   authors:
     - Tatsuya Koishi
@@ -167,7 +182,7 @@ package:
     - tkoishi@b-shock.co.jp
   license: MIT
   url: https://github.com/pooza/makoto2
-  version: 0.2.1
+  version: 0.2.2
 message:
   # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
   # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が
@@ -200,6 +215,19 @@ message:
 scheduler:
   heartbeat:
     interval: 1h
+  # 枠の頭を拾う幅（#90）。⚠ **tick はぴったりの時刻には来ない**ので、この幅だけ
+  # 遅れて呼ばれても枠を拾う。
+  #
+  # ⚠⚠ **tick と同じ値にしない。**同値だと拾えるのは tick が `[枠の頭, 枠の頭+tick)`
+  # に落ちたときだけで、⚠ **余裕が構造的にゼロ**になる。⚠⚠ **ライブの枠間隔 180 秒は
+  # tick の 10 秒の整数倍なので、位相ずれは 160 枠すべてに同じように効く**
+  # （1 枠だけの事故にならない）。
+  #
+  # ⚠ **枠の間隔より短いこと**（`PostingJob#validate` が起動時に落とす）。いちばん短い
+  # 枠は予告・告知の 1m なので、ここは 60 秒未満に収めること。
+  #
+  # ⚠ **広げても二重投稿にはならない** — 同じ枠なら冪等キーが同じで Mastodon 側が畳む。
+  tolerance: 30s
   # 枠の頭を拾いに行く間隔。⚠ **枠ごとにジョブを登録せず、この間隔で叩いて
   # 「いま枠の頭か」を時刻から計算する**（→ Scheduler / PostingJob）。
   # ⚠⚠ **枠の間隔はこれより長いこと。**短いと 1 回の叩きが複数の枠に跨がり、

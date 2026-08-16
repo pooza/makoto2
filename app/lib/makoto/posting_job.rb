@@ -28,12 +28,17 @@ module Makoto
     # @param name [String] ログと冪等キーに使う名前。⚠ 投稿の種類ごとに一意にする
     # @param timetable [Timetable] 枠
     # @param source [#call] 枠の頭の時刻を受け取り、投稿の本文を返すもの
-    # @param tolerance [String, Numeric] 枠の頭を拾う幅。既定は `/scheduler/tick`
+    # @param tolerance [String, Numeric] 枠の頭を拾う幅。既定は `/scheduler/tolerance`
+    #
+    # ⚠⚠ **既定を `/scheduler/tick` にしない**（#90 / #80 の黄 8）。⚠ **同値だと
+    # 拾えるのは tick が `[枠の頭, 枠の頭+tick)` に落ちたときだけで、余裕が構造的に
+    # ゼロ**になる。⚠⚠ **ライブの枠間隔 180 秒は tick の 10 秒の整数倍なので、
+    # 位相ずれは 160 枠すべてに同じように効く**（1 枠だけの事故にならない）。
     def initialize(name:, timetable:, source:, tolerance: nil, visibility: nil)
       @name = name.to_s
       @timetable = timetable
       @source = source
-      @tolerance = parse_tolerance(tolerance || config['/scheduler/tick'])
+      @tolerance = parse_tolerance(tolerance || config['/scheduler/tolerance'])
       @visibility = visibility
       validate
     end

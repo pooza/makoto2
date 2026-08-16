@@ -15,12 +15,66 @@ module Makoto
       end
     end
 
+    # ⚠ **警告を数えるための受け皿**（#88）。⚠⚠ **「黙って 0 件になる」を防ぐのが
+    # 目的**なので、**返り値だけ見るテストでは足りない。**
+    Recorder = Struct.new(:messages) do
+      def warn(payload)
+        messages.push(payload[:message].to_s)
+      end
+
+      def info(*)
+      end
+
+      def error(*)
+      end
+    end
+
+    # ⚠ 写しを持ち越さない（#88 → `CureApiService`）。
+    setup do
+      FileUtils.rm_f(CureApiService.cache_path)
+    end
+
+    teardown do
+      FileUtils.rm_f(CureApiService.cache_path)
+    end
+
     def setup
       super
       @db = empty_db
       config['/live/setlist/opening'] = OPENING
       config['/live/setlist/closing'] = CLOSING
       config['/live/setlist/cover_size'] = 2
+    end
+
+    # ⚠ **警告を出すのは `CoverSelector`**（`Setlist` ではない → #88）。
+    def selector
+      return CoverSelector.new(date: date, repository: repository, cure_api: CureApiService.new)
+    end
+
+    def warnings_of(target)
+      recorder = Recorder.new([])
+      target.instance_variable_set(:@logger, recorder)
+      target.exec
+      return recorder.messages
+    end
+
+    # ⚠ **本物の `CureApiService` で組む。**⚠⚠ **写しの有無で並びが変わらないこと**
+    # （#88）は、偽物を渡すと何も見ていない。
+    def real_setlist(slots)
+      return Setlist.new(date: date, slots: slots, repository: repository,
+        cure_api: CureApiService.new)
+    end
+
+    # カバー候補（ライブ用に入っていない曲）の名義。
+    def cover_artists
+      names = @db[:track].where(live: false).select_map(:artist_name).uniq
+      return names.map {|name| {'name' => name, 'members' => []}}
+    end
+
+    def stub_singers(records)
+      stub = stub_request(:get, "#{config['/cure_api/url']}/singers")
+      return stub.to_return(status: 200, body: records.to_json,
+        headers: {'Content-Type' => 'application/json'})
     end
 
     def repository
@@ -253,6 +307,47 @@ module Makoto
       assert_empty(list.covers)
       assert_empty(list.entries.select(&:cover?))
       assert_equal(20, list.entries.size)
+    end
+
+    # 🔴 **#88 の完了条件。**⚠⚠ **cure-api を止めた状態で組み直しても、生きている
+    # ときと同じ並びになること。**
+    #
+    # ⚠ **旧実装では並びそのものが変わった** — 実測（実 DB / 11-04）で **covers 8・
+    # MC 26 → covers 0・MC 34**、⚠⚠ **同じ枠番号で中身が違う枠が 160 枠中 127 枠。**
+    # ⚠ **ライブの最中に再起動が挟まれば、残りの進行が別物になる形**だった。
+    def test_setlist_survives_a_cure_api_outage
+      seed(songs: 8, covers: 6)
+      stub_singers(cover_artists)
+      live = real_setlist(20)
+      expected = names(live.entries)
+
+      # ⚠ 前提の確認。カバーが 0 件なら、この比較は何も見ていない。
+      assert_not_empty(live.covers)
+
+      WebMock.reset!
+      stub_request(:get, "#{config['/cure_api/url']}/singers").to_timeout
+
+      assert_equal(expected, names(real_setlist(20).entries))
+    end
+
+    # 🔴 **「200 だが 1 件も一致しない」を無言にしない**（#88・#80 の黄 3）。
+    # ⚠⚠ **`available?` は真のまま**なので、cure-api の生死を見る警告では拾えない。
+    # ⚠ **正規化の規則が変わった・辞書が縮んだ**ときにここへ落ちる。
+    def test_no_match_is_reported
+      seed(songs: 8, covers: 6)
+      stub_singers([{'name' => '誰でもない人', 'members' => []}])
+
+      assert_include(warnings_of(selector), 'no track matched the singer list')
+      assert_empty(real_setlist(20).covers)
+    end
+
+    # ⚠ 部分充填も黙らない（要求 4 に対して 1 しか置けない、が静かに起きる）。
+    def test_partial_fill_is_reported
+      seed(songs: 8, covers: 0)
+      add_cover('たった 1 曲', '宮本佳那子')
+      stub_singers([{'name' => '宮本佳那子', 'members' => []}])
+
+      assert_include(warnings_of(selector), 'fewer covers than requested')
     end
 
     # ⚠ 辞書に居ない名義の曲はカバーに選ばれない。

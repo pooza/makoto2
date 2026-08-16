@@ -7,6 +7,17 @@ module Makoto
        'members' => ['五條真由美', 'うちやえゆか', '工藤真由', '宮本佳那子']},
     ].freeze
 
+    # ⚠⚠ **写しを持ち越さない**（#88）。⚠ **引けなかったときに写しで代わる**ので、
+    # 前のテストが残した写しがあると「落ちても名義が返る」テストが素通しになる。
+    # ⚠ **実際にこれで 2 本が落ちた**（＝写しが効いていることの裏返し）。
+    setup do
+      FileUtils.rm_f(CureApiService.cache_path)
+    end
+
+    teardown do
+      FileUtils.rm_f(CureApiService.cache_path)
+    end
+
     def setup
       super
       @url = config['/cure_api/url']
@@ -109,6 +120,100 @@ module Makoto
       3.times {api.singer_names}
 
       assert_requested(stub, times: 1)
+    end
+
+    # 引けたものは写しに残す（#88）。
+    def test_successful_fetch_is_stored
+      stub_singers
+      service.singer_names
+
+      assert_path_exist(CureApiService.cache_path)
+      assert_includes(JSON.parse(File.read(CureApiService.cache_path)), '宮本佳那子')
+    end
+
+    # 🔴 **#88 の本体。**⚠⚠ **`LiveProgram` はその日の並びを 1 回だけ組む**ので、
+    # ⚠ **12:02 の一瞬の不通が「その日はゲストコーナーが無い」に直結していた。**
+    # **一度でも引けていれば、落ちていても同じ名義で組めること。**
+    def test_falls_back_to_the_stored_copy
+      stub_singers
+      expected = service.singer_names
+
+      WebMock.reset!
+      stub_request(:get, "#{@url}/singers").to_timeout
+      api = service
+
+      assert_equal(expected, api.singer_names)
+      assert_predicate(api, :available?)
+      # ⚠ **黙って古いもので組まない。**カバーを置く側が警告を出すために見る。
+      assert_predicate(api, :stale?)
+      assert(api.singer?('宮本佳那子'))
+    end
+
+    # ⚠⚠ **黙って古い写しで組まない**（#88）。⚠ **並びは保たれるが、名義が古いまま
+    # かもしれない**ので、代わったこと自体はログに残す。
+    def test_falling_back_is_reported
+      stub_singers
+      service.singer_names
+
+      WebMock.reset!
+      stub_request(:get, "#{@url}/singers").to_timeout
+      api = service
+      recorder = []
+      api.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| recorder.push(payload[:message].to_s)}
+        def error(*)
+        end
+      end.new(nil))
+      api.singer_names
+
+      assert_include(recorder, 'falling back to the stored copy')
+    end
+
+    # ⚠ 写しが無ければ、代わりようがないので空のまま（従来どおり）。
+    def test_no_fallback_without_a_stored_copy
+      stub_request(:get, "#{@url}/singers").to_timeout
+      api = service
+
+      assert_empty(api.singer_names)
+      refute_predicate(api, :stale?)
+    end
+
+    # 🔴 **失敗を焼き付けない**（#88・#80 の黄 4）。⚠⚠ **旧実装は `||=` だったので、
+    # 失敗時の `[]` も真になり、常駐を入れ直すまで二度と引き直さなかった。**
+    def test_failure_is_not_burned_in
+      stub_request(:get, "#{@url}/singers").to_timeout
+      api = service
+
+      assert_empty(api.singer_names)
+
+      WebMock.reset!
+      stub_singers
+      # 間隔を過ぎたことにする（→ RETRY_INTERVAL）。
+      api.instance_variable_set(:@failed_at, Time.now - CureApiService::RETRY_INTERVAL - 1)
+
+      assert_includes(api.singer_names, '宮本佳那子')
+    end
+
+    # ⚠⚠ **かといって毎回引き直さない。**`singer?` は `select` の中から
+    # ⚠ **曲の数だけ呼ばれる**（実データで 800 回超）ので、失敗を叩き続けると
+    # そこが 800 回の HTTP になる。
+    def test_repeated_failures_do_not_hammer_cure_api
+      stub = stub_request(:get, "#{@url}/singers").to_timeout
+      api = service
+      5.times {api.singer_names}
+
+      # ⚠ **飛ぶのは 1 回ぶんだけ**（`/http/retry/limit` の再送は HTTP 層の仕事）。
+      # ⚠⚠ **5 回呼んでも 5 回ぶんにならないこと**を見ている。
+      assert_requested(stub, times: config['/http/retry/limit'])
+    end
+
+    # ⚠ 壊れた写しを掴んで落ちない（読めなければ「写しは無い」と同じ扱い）。
+    def test_broken_stored_copy_is_ignored
+      FileUtils.mkdir_p(File.dirname(CureApiService.cache_path))
+      File.write(CureApiService.cache_path, '{壊れた')
+      stub_request(:get, "#{@url}/singers").to_timeout
+
+      assert_empty(service.singer_names)
     end
 
     def test_normalize_strips_width_and_spaces

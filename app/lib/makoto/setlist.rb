@@ -72,6 +72,9 @@ module Makoto
       @slots = slots.to_i
       @repository = repository || TrackRepository.new
       @cure_api = cure_api || CureApiService.new
+      # ⚠ カバーは本編と別軸（母集合を絞ってから引く → `CoverSelector`）。
+      @cover_selector = CoverSelector.new(date: @date, repository: @repository,
+        cure_api: @cure_api)
       validate
     end
 
@@ -114,7 +117,7 @@ module Makoto
     # ②シリーズ名を種にしたアルバム の 2 系統なので、**プリキュア以外のアニソン・
     # 歌謡曲はそもそもコーパスに無い**（→ #55）。
     def covers
-      @covers ||= pick_covers
+      @covers ||= @cover_selector.exec
       return @covers
     end
 
@@ -135,14 +138,10 @@ module Makoto
       return 5
     end
 
-    def cover_size
-      return config["#{PREFIX}/cover_size"].to_i
-    end
-
     # 本編から外す曲（#63）。⚠ アルバム単位と曲単位。
     #
     # ⚠⚠ **`live` フラグを落とす形にしない。**フラグは「本編に出す曲」であると
-    # 同時に **「MAKOTO 本人の曲」の印**でもあり、`pick_covers` が
+    # 同時に **「MAKOTO 本人の曲」の印**でもあり、`CoverSelector` が
     # 「`live` に無い vocal ＝ 他の歌手の持ち歌」としてカバー母集合を作っている。
     # ⚠ 落とすと**本編から消えた本人の曲がカバーに流れ込む**（実測で 8 曲）。
     # **並びの都合はここ（ライブの選曲）で持ち、データの区分は触らない。**
@@ -185,64 +184,6 @@ module Makoto
       return songs.find {|track| track[:name] == name}
     end
 
-    # ⚠⚠ **同じ日付なら毎回同じカバーを引く。**枠ごとに引き直すと再起動で並びが
-    # 変わる。⚠ 年で種を変えるので、来年は別の曲になる。
-    def pick_covers
-      total = cover_size * 2
-      return [] unless total.positive?
-      # ⚠⚠ **歌手辞書が引けなければカバーを置かない。**絞れないまま出すと、
-      # ⚠ カラオケレーベルやドラマトラックがゲストコーナーに並ぶ（→ 上記）。
-      # ⚠ **黙って素通ししない** — 落ちてもライブは走るが、警告は残す。
-      unless @cure_api.available?
-        logger.warn(setlist: 'covers', message: 'cure-api is unavailable', date: @date.to_s)
-        return []
-      end
-      # ⚠ `dedupe_key` が NULL の行を部分集合に混ぜない。**`NOT IN` は NULL が 1 つでも
-      # 混ざると 1 行も返さない**ので、静かに「カバー無し」になる。
-      live_keys = @repository.live.exclude(dedupe_key: nil).select(:dedupe_key)
-      pool = distinct(@repository.by_kind('vocal')).exclude(dedupe_key: live_keys).order(:id).all
-        .select {|track| @cure_api.singer?(track[:artist_name])}
-      return [] if pool.empty?
-      random = Random.new(@date.strftime('%Y%m%d').to_i)
-      return pool.sample(total, random: random) if solo_weight <= 1
-      return weighted_sample(pool, total, random)
-    end
-
-    # ⚠⚠ **単独名義を優先して引く**（#65）。**MAKOTO は 1 人で歌う**ので、
-    # 本来複数の歌手で歌う曲を 1 人でカバーするのは不自然。
-    #
-    # ⚠ **排除ではなく寄せる。**ありえなくはないので、重みで確率を変えるだけにする。
-    # ⚠ **1 以下なら一様抽選**（＝この機能を切る。⚠ **設定を消しても同じ**）。
-    # ⚠⚠ **`optional_config` で読む**（素の `config[]` は消すと例外 → #77）。
-    def solo_weight
-      return optional_config("#{PREFIX}/cover_solo_weight").to_i
-    end
-
-    def weight_of(track)
-      return CureApiService.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
-    end
-
-    # 重み付きの非復元抽出。⚠⚠ **同じ日付なら毎回同じ並びになること**を壊さない
-    # （種は日付から作る。壊すと再起動で曲順が変わる）。
-    def weighted_sample(pool, total, random)
-      remaining = pool.dup
-      results = []
-      while results.size < total && remaining.any?
-        results.push(remaining.delete_at(pick_index(remaining, random)))
-      end
-      return results
-    end
-
-    def pick_index(remaining, random)
-      weights = remaining.map {|track| weight_of(track)}
-      point = random.rand(weights.sum.to_f)
-      weights.each_with_index do |weight, index|
-        point -= weight
-        return index if point.negative?
-      end
-      return remaining.size - 1
-    end
-
     def build
       opening = find_by_name(opening_name)
       closing = find_by_name(closing_name)
@@ -283,7 +224,7 @@ module Makoto
     def compose(opening, closing, first, second, fillers)
       # ⚠ 枠が足りなければ本編の曲を後ろから落とす。**アンカーは守る。**
       return trim(opening, closing, first, second) if fillers.negative?
-      corners = covers.each_slice([cover_size, 1].max).first(2)
+      corners = covers.each_slice([@cover_selector.size, 1].max).first(2)
       first_extra = fillers / 2
       # ⚠⚠ **後半の MC は「前半に実際に置いた本数」から続ける。**埋め草の数
       # （`first_extra`）から始めると、⚠ **カバーの本数だけ番号が飛ぶ。**飛ぶと

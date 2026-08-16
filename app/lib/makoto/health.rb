@@ -128,9 +128,27 @@ module Makoto
     def warnings
       results = []
       # ⚠ 死んでいるときは `errors` の側が言うので、ここでは重ねない。
-      results.push(posting_failure_message) if alive? && Heartbeat.failing?
-      results.push(*orphan_messages)
+      results.push(*posting_warnings) if alive?
+      results.push(*orphan_warnings)
       return results
+    end
+
+    # 投稿が続けて落ちていること（#78）。⚠ **`warnings` から分けて取れるようにして
+    # あるのは、HTTP の口を分けるため**（→ `MonitorApp`）。
+    #
+    # ⚠⚠ **この警告は sticky で、消えるのは「次に 1 本投稿できたとき」だけ。**孤児と
+    # 同じ口に載せると、⚠ **赤のまま残っている間に本物の孤児が埋もれる。**
+    def posting_warnings
+      return [] unless Heartbeat.failing?
+      return [posting_failure_message]
+    end
+
+    # 孤児プロセスがあること。⚠ **`/proc` が読めないときも黙らない**（→ `orphans`）。
+    def orphan_warnings
+      found = orphans
+      return ['cannot read /proc (orphan check skipped)'] if found.nil?
+      return [] if found.empty?
+      return ["orphan process: #{found.join(', ')}"]
     end
 
     def code
@@ -146,13 +164,6 @@ module Makoto
     def posting_failure_message
       last = posted_at ? posted_at.getutc.iso8601 : 'never'
       return "posting failed #{posting_failures} times in a row (last success: #{last})"
-    end
-
-    def orphan_messages
-      found = orphans
-      return ['cannot read /proc (orphan check skipped)'] if found.nil?
-      return [] if found.empty?
-      return ["orphan process: #{found.join(', ')}"]
     end
 
     def orphan_pid(dir)

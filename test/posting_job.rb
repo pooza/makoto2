@@ -169,8 +169,21 @@ module Makoto
       end
     end
 
+    # ⚠⚠ **既定は `/scheduler/tick` ではなく `/scheduler/tolerance`**（#90 / #80 の黄 8）。
+    # ⚠ **同値だと拾えるのは tick が `[枠の頭, 枠の頭+tick)` に落ちたときだけで、
+    # 余裕が構造的にゼロ**になる。
     def test_tolerance_comes_from_config
-      assert_equal(Fugit::Duration.parse(config['/scheduler/tick']).to_sec, job.tolerance)
+      assert_equal(Fugit::Duration.parse(config['/scheduler/tolerance']).to_sec, job.tolerance)
+      assert_operator(job.tolerance, :>, Fugit::Duration.parse(config['/scheduler/tick']).to_sec)
+    end
+
+    # ⚠⚠ **tick が遅れて来ても枠を拾えること。**⚠ **ライブの枠間隔 180 秒は tick の
+    # 10 秒の整数倍なので、位相ずれは 160 枠すべてに同じように効く**（1 枠だけの
+    # 事故にならない）。
+    def test_a_late_tick_still_catches_the_slot
+      assert(job.due?(jst(12, 0) + 20))
+      # ⚠ 幅を越えれば拾わない（枠の途中で投稿しない、は保たれること）。
+      refute(job.due?(jst(12, 0) + 40))
     end
 
     # ⚠⚠ **ここから #78。**「投稿が実際に出たか」を痕跡に残す。**`jobs` は起動時に
