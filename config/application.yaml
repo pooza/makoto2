@@ -182,7 +182,7 @@ package:
     - tkoishi@b-shock.co.jp
   license: MIT
   url: https://github.com/pooza/makoto2
-  version: 0.2.1
+  version: 0.2.2
 message:
   # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
   # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が
