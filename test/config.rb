@@ -1,3 +1,5 @@
+require 'json-schema'
+
 module Makoto
   class ConfigTest < TestCase
     def test_version
@@ -17,6 +19,24 @@ module Makoto
       payload['mastodon'] = {'acct' => 'makoto'}
 
       assert_not_empty(JSON::Validator.fully_validate(schema, payload))
+    end
+
+    # `format: uri` は相対参照も許すので、HTTP(S) の typo を実際に弾くことを見る。
+    def test_schema_rejects_invalid_service_url_schemes
+      schema = YAML.load_file(File.join(Makoto.dir, 'config/schema/base.yaml'))
+      application = YAML.load_file(File.join(Makoto.dir, 'config/application.yaml'))
+      local = YAML.load_file(File.join(Makoto.dir, 'config/local_sample.yaml'))
+      valid_payload = Hash.deep_merge(application, local)
+
+      ['cure_api', 'mastodon', 'package'].each do |section|
+        payload = valid_payload.deep_dup
+        payload[section]['url'] = 'htps://example.invalid'
+
+        assert_not_empty(
+          JSON::Validator.fully_validate(schema, payload),
+          "#{section}.url accepted an invalid HTTP(S) scheme",
+        )
+      end
     end
 
     # 「マスクしているつもりで素通し」を防ぐ正テスト。実際に伏せられることを見る。

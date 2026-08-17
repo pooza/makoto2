@@ -50,6 +50,7 @@ properties:
       url:
         type: string
         format: uri
+        pattern: '^https?://'
     required:
       - url
   # バースデーライブ（#13）。⚠ 欠けると PostingJob が作れず、11/4 に何も起きない。
@@ -142,6 +143,7 @@ properties:
       url:
         type: string
         format: uri
+        pattern: '^https?://'
       acct:
         type: string
       token:
@@ -197,6 +199,7 @@ properties:
       url:
         type: string
         format: uri
+        pattern: '^https?://'
     required:
       - version
   scheduler:
