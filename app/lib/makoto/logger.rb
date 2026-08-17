@@ -42,10 +42,28 @@ module Makoto
       'password', 'secret', 'token', 'access_token', 'api_key', 'authorization', 'code'
     ].freeze
 
-    # ⚠ **`info` / `error` / `warn` のすべてがここを通る**（ginseng-core 側で
-    # `create_message(message).to_json` の形に揃っている）。
+    # ⚠ **ログの出口はこの 1 つ。**⚠⚠ **ただし上流が揃えているのは `info` と `error`
+    # だけ**なので、⚠ **残りはこちらで通す**（→ 下記）。
     def create_message(src)
       return drop_secrets(scrub(super))
+    end
+
+    # 🔴 **`warn` / `debug` / `fatal` を出口に通す**（#97）。
+    #
+    # ⚠⚠ **`Ginseng::Logger` が上書きしているのは `info` と `error` の 2 つだけ。**
+    # ⚠ **残りは `Syslog::Logger` の実装がそのまま走るので、`create_message` を
+    # 通らない** — **`drop_secrets` も `scrub` も効かない。**
+    #
+    # ⚠ **実測**: `warn(post: 'x', token: 'SECRET')` が ⚠⚠ **`token` を平文のまま**
+    # 出していた（`info` は落とせている）。⚠ **不正なバイト列の scrub も効かない**ので、
+    # **`String#strip` で落ちてログごと消える経路（#79）もここに残っていた。**
+    #
+    # 🔴 **「出口 1 つに置けば、渡し方の規約を覚えなくてよくなる」（#82）という前提が、
+    # `warn` では成立していなかった。**⚠ 現に 5 箇所が `warn` を使っている。
+    [:warn, :debug, :fatal].each do |severity|
+      define_method(severity) do |message|
+        return super(create_message(message).to_json)
+      end
     end
 
     private

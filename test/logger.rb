@@ -149,6 +149,39 @@ module Makoto
       assert_not_include(message.to_json, 'SECRET')
     end
 
+    # 実際に syslog へ渡る手前の値。⚠ **`create_message` を直に呼ぶだけでは
+    # 「その severity が出口を通っているか」を見られない**（#97 はまさにそこが穴だった）。
+    def emitted(severity, payload)
+      recorder = []
+      subject = Logger.new
+      subject.define_singleton_method(:add) do |_level, message = nil, progname = nil|
+        recorder.push(message || progname)
+        next true
+      end
+      subject.send(severity, payload)
+      return recorder.first.to_s
+    end
+
+    # 🔴 **#97 の本体。**⚠⚠ **上流が上書きしているのは `info` と `error` の 2 つだけ**
+    # だったので、⚠ **`warn` は `Syslog::Logger` の実装がそのまま走り、`drop_secrets` も
+    # `scrub` も効いていなかった**（実測で `token` が平文で出た）。
+    def test_every_severity_goes_through_the_exit
+      [:info, :error, :warn, :debug, :fatal].each do |severity|
+        output = emitted(severity, post: 'live', token: 'SECRET')
+
+        assert_not_include(output, 'SECRET', severity.to_s)
+        assert_include(output, '"post":"live"', severity.to_s)
+      end
+    end
+
+    # ⚠ **不正なバイト列の scrub も severity で漏らさない**（#79 の経路が `warn` に
+    # 残っていた）。
+    def test_every_severity_survives_invalid_bytes
+      [:info, :error, :warn, :debug, :fatal].each do |severity|
+        assert_nothing_raised(severity.to_s) {emitted(severity, post: broken, error: raised(broken))}
+      end
+    end
+
     # ⚠⚠ **呼び出し側 6 箇所を直す案にしなかった理由の担保。**
     # ⚠ **出口 1 つで受けているので、`PostingJob` の経路もそのまま通る。**
     def test_the_posting_path_survives
