@@ -71,8 +71,7 @@ module Makoto
     end
 
     def correction(id, from, to)
-      return {'id' => id, 'from' => from, 'to' => to,
-              'noticed' => Date.new(2026, 8, 14), 'reason' => 'テスト'}
+      return {'id' => id, 'from' => from, 'to' => to, 'noticed' => Date.new(2026, 8, 14), 'reason' => 'テスト'}
     end
 
     # ⚠ 取り込み中の警告を拾う。**訂正表を片付ける合図が実際に出ること**を見る。

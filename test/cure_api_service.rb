@@ -3,8 +3,7 @@ module Makoto
     SINGERS = [
       {'name' => '宮本 佳那子', 'members' => []},
       {'name' => '五條 真由美', 'members' => []},
-      {'name' => 'キュア・レインボーズ',
-       'members' => ['五條真由美', 'うちやえゆか', '工藤真由', '宮本佳那子']},
+      {'name' => 'キュア・レインボーズ', 'members' => ['五條真由美', 'うちやえゆか', '工藤真由', '宮本佳那子']},
     ].freeze
 
     # ⚠⚠ **写しを持ち越さない**（#88）。⚠ **引けなかったときに写しで代わる**ので、
@@ -23,10 +22,11 @@ module Makoto
       @url = config['/cure_api/url']
     end
 
+    # ⚠ `return` に多行のチェインを繋げない（rubocop が 4 スペースを要求し、
+    # 「インデントは論理構造だけ」の方針と衝突する → #80 の黄 12）。
     def stub_singers(records = SINGERS, status: 200)
-      return stub_request(:get, "#{@url}/singers")
-          .to_return(status: status, body: records.to_json,
-            headers: {'Content-Type' => 'application/json'})
+      headers = {'Content-Type' => 'application/json'}
+      return stub_request(:get, "#{@url}/singers").to_return(status: status, body: records.to_json, headers: headers)
     end
 
     def service
