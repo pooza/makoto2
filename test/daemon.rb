@@ -1,7 +1,80 @@
+require 'tmpdir'
+
 module Makoto
   class DaemonTest < TestCase
     def setup
       @daemon = MakotoDaemon.new
+    end
+
+    # pid ファイルと `/proc` を差し替えた常駐。⚠ **番号は本物**（`Process.kill(0)` が
+    # 通らないと `alive?` がそこで false になり、身元の判定まで届かない）。
+    def with_daemon(command: nil, proc_dir: nil, pid: Process.pid)
+      Dir.mktmpdir do |dir|
+        FileUtils.mkdir_p(File.join(dir, 'tmp/pids'))
+        fake = proc_dir || File.join(dir, 'proc')
+        if command
+          entry = File.join(fake, pid.to_s)
+          FileUtils.mkdir_p(entry)
+          # ⚠ 実機は NUL 区切りで、末尾に詰め物が付く。
+          File.write(File.join(entry, 'cmdline'), "#{Array(command).join("\0")}\0\0\0")
+        end
+        daemon = MakotoDaemon.new(working_dir: dir, proc_dir: fake)
+        File.write(daemon.pid_file, pid.to_s) unless pid.nil?
+        yield daemon
+      end
+    end
+
+    def test_alive_without_a_pid_file
+      with_daemon(pid: nil) do |daemon|
+        assert_false(daemon.alive?)
+      end
+    end
+
+    # ⚠ 本物の常駐は生きていると答える（**塞いだせいで検知できなくならないこと**）。
+    def test_the_real_daemon_is_alive
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        assert_true(daemon.alive?)
+      end
+    end
+
+    # 🔴 **#80 の黄 6 の本体。**⚠⚠ **pid は再利用される。**⚠ `Process.kill(0, pid)` は
+    # 「その番号が在るか」しか見ないので、**無関係なプロセスを常駐だと答えていた**
+    # （実測 — `sleep 300` の pid を書くと `running (PID 354866)` と表示された）。
+    def test_a_reused_pid_is_not_the_daemon
+      with_daemon(command: ['sleep', '300']) do |daemon|
+        assert_false(daemon.alive?)
+      end
+    end
+
+    # ⚠⚠ **孤児の判定（#61）と同じ規則で見る。**⚠ argv にこの名前を含むだけの
+    # 運用スクリプトを常駐と取り違えない（`bash -lc '… makoto_daemon.rb restart'`）。
+    def test_a_wrapper_script_is_not_the_daemon
+      with_daemon(command: ['bash', '-lc', 'bundle exec bin/makoto_daemon.rb restart']) do |daemon|
+        assert_false(daemon.alive?)
+      end
+    end
+
+    # ⚠ インタプリタ越しでも本物は本物（`ruby --yjit bin/makoto_daemon.rb start`）。
+    def test_the_daemon_behind_interpreter_options_is_alive
+      with_daemon(command: ['ruby', '--yjit', 'bin/makoto_daemon.rb', 'start']) do |daemon|
+        assert_true(daemon.alive?)
+      end
+    end
+
+    # ⚠⚠ **確かめられないときは「生きている」に倒す。**⚠ `/proc` の無い環境で
+    # 「死んでいる」と答えると、**健全な常駐の横にもう 1 本立ち上がる。**
+    def test_alive_falls_back_without_proc
+      with_daemon(proc_dir: File.join(Dir.tmpdir, 'makoto-no-such-proc')) do |daemon|
+        assert_true(daemon.alive?)
+      end
+    end
+
+    # ⚠ **本物の `/proc` で見る。**⚠⚠ **テストプロセス自身の pid を書いても
+    # 「動いている」と答えないこと**（差し替えた `/proc` だけで通る形にしない）。
+    def test_a_foreign_pid_is_not_the_daemon_on_the_real_proc
+      with_daemon(proc_dir: ProcessIdentity::PROC_DIR) do |daemon|
+        assert_false(daemon.alive?)
+      end
     end
 
     def test_pid_file

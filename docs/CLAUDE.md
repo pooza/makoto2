@@ -161,9 +161,14 @@
 - ⚠⚠ **孤児プロセスは警告どまりで、復旧を叩かせない。**再起動の瞬間に一時的に 2 本になりうるので、ここで再起動させると**検知 → 再起動 → 検知のループ**になる。⚠ **孤児は「溜まる」のが問題**（旧実装は 11 日分溜めた）なので、即時の自動復旧より人の目が要る
 - ⚠ **`/proc` が読めない環境では「孤児は無い」と答えない**（不明を返す）。**守っているつもりで無防備**になるのを防ぐ
 - ⚠⚠ **孤児かどうかは cmdline の部分一致で決めない**（2026-08-15・#61）。⚠ **argv にこの文字列を含むだけの無関係なプロセスを孤児と報告する** — 踏みやすいのは**復旧のラッパースクリプト・デプロイのシェル・`pgrep` のワンライナー**で、⚠ **docs が「復旧コマンドはラッパースクリプトに逃がす」と決めている以上、この形は運用に組み込まれる。**⚠ **恒常的に踏むと本物の孤児が誤報に埋もれる**
-  - **見るのは 2 つだけ**（`Health#script_candidates`）— ⚠ **argv の 0 番目**と、⚠⚠ **インタプリタのオプションを読み飛ばした次の 1 つ**。**位置で決め打つと `ruby --yjit bin/makoto_daemon.rb start` を取り逃がす**（#68 のレビュー指摘。⚠ **bydo の Ruby は YJIT 有効**なので実際に取りうる形）。⚠ **オプションでない要素は 1 つ目で打ち切る** — `bash -lc 'bundle exec bin/makoto_daemon.rb restart'` の第 3 要素は**スクリプトではなくシェルへの文字列**で、そこまで見ると部分一致に戻る
+  - **見るのは 2 つだけ**（`ProcessIdentity#script_candidates`）— ⚠ **argv の 0 番目**と、⚠⚠ **インタプリタのオプションを読み飛ばした次の 1 つ**。**位置で決め打つと `ruby --yjit bin/makoto_daemon.rb start` を取り逃がす**（#68 のレビュー指摘。⚠ **bydo の Ruby は YJIT 有効**なので実際に取りうる形）。⚠ **オプションでない要素は 1 つ目で打ち切る** — `bash -lc 'bundle exec bin/makoto_daemon.rb restart'` の第 3 要素は**スクリプトではなくシェルへの文字列**で、そこまで見ると部分一致に戻る
   - ⚠⚠ **ただし要素をそのまま突き合わせると本物を取り逃がす。**⚠ **実機の常駐は argv が `bin/makoto_daemon.rb start` という 1 要素**（bundler 経由の起動で `$0` が書き換わる。2026-08-15 に bydo の `/proc/{pid}/cmdline` を実測）。**要素の中を空白で割ってから basename を見る**
   - ⚠ **「誤報を出さない」と「本物を検知する」の両方を回帰テストに入れる**（#61 の完了条件）。**片方だけでは通ってしまう** — 実際、旧実装は前者だけ落ちる
+- 🔴 **同じ規則で「pid ファイルの常駐」自身の身元も確かめる**（2026-08-16・#80 の黄 6）。⚠⚠ **`Ginseng::Daemon#alive?` は `Process.kill(0, pid)` しか見ない**ので、⚠ **pid が再利用されると無関係なプロセスを常駐だと答える**（実測 — `sleep 300` の pid を pid ファイルに書くと `running (PID 354866)` と表示された）
+  - ⚠⚠ **孤児の側だけが argv まで見て、自分の pid ファイルは素通しだった。**⚠ **規則を `ProcessIdentity` に切り出して両方から使う**ので、**片方だけ厳しいという食い違いが起きない**
+  - ⚠⚠ **倒れ方が静かなのが本題** — `run_start` が「already running」で終了し、⚠ **systemd の `Restart=always` が 5 秒ごとに叩き直す**ので、🔴 **ボットは一度も起動せず、理由もログに残らない**（warn は stderr → `bin/makoto_daemon.rb` が `/dev/null` に落とす）。⚠ **`run_restart` も `run_stop if alive?` を通って無関係なプロセスへ TERM を送る形だった**
+  - ⚠⚠ **確かめられないときは「生きている」に倒す**（`/proc` の無い環境・`EACCES`・列挙してから消えたプロセス）。⚠ **呼ぶ側は既に `Process.kill(0)` で在ることを確かめている**ので、**「確かめられない」を「死んでいる」に倒すと健全な常駐の横にもう 1 本立つ**。⚠ **孤児の側が「不明」を返すのとは倒す向きが逆**（あちらは無防備を防ぐため、こちらは二重起動を防ぐため）
+  - ✅ **実測（2026-08-16）** — 無関係な pid を書くと `makoto status` が `error: MakotoDaemon is not running` で **1**（＝復旧させる）を返す
 
 #### ✅ 監視の口は HTTP で外から叩く（2026-08-16 決定・#84）
 
@@ -531,6 +536,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/service/cure_api_service.rb` | cure-api の口（`/singers`）。⚠ **落ちてもライブは止めないが、黙って素通しもしない** |
 | `app/lib/makoto/heartbeat.rb` | ハートビートの痕跡（`tmp/run/heartbeat.json`）。⚠ **監視が見るのはログではなくこれ** |
 | `app/lib/makoto/health.rb` | 常駐の健全性。⚠ **`makoto status` の中身であり、監視が叩く口**（→ 上記「死活監視」） |
+| `app/lib/makoto/process_identity.rb` | 「その pid は本当に常駐か」を argv から確かめる規則。⚠⚠ **孤児の判定（`Health`）と常駐自身の `alive?`（`MakotoDaemon`）が同じものを見る** |
 | `app/lib/makoto/monitor/monitor_app.rb` | 監視が叩く HTTP の口（`/healthz`）。⚠ **`Health` を写すだけ**（→ 上記「監視の口は HTTP で外から叩く」） |
 | `app/lib/makoto/monitor/monitor_server.rb` | その口を常駐の中で起こす（`Puma::Server`）。⚠ **別プロセスにしない** |
 | `seed/` | 曲データ（iTunes 収集物）と収集スクリプト。⚠ **`makoto track import` の取り込み元**（→ [track-corpus.md](track-corpus.md)） |

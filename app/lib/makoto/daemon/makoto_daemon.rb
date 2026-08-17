@@ -3,6 +3,32 @@ module Makoto
   # プロセスは 1 本だけで、投稿のスケジュールはこの中の Scheduler が回す。
   class MakotoDaemon < Ginseng::Daemon
     include Package
+    include ProcessIdentity
+
+    # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
+    def initialize(opts = {})
+      super
+      @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
+    end
+
+    # pid ファイルの常駐が生きているか。
+    #
+    # 🔴 **番号だけでなく身元も確かめる**（#80 の黄 6）。⚠⚠ **`Ginseng::Daemon#alive?`
+    # は `Process.kill(0, pid)` しか見ない**ので、⚠ **pid が再利用されると無関係な
+    # プロセスを常駐だと答える**（実測 — `sleep 300` の pid を pid ファイルに書くと
+    # `running (PID 354866)` と表示された）。
+    #
+    # ⚠⚠ **倒れ方が静かなのが問題だった** — `run_start` が「already running」で
+    # 終了し、⚠ **systemd の `Restart=always` が 5 秒ごとに叩き直す**ので、
+    # 🔴 **ボットは一度も起動せず、理由もログに残らない**（warn は stderr →
+    # `bin/makoto_daemon.rb` が `/dev/null` に落とす）。
+    #
+    # ⚠ **`run_restart` も同じ穴を踏んでいた** — `run_stop if alive?` を通って
+    # ⚠⚠ **無関係なプロセスへ TERM を送る**形だった。
+    def alive?
+      return false unless super
+      return daemon_pid?(pid, proc_dir: @proc_dir)
+    end
 
     def command
       return nil
