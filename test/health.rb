@@ -62,7 +62,11 @@ module Makoto
       File.define_singleton_method(:owned?, owned_method)
     end
 
-    def beat(jobs: 1, at: nil)
+    # ⚠⚠ **健全な常駐は「ハートビート」と「tick」の両方の痕跡を残す**（#80 の黄 7）。
+    # ⚠ **ここで tick まで書くのは、健全の定義がそうなったから** — 片方だけの痕跡は
+    # まさに検知したい状態（tick 側だけが詰まった常駐）を指す。
+    def beat(jobs: 1, at: nil, tick: true)
+      Heartbeat.record_tick(now: at || now) if tick
       return Heartbeat.touch(jobs: jobs, now: at || now)
     end
 
@@ -99,10 +103,59 @@ module Makoto
       assert_true(health.errors.any? {|m| m.include?('stale')})
     end
 
-    # ⚠ 痕跡が無ければ「止まっている」＋「仕事を持っていない」の両方。
+    # 🔴 **#80 の黄 7 の本体。**⚠⚠ **ハートビートは tick とは別の rufus ジョブ**なので、
+    # ⚠ **tick 側だけが詰まってもハートビートは動き続ける** — **「生きているが仕事を
+    # していない」を見るための痕跡が、まさにその状態で健全を返していた。**
+    def test_stale_tick_with_a_live_heartbeat
+      beat(tick: false)
+      Heartbeat.record_tick(now: now - (Heartbeat.tick_limit * 2))
+
+      assert_equal(Health::ERROR, health.code)
+      assert_true(health.errors.any? {|m| m.include?('tick is stale')})
+      # ⚠ ハートビートそのものは新しいままであること（＝旧実装が緑を返した状況）。
+      assert_not_include(health.errors, 'heartbeat is stale')
+    end
+
+    # ⚠ 猶予の内側なら鳴らない。⚠⚠ **1 回の tick は投稿の再送で 90 秒以上かかりうる**
+    # ので、tick の間隔（10 秒）を基準にすると誤報する。
+    def test_a_slow_tick_is_not_stale
+      beat(tick: false)
+      Heartbeat.record_tick(now: now - (Heartbeat.tick_limit - 1))
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **痕跡が無いのは「一度も回っていない」。**⚠ 常駐は登録の直後に 1 回叩く
+    # （→ `Scheduler#schedule_posts`）ので、生きているのに無いのは異常。
+    def test_a_missing_tick_is_stale
+      beat(tick: false)
+
+      assert_true(health.errors.any? {|m| m.include?('tick is stale')})
+    end
+
+    # ⚠ 閾値は設定から出す（間隔を延ばした瞬間に誤検知しはじめるのを防ぐ）。
+    def test_tick_threshold_comes_from_the_setting
+      config['/scheduler/tick_stale'] = '1h'
+      beat(tick: false)
+      Heartbeat.record_tick(now: now - 600)
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **既定値に逃がさない**（#77 の裏返し）。設定を消しただけで検知が静かに
+    # 消える形にしない。
+    def test_a_broken_tick_threshold_raises
+      config['/scheduler/tick_stale'] = 'いつか'
+      beat
+
+      assert_raise(Ginseng::ConfigError) {health.errors}
+    end
+
+    # ⚠ 痕跡が無ければ「ハートビートが止まっている」＋「tick が回っていない」＋
+    # 「仕事を持っていない」の 3 つ。
     def test_without_heartbeat
       assert_equal(Health::ERROR, health.code)
-      assert_equal(2, health.errors.size)
+      assert_equal(3, health.errors.size)
     end
 
     def test_no_orphan

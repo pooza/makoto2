@@ -110,11 +110,23 @@ module Makoto
       return nil
     end
 
+    # 最後に tick が回った時刻。⚠ **一度も無ければ nil。**
+    def ticked_at
+      return Heartbeat.ticked_at
+    end
+
     # 復旧させるべき問題。⚠ **空なら健全。**
+    #
+    # ⚠⚠ **tick を別に見る**（#80 の黄 7）。⚠ **ハートビートは tick とは別の rufus
+    # ジョブ**なので、**tick 側だけが詰まってもハートビートは動き続ける** —
+    # 🔴 **「生きているが仕事をしていない」を見るための痕跡が、まさにその状態で
+    # 健全を返していた。**⚠ **これは再起動で直りうるので `errors`**（投稿の失敗が
+    # 警告どまりなのとは逆）。
     def errors
       results = []
       return results.push("#{@daemon.app_name} is not running") unless alive?
       results.push('heartbeat is stale') if Heartbeat.stale?(now)
+      results.push('scheduler tick is stale') if Heartbeat.tick_stale?(now)
       results.push('no posting job is registered') if jobs.to_i.zero?
       return results
     end

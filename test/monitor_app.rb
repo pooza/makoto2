@@ -40,7 +40,10 @@ module Makoto
     end
 
     # ハートビートを健全な状態にする。⚠ 経過を `now` の直前に置く。
+    # ⚠⚠ **tick の痕跡も要る**（#80 の黄 7）— 片方だけでは「生きているが投稿して
+    # いない」に該当する。
     def healthy_heartbeat(jobs: 5)
+      Heartbeat.record_tick(now: now - 1)
       Heartbeat.touch(jobs: jobs, now: now - 1)
       return Heartbeat.stored
     end
@@ -73,6 +76,7 @@ module Makoto
     end
 
     def test_healthz_reports_no_job
+      Heartbeat.record_tick(now: now - 1)
       Heartbeat.touch(jobs: 0, now: now - 1)
       response = get(app, '/healthz')
 

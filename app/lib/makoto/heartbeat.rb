@@ -82,6 +82,21 @@ module Makoto
         end
       end
 
+      # tick が 1 回まわった（#80 の黄 7）。
+      #
+      # 🔴 **`touch` とは別に持つ。**⚠⚠ **ハートビートは tick とは別の rufus ジョブ**
+      # なので、⚠ **tick 側だけが詰まっても `at` は更新され続ける** —
+      # **「生きているが投稿していない」を検知するための痕跡が、まさにその状態で
+      # 動き続ける**という形だった。
+      #
+      # ⚠ **記録するのは終わった時刻。**始めた時刻にすると、⚠⚠ **90 秒かかった tick が
+      # 「90 秒前に回った」ことになり、詰まりを短く見せる。**
+      def record_tick(now: nil)
+        return update do |record|
+          record.merge(ticked_at: (now || Time.now).getutc.iso8601)
+        end
+      end
+
       # 枠が 1 つ投稿できた。⚠ **失敗の数を 0 に戻す。**
       def record_success(now: nil)
         return update do |record|
@@ -167,6 +182,11 @@ module Makoto
         return parse_time(stored[:failed_at])
       end
 
+      # 最後に tick が回った時刻。⚠ **一度も無ければ nil**（起動直後・旧い痕跡）。
+      def ticked_at
+        return parse_time(stored[:ticked_at])
+      end
+
       def jobs
         record = read
         return nil unless record
@@ -206,6 +226,29 @@ module Makoto
         seconds = age(now)
         return true unless seconds
         return seconds > limit
+      end
+
+      # tick が止まったとみなすまでの猶予（秒）。⚠ **閾値は設定から出す**（`limit` と
+      # 同じ理由）。⚠⚠ **tick の間隔から導かない** — **1 回の tick は投稿の再送で
+      # 90 秒以上かかりうる**ので、間隔の倍数にすると誤報する。
+      def tick_limit
+        seconds = Fugit::Duration.parse(config['/scheduler/tick_stale'].to_s)&.to_sec
+        unless seconds&.positive?
+          raise Ginseng::ConfigError,
+            "heartbeat: bad tick_stale '#{config['/scheduler/tick_stale']}'"
+        end
+        return seconds
+      end
+
+      # tick が回らなくなっているか（#80 の黄 7）。
+      #
+      # ⚠⚠ **痕跡が無いときも「止まっている」と扱う。**⚠ **常駐は登録の直後に 1 回
+      # 叩く**（→ `Scheduler#schedule_posts`）ので、⚠⚠ **生きているのに痕跡が無いのは、
+      # tick が一度も回っていないということ。**
+      def tick_stale?(now = nil)
+        last = ticked_at
+        return true unless last
+        return ((now || Time.now) - last) > tick_limit
       end
 
       # 何本続けて落ちたら異常とみなすか。⚠ **閾値は設定から出す**（`limit` と同じ理由）。

@@ -53,6 +53,45 @@ module Makoto
       assert_equal([], Scheduler.instance.tick(jst(12, 0)))
     end
 
+    # 🔴 **tick が回ったこと自体を痕跡に残す**（#80 の黄 7）。⚠⚠ **ハートビートは別の
+    # rufus ジョブ**なので、⚠ **tick 側だけが詰まっても `at` は更新され続ける。**
+    def test_tick_records_its_own_trace
+      FileUtils.rm_f(Heartbeat.path)
+      Scheduler.instance.tick(jst(12, 0))
+
+      assert_not_nil(Heartbeat.ticked_at)
+      assert_false(Heartbeat.tick_stale?)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # ⚠ **投稿が 1 本も出ない枠でも記録する。**見たいのは**枠を見に行けているか**で
+    # あって、投稿の成否は別の痕跡が持つ。
+    def test_tick_records_its_trace_even_without_a_post
+      FileUtils.rm_f(Heartbeat.path)
+      Scheduler.instance.register(job('live', proc {}))
+      Scheduler.instance.tick(jst(13, 13))
+
+      assert_not_nil(Heartbeat.ticked_at)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # ⚠⚠ **痕跡が書けなくても tick は止めない**（痕跡は観測のためのもの）。
+    def test_a_broken_trace_does_not_stop_the_tick
+      calls = []
+      Scheduler.instance.register(job('live', proc {|slot| calls.push(slot) && nil}))
+      # ⚠ **元のメソッドを持って戻す。**`record_tick` は `class << self` の中に居るので、
+      # ⚠⚠ **`remove_method` では復元ではなく削除になる**（後続のテストが巻き添えになる）。
+      original = Heartbeat.method(:record_tick)
+      Heartbeat.define_singleton_method(:record_tick) {|**| raise 'boom'}
+
+      assert_nothing_raised {Scheduler.instance.tick(jst(12, 0))}
+      assert_equal(1, calls.size)
+    ensure
+      Heartbeat.define_singleton_method(:record_tick, original)
+    end
+
     # ⚠⚠ **常駐の開始直後に 1 回叩くこと。**`every` は最初の間隔を待つので、これが
     # 無いと**枠の頭 ＋ tolerance の内側で再起動した枠が落ちる**（→ #47）。
     # ⚠ 枠に入っているかどうかの判定は `PostingJob` 側のテストが見るので、ここでは

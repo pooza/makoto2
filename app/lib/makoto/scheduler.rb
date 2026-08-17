@@ -41,15 +41,30 @@ module Makoto
     # 1 本の例外で残りの枠を全部落とすのが最悪の壊れ方（→ docs/CLAUDE.md）。
     def tick(time = nil)
       time ||= Time.now
-      return @jobs.map do |job|
+      results = @jobs.map do |job|
         job.exec(time)
       rescue => e
         logger.error(scheduler: 'tick', post: job.name, error: e)
         next nil
       end
+      record_tick
+      return results
     end
 
     private
+
+    # ⚠⚠ **tick が回ったこと自体を痕跡に残す**（#80 の黄 7）。⚠ **ハートビートは別の
+    # rufus ジョブ**なので、**tick 側だけが詰まっても `at` は更新され続ける** —
+    # 「生きているが投稿していない」の検知が、まさにその状態で効かなかった。
+    #
+    # ⚠ **投稿が 1 本も出なくても記録する。**ここで見たいのは**枠を見に行けているか**
+    # であって、投稿の成否は別の痕跡が持つ（→ `Heartbeat` 冒頭の表）。
+    # ⚠⚠ **書けなくても tick は止めない**（痕跡は観測のためのもの）。
+    def record_tick
+      Heartbeat.record_tick
+    rescue => e
+      logger.error(scheduler: 'tick', error: e)
+    end
 
     def initialize
       @scheduler = Rufus::Scheduler.new
