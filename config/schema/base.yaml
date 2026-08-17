@@ -131,11 +131,22 @@ properties:
   logger:
     type: object
     properties:
+      # ⚠ 出すログの水準（#80 の黄 9）。⚠⚠ 読めない値でも落ちず info へ倒すが、
+      # 綴りの誤りは rake config:lint で先に止める。
+      level:
+        type: string
+        enum:
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
       mask_fields:
         type: array
         items:
           type: string
     required:
+      - level
       - mask_fields
   mastodon:
     type: object

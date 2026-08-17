@@ -42,6 +42,15 @@ module Makoto
       'password', 'secret', 'token', 'access_token', 'api_key', 'authorization', 'code'
     ].freeze
 
+    # ⚠ 出す水準の既定。⚠⚠ **設定が読めないときはここへ倒す** — **黙る方向へは
+    # 倒さない**（マスクの既定リストと同じ考え方で、事故の大きいほうを避ける）。
+    DEFAULT_LEVEL = 'info'.freeze
+
+    def initialize(name = nil)
+      super
+      self.level = severity_level
+    end
+
     # ⚠ **ログの出口はこの 1 つ。**⚠⚠ **ただし上流が揃えているのは `info` と `error`
     # だけ**なので、⚠ **残りはこちらで通す**（→ 下記）。
     def create_message(src)
@@ -67,6 +76,19 @@ module Makoto
     end
 
     private
+
+    # 出す水準（#80 の黄 9）。
+    #
+    # ⚠⚠ **平常日に 171 行出ていた「本文が無い」を黙らせるために足した。**⚠ 枠は
+    # 毎日空回りする設計なので、**それ自体は異常ではない**（→ `PostingJob`）。
+    #
+    # ⚠ **読めない値でも落ちない。**⚠⚠ **ログの出口が設定の不備で例外を上げると、
+    # その例外を書く先も無い。**
+    def severity_level
+      name = (optional_config('/logger/level') || DEFAULT_LEVEL).to_s.upcase
+      name = DEFAULT_LEVEL.upcase unless ::Logger::Severity.constants.include?(name.to_sym)
+      return ::Logger::Severity.const_get(name)
+    end
 
     # 🔴 **秘密を出口でもう一度落とす**（#82 のレビュー指摘）。
     #

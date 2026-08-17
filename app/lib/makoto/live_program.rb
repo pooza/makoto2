@@ -27,9 +27,34 @@ module Makoto
     # 無ければ nil**（`PostingJob` が「投稿しない」と解釈する）。
     def call(time = nil)
       time ||= Time.now
-      entry = setlist(time)&.at(@timetable.index_at(time))
-      return nil unless entry
-      return mc_text(entry, time) if entry.mc?
+      list = setlist(time)
+      # ⚠ 枠の外・ライブ当日でなければ黙る（**平常日はここで返る**）。
+      return nil unless list
+      entry = list.at(@timetable.index_at(time))
+      return report_silence(time, 'no entry for the slot') unless entry
+      text = entry.mc? ? mc_text(entry, time) : track_text(entry)
+      return report_silence(time, 'no text for the slot') if text.blank?
+      return text
+    end
+
+    # 🔴 **ライブ当日に枠が黙ったら警告を残す**（#80 の黄 9）。
+    #
+    # ⚠⚠ **平常日の空回りと、ライブが壊れて何も出ないのが、ログ上で同じだった。**
+    # ⚠ **どちらも `no text` の 1 行**で、⚠⚠ **11/4 に 160 枠が全滅しても、平常日の
+    # ログと 1 文字も変わらない** — **人が見ても異常だと気付けない。**
+    #
+    # ⚠ **ここまで来ているということは、既に「ライブ当日で、枠の中」**（`setlist` が
+    # 両方を見てから返している）。⚠⚠ **その状態で本文が無いのは、原稿が無いのでは
+    # なく壊れている。**
+    #
+    # ⚠ **例外にはしない。**⚠⚠ **1 枠の異常で残りの 8 時間を落とさない**
+    # （→ docs/CLAUDE.md「投稿の欠落は詰めない」）。
+    def report_silence(time, message)
+      logger.warn(live: 'program', message: message, at: time.getutc.iso8601)
+      return nil
+    end
+
+    def track_text(entry)
       return TrackPresenter.new(entry.track, prefix: (cover_prefix if entry.cover?)).to_s
     end
 

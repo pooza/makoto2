@@ -151,6 +151,14 @@ http:
   timeout:
     seconds: 30
 logger:
+  # 出すログの水準（#80 の黄 9）。`debug` / `info` / `warn` / `error` / `fatal`。
+  #
+  # ⚠⚠ **`debug` に落としてあるのは「枠は回ったが本文が無かった」**（→ PostingJob）。
+  # ⚠ **ライブの 4 枠は毎日空回りする設計**なので平常日に 171 行出ており、
+  # ⚠⚠ **11/4 に壊れて何も出なかった日のログが、平常日と 1 文字も変わらなかった。**
+  #
+  # ⚠ **debug にすると戻る。**枠ごとの空回りを追いたいときはここを下げる。
+  level: info
   mask_fields:
     - password
     - secret

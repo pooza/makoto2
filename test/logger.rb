@@ -162,6 +162,34 @@ module Makoto
       return recorder.first.to_s
     end
 
+    # ⚠ 出す水準は設定から出す（#80 の黄 9）。
+    def test_the_level_comes_from_the_setting
+      config['/logger/level'] = 'debug'
+
+      assert_equal(::Logger::Severity::DEBUG, Logger.new.level)
+    end
+
+    # ⚠⚠ **既定では `debug` を出さない。**⚠ **平常日に 171 行出ていた「本文が無い」を
+    # 黙らせるのがこの水準の役目**（→ `PostingJob`）。
+    def test_debug_is_silent_by_default
+      assert_operator(Logger.new.level, :>, ::Logger::Severity::DEBUG)
+      assert_operator(Logger.new.level, :<=, ::Logger::Severity::INFO)
+    end
+
+    # ⚠⚠ **読めない値でも落ちない。**⚠ **ログの出口が設定の不備で例外を上げると、
+    # その例外を書く先も無い。**⚠ **黙る方向へは倒さない。**
+    def test_a_broken_level_falls_back_to_info
+      config['/logger/level'] = 'いつか'
+
+      assert_equal(::Logger::Severity::INFO, Logger.new.level)
+    end
+
+    def test_the_level_falls_back_when_the_setting_is_gone
+      config.delete('/logger/level')
+
+      assert_equal(::Logger::Severity::INFO, Logger.new.level)
+    end
+
     # 🔴 **#97 の本体。**⚠⚠ **上流が上書きしているのは `info` と `error` の 2 つだけ**
     # だったので、⚠ **`warn` は `Syslog::Logger` の実装がそのまま走り、`drop_secrets` も
     # `scrub` も効いていなかった**（実測で `token` が平文で出た）。
