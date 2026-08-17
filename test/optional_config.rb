@@ -7,7 +7,8 @@ module Makoto
   # **その設定を使う瞬間まで分からない。**
   #
   # ⚠ **既存のテストは「キーはあるが空」しか見ていなかった**（`test/setlist.rb` の
-  # `test_excludes_nothing_without_the_setting`）。**本物の「無い」を見るのがここ。**
+  # `test_excludes_nothing_when_the_lists_are_empty`。⚠ **名前が「設定が無ければ」を
+  # 謳っていたので、#80 の黄 11 で実態に合わせて改名した**）。**本物の「無い」を見るのがここ。**
   class OptionalConfigTest < TestCase
     # ⚠ 消してよい設定（schema が必須にしていないもの）。
     OPTIONAL_KEYS = [
