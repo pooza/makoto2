@@ -30,6 +30,27 @@ module Makoto
       )
     end
 
+    # ⚠⚠ **平常日に 171 行出ていた**（#80 の黄 9）。⚠ **ライブの 4 枠は毎日空回りする
+    # 設計**なので、これを `info` に置くと **11/4 に壊れて何も出なかった日のログが、
+    # 平常日と 1 文字も変わらない。**⚠ 「出るべき日に出なかった」は中身を知っている
+    # 側が `warn` を出す（→ `LiveProgram#call`）。
+    def test_a_slot_without_a_text_is_not_logged_at_info
+      recorded = Hash.new {|hash, key| hash[key] = []}
+      subject = job(proc {})
+      subject.instance_variable_set(:@logger, Struct.new(:x) do
+        [:info, :warn, :debug].each do |severity|
+          define_method(severity) {|payload| recorded[severity].push(payload[:message].to_s)}
+        end
+        def error(*)
+        end
+      end.new(nil))
+      subject.exec(jst(12, 0))
+
+      assert_include(recorded[:debug], 'no text')
+      assert_empty(recorded[:info])
+      assert_empty(recorded[:warn])
+    end
+
     def test_posts_at_the_top_of_a_slot
       stub_post
       job.exec(jst(12, 0))

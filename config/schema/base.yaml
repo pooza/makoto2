@@ -128,14 +128,61 @@ properties:
     enum:
       - development
       - production
+  # ⚠ 外への HTTP（#80 の緑 3）。⚠⚠ **origin/main からの持ち越しで、設定に在るのに
+  # schema が知らなかった。**
+  #
+  # ⚠ **どれも運用上必須。**⚠⚠ **timeout が欠けると 1 本の投稿が最悪 92 秒 →
+  # 既定の 60 秒 × 再送で枠を跨ぐ**（#90 で塞いだところがそのまま戻る）。
+  # ⚠ **retry が欠けると `Ginseng::HTTP` が起動時に落ちる**（`retry_limit` を素で読む）。
+  http:
+    type: object
+    properties:
+      retry:
+        type: object
+        properties:
+          # ⚠ 再送の回数。⚠⚠ 0 でも意味を持つ（再送しない）ので minimum は 0。
+          limit:
+            type: integer
+            minimum: 0
+          # 再送までの待ち（秒）。
+          seconds:
+            type: number
+            minimum: 0
+        required:
+          - limit
+          - seconds
+      timeout:
+        type: object
+        properties:
+          # ⚠⚠ これは wall-clock の上限ではない（Net::HTTP の 1 回の socket 操作ごと
+          # → #92）。⚠ 黙って止まっている相手には効く。
+          seconds:
+            type: number
+            exclusiveMinimum: 0
+        required:
+          - seconds
+    required:
+      - retry
+      - timeout
   logger:
     type: object
     properties:
+      # ⚠ 出すログの水準（#80 の黄 9）。⚠⚠ 読めない値でも落ちず info へ倒すが、
+      # 綴りの誤りは rake config:lint で先に止める。
+      level:
+        type: string
+        enum:
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
       mask_fields:
         type: array
         items:
           type: string
     required:
+      - level
       - mask_fields
   mastodon:
     type: object
@@ -221,6 +268,11 @@ properties:
       # 消しただけで拾う幅が tick まで縮み、静かに余裕がゼロに戻る（#77 の裏返し）。
       tolerance:
         type: string
+      # ⚠ tick が回らなくなったことの検知（#80 の黄 7）。⚠⚠ optional_config で
+      # 既定値に逃がさない — 消しただけで「生きているが投稿していない」の検知が
+      # 静かに消える（#77 の裏返し）。
+      tick_stale:
+        type: string
       # 投稿が続けて落ちたことの検知（#78）。
       posting:
         type: object
@@ -240,6 +292,7 @@ properties:
       - timezone
       - tick
       - tolerance
+      - tick_stale
       - posting
   sqlite3:
     type: object
@@ -287,6 +340,9 @@ required:
   - corpus
   - cure_api
   - environment
+  # ⚠ 節ごと消えたときも止める（#80 の緑 3）。⚠⚠ 中の required だけでは、
+  # 節そのものが無い設定を通してしまう。
+  - http
   - live
   - logger
   - mastodon

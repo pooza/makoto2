@@ -111,6 +111,58 @@ module Makoto
       assert_empty(times.filter_map {|time| live.program.call(time)})
     end
 
+    # 警告を拾う入れ物。⚠ **実サーバーにも syslog にも書かない。**
+    def with_recorder(program)
+      recorder = []
+      program.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| recorder.push(payload[:message].to_s)}
+        define_method(:info) {|payload| payload}
+        define_method(:debug) {|payload| payload}
+        def error(*)
+        end
+      end.new(nil))
+      yield
+      return recorder
+    end
+
+    # 🔴 **#80 の黄 9 の本体。**⚠⚠ **平常日の空回りと「ライブが壊れて何も出ない」が、
+    # ログ上でまったく同じだった**（どちらも `no text` の 1 行）。⚠ **11/4 に 160 枠が
+    # 全滅しても、平常日のログと 1 文字も変わらない。**
+    #
+    # ⚠ **ここまで来ているということは「ライブ当日で、枠の中」**なので、⚠⚠ **本文が
+    # 無いのは原稿が無いのではなく壊れている。**
+    def test_a_silent_slot_on_the_live_day_is_reported
+      program = live.program
+      time = mc_times(program.setlist(jst(11, 4, 13, 0))).first
+      recorder = with_recorder(program) do
+        assert_nil(program.call(time))
+      end
+
+      assert_include(recorder, 'no text for the slot')
+    end
+
+    # ⚠⚠ **平常日は黙る。**⚠ **枠は毎日空回りする設計**なので、ここで警告を出すと
+    # **8/15〜10/31 の 2 か月半が延々と黄色になる**（#78 で「本文が無い」を中立に
+    # 置いたのと同じ判断）。
+    def test_a_silent_slot_on_an_ordinary_day_is_not_reported
+      program = live.program
+      recorder = with_recorder(program) do
+        assert_nil(program.call(jst(6, 15, 15, 2)))
+      end
+
+      assert_empty(recorder)
+    end
+
+    # ⚠ 枠の外でも黙る（告知の時刻・ライブが終わったあと）。
+    def test_a_slot_outside_the_live_is_not_reported
+      program = live.program
+      recorder = with_recorder(program) do
+        assert_nil(program.call(jst(11, 4, 23, 0)))
+      end
+
+      assert_empty(recorder)
+    end
+
     # ⚠ 枠の外（12:00 の告知の時刻・20:00 以降）では曲を返さない。
     def test_program_is_silent_outside_the_slot
       assert_nil(live.program.call(jst(11, 4, 12, 0)))

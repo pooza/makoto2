@@ -39,6 +39,32 @@ module Makoto
       end
     end
 
+    # ⚠⚠ **運用上必須の設定が、消しても `rake config:lint` を通らないこと。**
+    # ⚠ **「親キーだけを required にしても、中身が欠けた設定は通り抜ける」**という
+    # 逆も見る（→ docs/CLAUDE.md のコーディング規約）。
+    #
+    # ⚠ `/http` は **`origin/main` からの持ち越しで schema に無かった**（#80 の緑 3）。
+    # ⚠⚠ **`timeout` が欠けると 1 本の投稿が既定の 60 秒 × 再送で枠を跨ぐ**（#90 で
+    # 塞いだところがそのまま戻る）。
+    def test_schema_requires_the_operational_settings
+      schema = YAML.load_file(File.join(Makoto.dir, 'config/schema/base.yaml'))
+      valid = config.merged_raw.deep_dup
+
+      [
+        ['http'], ['http', 'retry'], ['http', 'timeout'], ['http', 'timeout', 'seconds'],
+        ['logger', 'level'], ['scheduler', 'tick_stale'], ['scheduler', 'tolerance']
+      ].each do |path|
+        payload = valid.deep_dup
+        parent = path.size > 1 ? payload.dig(*path[0..-2]) : payload
+        parent.delete(path.last)
+
+        assert_not_empty(
+          JSON::Validator.fully_validate(schema, payload),
+          "/#{path.join('/')} was accepted as missing",
+        )
+      end
+    end
+
     # 「マスクしているつもりで素通し」を防ぐ正テスト。実際に伏せられることを見る。
     def test_secure_dump_masks_secrets
       config['/mastodon/token'] = 'super-secret-token'

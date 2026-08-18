@@ -42,13 +42,53 @@ module Makoto
       'password', 'secret', 'token', 'access_token', 'api_key', 'authorization', 'code'
     ].freeze
 
-    # ⚠ **`info` / `error` / `warn` のすべてがここを通る**（ginseng-core 側で
-    # `create_message(message).to_json` の形に揃っている）。
+    # ⚠ 出す水準の既定。⚠⚠ **設定が読めないときはここへ倒す** — **黙る方向へは
+    # 倒さない**（マスクの既定リストと同じ考え方で、事故の大きいほうを避ける）。
+    DEFAULT_LEVEL = 'info'.freeze
+
+    def initialize(name = nil)
+      super
+      self.level = severity_level
+    end
+
+    # ⚠ **ログの出口はこの 1 つ。**⚠⚠ **ただし上流が揃えているのは `info` と `error`
+    # だけ**なので、⚠ **残りはこちらで通す**（→ 下記）。
     def create_message(src)
       return drop_secrets(scrub(super))
     end
 
+    # 🔴 **`warn` / `debug` / `fatal` を出口に通す**（#97）。
+    #
+    # ⚠⚠ **`Ginseng::Logger` が上書きしているのは `info` と `error` の 2 つだけ。**
+    # ⚠ **残りは `Syslog::Logger` の実装がそのまま走るので、`create_message` を
+    # 通らない** — **`drop_secrets` も `scrub` も効かない。**
+    #
+    # ⚠ **実測**: `warn(post: 'x', token: 'SECRET')` が ⚠⚠ **`token` を平文のまま**
+    # 出していた（`info` は落とせている）。⚠ **不正なバイト列の scrub も効かない**ので、
+    # **`String#strip` で落ちてログごと消える経路（#79）もここに残っていた。**
+    #
+    # 🔴 **「出口 1 つに置けば、渡し方の規約を覚えなくてよくなる」（#82）という前提が、
+    # `warn` では成立していなかった。**⚠ 現に 5 箇所が `warn` を使っている。
+    [:warn, :debug, :fatal].each do |severity|
+      define_method(severity) do |message|
+        return super(create_message(message).to_json)
+      end
+    end
+
     private
+
+    # 出す水準（#80 の黄 9）。
+    #
+    # ⚠⚠ **平常日に 171 行出ていた「本文が無い」を黙らせるために足した。**⚠ 枠は
+    # 毎日空回りする設計なので、**それ自体は異常ではない**（→ `PostingJob`）。
+    #
+    # ⚠ **読めない値でも落ちない。**⚠⚠ **ログの出口が設定の不備で例外を上げると、
+    # その例外を書く先も無い。**
+    def severity_level
+      name = (optional_config('/logger/level') || DEFAULT_LEVEL).to_s.upcase
+      name = DEFAULT_LEVEL.upcase unless ::Logger::Severity.constants.include?(name.to_sym)
+      return ::Logger::Severity.const_get(name)
+    end
 
     # 🔴 **秘密を出口でもう一度落とす**（#82 のレビュー指摘）。
     #

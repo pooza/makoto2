@@ -450,8 +450,10 @@ module Makoto
       assert_equal(setlist(20).covers.map {|t| t[:id]}, setlist(20).covers.map {|t| t[:id]})
     end
 
-    # ⚠ 設定が無ければ何も外さない（既定の挙動を変えない）。
-    def test_excludes_nothing_without_the_setting
+    # ⚠ 除外の一覧が空なら何も外さない（既定の挙動を変えない）。
+    # ⚠⚠ **これは「キーはあるが空」を見るテスト。**⚠ **キーそのものが無い場合は
+    # `test/optional_config.rb` の側**（#77。名前が「無い」を謳っていて素通ししていた）。
+    def test_excludes_nothing_when_the_lists_are_empty
       seed(songs: 8, covers: 0)
       add('童謡1', day: 20, collection: '劇のアルバム')
       config['/live/setlist/exclude/collections'] = []

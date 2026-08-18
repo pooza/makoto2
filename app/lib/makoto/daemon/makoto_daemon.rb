@@ -3,6 +3,32 @@ module Makoto
   # プロセスは 1 本だけで、投稿のスケジュールはこの中の Scheduler が回す。
   class MakotoDaemon < Ginseng::Daemon
     include Package
+    include ProcessIdentity
+
+    # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
+    def initialize(opts = {})
+      super
+      @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
+    end
+
+    # pid ファイルの常駐が生きているか。
+    #
+    # 🔴 **番号だけでなく身元も確かめる**（#80 の黄 6）。⚠⚠ **`Ginseng::Daemon#alive?`
+    # は `Process.kill(0, pid)` しか見ない**ので、⚠ **pid が再利用されると無関係な
+    # プロセスを常駐だと答える**（実測 — `sleep 300` の pid を pid ファイルに書くと
+    # `running (PID 354866)` と表示された）。
+    #
+    # ⚠⚠ **倒れ方が静かなのが問題だった** — `run_start` が「already running」で
+    # 終了し、⚠ **systemd の `Restart=always` が 5 秒ごとに叩き直す**ので、
+    # 🔴 **ボットは一度も起動せず、理由もログに残らない**（warn は stderr →
+    # `bin/makoto_daemon.rb` が `/dev/null` に落とす）。
+    #
+    # ⚠ **`run_restart` も同じ穴を踏んでいた** — `run_stop if alive?` を通って
+    # ⚠⚠ **無関係なプロセスへ TERM を送る**形だった。
+    def alive?
+      return false unless super
+      return daemon_pid?(pid, proc_dir: @proc_dir)
+    end
 
     def command
       return nil
@@ -22,6 +48,12 @@ module Makoto
       register_jobs
       # ⚠ 監視の口は登録のあとに開ける（#84）。⚠⚠ **先に開けると、まだ 0 本の
       # `jobs` を見た `/healthz` が「投稿を 1 本も持たない」と赤くする。**
+      #
+      # 🔴 **起き上がったことを、口を開ける前に記録する**（PR #98 の Codex 指摘）。
+      # ⚠⚠ **初回の tick は枠を全部回し終えるまで痕跡を書かない**ので、これが無いと
+      # ⚠ **口を開けた直後から「tick が止まっている」と赤くなる**
+      # （→ `Heartbeat.record_start`）。
+      Heartbeat.record_start
       monitor_server.start
       Scheduler.instance.exec
     rescue => e
@@ -57,11 +89,14 @@ module Makoto
 
     private
 
+    # ⚠ **投稿の経路が使うのと同じ接続を掴む**（#80 の緑 5）。
+    #
+    # 🔴 **以前はここで別に `Sequel.connect` して PRAGMA を当てていたが、その接続は
+    # 誰も使っていなかった** — ⚠⚠ **原稿を引く口が使うのは `Database.connection` の
+    # ほう**なので、**WAL も busy_timeout も効いていなかった。**⚠ **PRAGMA は
+    # `Database.connect` に移した**ので、**この先増やすぶんも空振りしない。**
     def connect_db
-      db = Sequel.connect(Environment.dsn)
-      db.run('PRAGMA journal_mode=WAL')
-      db.run('PRAGMA busy_timeout=5000')
-      return db
+      return Database.connection
     end
   end
 end

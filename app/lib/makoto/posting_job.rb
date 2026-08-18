@@ -65,7 +65,13 @@ module Makoto
       if text.blank?
         # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
         # ⚠⚠ **成功にも失敗にも数えない。**→ `Heartbeat` 冒頭の表。
-        logger.info(post: @name, slot: format_slot(slot), message: 'no text')
+        #
+        # ⚠ **`debug` なのは、これが平常日に 171 行出るから**（#80 の黄 9）。
+        # ⚠⚠ **ライブの 4 枠は毎日空回りする設計**なので、これを `info` に置くと
+        # **11/4 に壊れて何も出なかった日のログが、平常日と 1 文字も変わらない。**
+        # ⚠ **「出るべき日に出なかった」を言えるのは中身を知っている側だけ**なので、
+        # **そちらが `warn` を出す**（→ `LiveProgram#call`）。
+        logger.debug(post: @name, slot: format_slot(slot), message: 'no text')
         return nil
       end
       return post(text, slot)

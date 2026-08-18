@@ -39,24 +39,19 @@ module Makoto
   # ⚠ **直したあと、次の枠が来るまで黄色が残るのは意図した挙動。**
   class Health
     include Package
+    # ⚠ 孤児の判定に使う argv の規則。⚠⚠ **常駐自身の `alive?` も同じものを見る**
+    # （→ `ProcessIdentity`・#80 の黄 6）。
+    include ProcessIdentity
 
     OK = 0
     ERROR = 1
     WARNING = 2
 
-    PROC_DIR = '/proc'.freeze
-    # ⚠ 常駐の実体。`bin/makoto` の CLI とは別物なので、これで CLI 自身は拾わない。
-    PROCESS_NAME = 'makoto_daemon.rb'.freeze
-
-    # ⚠ インタプリタのオプション（`ruby --yjit bin/makoto_daemon.rb start`）。
-    # **読み飛ばす対象**であって、スクリプトの位置を固定で決め打たない。
-    OPTION_PREFIX = '-'.freeze
-
     attr_reader :daemon
 
     # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
-    def initialize(daemon: nil, now: nil, proc_dir: PROC_DIR)
-      @daemon = daemon || MakotoDaemon.new
+    def initialize(daemon: nil, now: nil, proc_dir: ProcessIdentity::PROC_DIR)
+      @daemon = daemon || MakotoDaemon.new(proc_dir: proc_dir)
       @now = now
       @proc_dir = proc_dir
     end
@@ -115,11 +110,23 @@ module Makoto
       return nil
     end
 
+    # 最後に tick が回った時刻。⚠ **一度も無ければ nil。**
+    def ticked_at
+      return Heartbeat.ticked_at
+    end
+
     # 復旧させるべき問題。⚠ **空なら健全。**
+    #
+    # ⚠⚠ **tick を別に見る**（#80 の黄 7）。⚠ **ハートビートは tick とは別の rufus
+    # ジョブ**なので、**tick 側だけが詰まってもハートビートは動き続ける** —
+    # 🔴 **「生きているが仕事をしていない」を見るための痕跡が、まさにその状態で
+    # 健全を返していた。**⚠ **これは再起動で直りうるので `errors`**（投稿の失敗が
+    # 警告どまりなのとは逆）。
     def errors
       results = []
       return results.push("#{@daemon.app_name} is not running") unless alive?
       results.push('heartbeat is stale') if Heartbeat.stale?(now)
+      results.push('scheduler tick is stale') if Heartbeat.tick_stale?(now)
       results.push('no posting job is registered') if jobs.to_i.zero?
       return results
     end
@@ -173,44 +180,6 @@ module Makoto
       return nil if found == Process.pid
       return nil unless daemon?(argv(dir))
       return found
-    end
-
-    # その argv は常駐のものか。
-    #
-    # ⚠ **cmdline の部分一致にしない**（#61）。⚠⚠ **argv にこの文字列を含むだけの
-    # 無関係なプロセスを孤児と報告する**（実測）。**踏みやすいのは運用側の経路** —
-    # 復旧のラッパースクリプト・デプロイのシェル・`pgrep` のワンライナー。
-    # **docs が「復旧コマンドはラッパースクリプトに逃がす」と決めている以上、
-    # この形は運用に組み込まれる。**
-    def daemon?(argv)
-      return script_candidates(argv).any? {|arg| File.basename(arg) == PROCESS_NAME}
-    end
-
-    # 「実行されているスクリプト」になりうる argv の要素。⚠ **2 つだけ。**
-    #
-    # 1. **argv の 0 番目** — ⚠⚠ 実機の常駐は **`bin/makoto_daemon.rb start` という
-    #    1 要素**になっている（bundler 経由の起動で `$0` が書き換わる。2026-08-15 に
-    #    bydo の `/proc` を実測）。⚠ **要素をそのまま突き合わせると本物を取り逃がす**
-    #    ので、要素の中を空白で割ってから見る
-    # 2. **インタプリタのオプションを読み飛ばした次の 1 つ** — `ruby bin/makoto_daemon.rb`
-    #    のほか、⚠ **`ruby --yjit bin/makoto_daemon.rb` や `ruby -W0 …` でも見つける**
-    #    （位置で決め打つと取り逃がす。#68 のレビュー指摘）
-    #
-    # ⚠⚠ **オプションでない要素は 1 つ目で打ち切る。**`bash -lc 'bundle exec
-    # bin/makoto_daemon.rb restart'` の第 3 要素は**スクリプトではなくシェルへの文字列**
-    # なので、そこまで見ると部分一致に戻る（先頭の語は `bundle` なので落ちる）。
-    def script_candidates(argv)
-      operand = argv.drop(1).reject {|arg| arg.start_with?(OPTION_PREFIX)}.first
-      return [argv.first, operand].map {|arg| arg.to_s.split.first.to_s}
-    end
-
-    # ⚠ `/proc/{pid}/cmdline` は NUL 区切り。**末尾に NUL の詰め物が付く**ので空要素を落とす。
-    # ⚠ `ENOENT` / `ESRCH` は無視する。**列挙してから消えるプロセスがある。**
-    # ⚠⚠ **`EACCES` は握らない**（読めなかったことを `orphans` 側に伝える → #54）。
-    def argv(dir)
-      return File.read(File.join(dir, 'cmdline')).split("\0").reject(&:empty?)
-    rescue Errno::ENOENT, Errno::ESRCH
-      return []
     end
   end
 end
