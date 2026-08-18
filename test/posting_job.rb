@@ -58,6 +58,67 @@ module Makoto
       assert_requested(:post, @url, times: 1, body: {status: 'いくよ！'})
     end
 
+    # 🔴 **#109 の本体。**⚠⚠ **`tolerance`（30 秒）が `tick`（10 秒）の 3 倍**なので、
+    # **枠の頭 +0 / +10 / +20 の tick がすべて「いま枠の頭だ」と答える。**
+    # ⚠ **実測では 1 回目 200・2 回目と 3 回目が 500** で、**本番 160 枠なら 960 回の
+    # 失敗 POST。**⚠⚠ **500 が止まれば今度は全投稿が 3 通ずつ出る。**
+    def test_the_same_slot_is_posted_only_once
+      stub_post
+      subject = job
+      subject.exec(jst(12, 0))
+      subject.exec(jst(12, 0, 10))
+      subject.exec(jst(12, 0, 20))
+
+      assert_requested(:post, @url, times: 1)
+    end
+
+    # ⚠ **次の枠は当然投げる**（覚えるのは「いま処理した枠」だけ）。
+    def test_the_next_slot_is_posted
+      stub_post
+      subject = job
+      subject.exec(jst(12, 0))
+      subject.exec(jst(12, 2))
+
+      assert_requested(:post, @url, times: 2)
+    end
+
+    # ⚠⚠ **結末で分けない。**⚠ **落ちた枠を次の tick が拾い直す形にしない** —
+    # **再送は `HTTP#retryable?` が 1 回の `exec` の中で済ませている。**
+    def test_a_failed_slot_is_not_retried_by_the_next_tick
+      stub_request(:post, @url).to_return(status: 500)
+      subject = job
+      subject.exec(jst(12, 0))
+      before = WebMock::RequestRegistry.instance.times_executed(
+        WebMock::RequestPattern.new(:post, @url),
+      )
+      subject.exec(jst(12, 0, 10))
+
+      assert_equal(before, WebMock::RequestRegistry.instance.times_executed(
+        WebMock::RequestPattern.new(:post, @url),
+      ))
+    end
+
+    # ⚠ **本文が無い枠も 1 回で済ませる**（平常日のログを 3 倍に増やさない）。
+    def test_a_silent_slot_is_claimed_too
+      slots = []
+      subject = job(proc {|slot| slots.push(slot) and nil})
+      subject.exec(jst(12, 0))
+      subject.exec(jst(12, 0, 10))
+
+      assert_equal(1, slots.size)
+    end
+
+    # 🔴 **tick は重なりうる**（rufus の `every` は前の回を待たず、⚠⚠ **1 回の tick は
+    # 投稿の再送で 90 秒以上かかりうる**）。⚠ **見て書くまでを不可分にする。**
+    def test_overlapping_ticks_claim_the_slot_once
+      stub_post
+      subject = job
+      threads = Array.new(8) {Thread.new {subject.exec(jst(12, 0))}}
+      threads.each(&:join)
+
+      assert_requested(:post, @url, times: 1)
+    end
+
     # ⚠ tick はぴったりの時刻には来ない。拾う幅の内側なら投稿すること。
     def test_posts_within_tolerance
       stub_post
@@ -92,8 +153,11 @@ module Makoto
       assert_false(job.due?(jst(11, 59)))
     end
 
-    # ⚠⚠ **枠から作る。**再起動や tick の重なりで同じ枠を 2 度処理しても、
-    # Mastodon 側が畳んで 1 通に収まる。
+    # ⚠⚠ **枠から作る。**再起動をまたいで同じ枠を 2 度処理しても、同じキーになる。
+    #
+    # 🔴 **「Mastodon 側が畳んで 1 通に収まる」は実機で成立していなかった**（#109）。
+    # ⚠ **キーが安定していることだけを見る**（畳まれるかは相手の挙動）。⚠⚠ **`job` は
+    # 呼ぶたびに新しいインスタンスを作る**ので、**別プロセスの並び**にあたる。
     def test_idempotency_key_is_derived_from_the_slot
       keys = []
       stub_request(:post, @url).to_return do |request|
