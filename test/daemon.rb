@@ -30,6 +30,22 @@ module Makoto
       end
     end
 
+    # 🔴 **空・壊れた pid ファイルは `pid = 0` になる**（`File.read(...).to_i`）。
+    # ⚠⚠ **`0` は truthy で、`Process.kill(0, 0)` は自分のプロセスグループ宛てなので
+    # 成功する**ため、⚠ **これを「動いている」と答えると `run_restart` が
+    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM を送る**
+    # （リリース前レビューの黄 3）。
+    def test_a_broken_pid_file_is_not_the_daemon
+      ['', "\n", 'abc', '0'].each do |body|
+        with_daemon(pid: nil) do |daemon|
+          File.write(daemon.pid_file, body)
+
+          assert_equal(0, daemon.pid, "pid file: #{body.inspect}")
+          assert_false(daemon.alive?, "pid file: #{body.inspect}")
+        end
+      end
+    end
+
     # ⚠ 本物の常駐は生きていると答える（**塞いだせいで検知できなくならないこと**）。
     def test_the_real_daemon_is_alive
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
