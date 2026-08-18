@@ -85,6 +85,21 @@ module Makoto
       end
     end
 
+    # 🔴 **痕跡が書けなくても常駐は止めない**（リリース前レビューの黄 1）。
+    # ⚠⚠ **`Scheduler` 側の `record_tick` / `touch` と同じ扱い**にする — ⚠ **素で呼ぶと
+    # `tmp/run` が書けないだけで `start` の rescue が再送出し、監視の口も投稿も
+    # 立ち上がらないまま systemd が 5 秒ごとに叩き直す。**
+    def test_a_broken_trace_does_not_stop_the_start
+      # ⚠ **元のメソッドを持って戻す**（`class << self` の中に居るので
+      # `remove_method` では復元ではなく削除になる → `test/scheduler.rb`）。
+      original = Heartbeat.method(:record_start)
+      Heartbeat.define_singleton_method(:record_start) {|**| raise 'boom'}
+
+      assert_nothing_raised {@daemon.send(:record_start)}
+    ensure
+      Heartbeat.define_singleton_method(:record_start, original)
+    end
+
     def test_pid_file
       assert_equal(File.join(Environment.dir, 'tmp/pids/MakotoDaemon.pid'), @daemon.pid_file)
     end
