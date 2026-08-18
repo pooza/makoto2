@@ -30,6 +30,22 @@ module Makoto
       end
     end
 
+    # 🔴 **空・壊れた pid ファイルは `pid = 0` になる**（`File.read(...).to_i`）。
+    # ⚠⚠ **`0` は truthy で、`Process.kill(0, 0)` は自分のプロセスグループ宛てなので
+    # 成功する**ため、⚠ **これを「動いている」と答えると `run_restart` が
+    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM を送る**
+    # （リリース前レビューの黄 3）。
+    def test_a_broken_pid_file_is_not_the_daemon
+      ['', "\n", 'abc', '0'].each do |body|
+        with_daemon(pid: nil) do |daemon|
+          File.write(daemon.pid_file, body)
+
+          assert_equal(0, daemon.pid, "pid file: #{body.inspect}")
+          assert_false(daemon.alive?, "pid file: #{body.inspect}")
+        end
+      end
+    end
+
     # ⚠ 本物の常駐は生きていると答える（**塞いだせいで検知できなくならないこと**）。
     def test_the_real_daemon_is_alive
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
@@ -83,6 +99,21 @@ module Makoto
       with_daemon(proc_dir: ProcessIdentity::PROC_DIR) do |daemon|
         assert_false(daemon.alive?)
       end
+    end
+
+    # 🔴 **痕跡が書けなくても常駐は止めない**（リリース前レビューの黄 1）。
+    # ⚠⚠ **`Scheduler` 側の `record_tick` / `touch` と同じ扱い**にする — ⚠ **素で呼ぶと
+    # `tmp/run` が書けないだけで `start` の rescue が再送出し、監視の口も投稿も
+    # 立ち上がらないまま systemd が 5 秒ごとに叩き直す。**
+    def test_a_broken_trace_does_not_stop_the_start
+      # ⚠ **元のメソッドを持って戻す**（`class << self` の中に居るので
+      # `remove_method` では復元ではなく削除になる → `test/scheduler.rb`）。
+      original = Heartbeat.method(:record_start)
+      Heartbeat.define_singleton_method(:record_start) {|**| raise 'boom'}
+
+      assert_nothing_raised {@daemon.send(:record_start)}
+    ensure
+      Heartbeat.define_singleton_method(:record_start, original)
     end
 
     def test_pid_file

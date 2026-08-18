@@ -768,13 +768,13 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ⚠⚠ **`Gemfile` は `branch: 'main'` で固定していないのに、`Gemfile.lock` が 2026-08-01 前後で止まっている** — **`ginseng-core` は `1.15.28` / `4b134ce`（main は `1.18.0` で 33 commits 先）、`ginseng-fediverse` は `1.8.25`（8 commits 先）。**
 
-🔴 **その結果、上流で既に直っている穴を 2 回自分で直し直した** — **#97**（`logger.warn` が scrub / マスクを通らない ＝ `pooza/ginseng-core#499`・**1.15.35 で修正済**）と **#35**（`format: uri` ＝ `#516`・**1.18.0 で修正済**）。
+🔴 **その結果、上流で既に直っている穴を 2 回自分で直し直した** — **#97**（`logger.warn` が scrub / マスクを通らない ＝ `pooza/ginseng-core#499`・**1.15.35 で修正済**）と **#35**（`format: uri` ＝ `pooza/ginseng-core#516`・**1.18.0 で修正済**）。
 
 ⚠ **「先に自分の箱を塞ぐ」（→ #37）の判断そのものは正しい。**⚠⚠ **抜けているのは、塞いだあとに上流へ追随する当番のほう。**
 
-⚠⚠ **取り込めていないもので効くのは #509 / #510** — **`Ginseng::Daemon#alive?` が `EPERM` を「死んでいる」と読み**、**`run_stop` が `remove_pid` のあとで `TERM` を送って `EPERM` を拾わない**（＝ **pid ファイルだけ消えて孤児が確定する**）。⚠ **「プロセスの寿命を設計に含める」に真正面から当たる**うえ、⚠⚠ **#80 の黄 6 で `alive?` を上書きしたが、`super` の先はまだ fail-open。**
+⚠⚠ **取り込めていないもので効くのは `pooza/ginseng-core#509` / `#510`** — **`Ginseng::Daemon#alive?` が `EPERM` を「死んでいる」と読み**、**`run_stop` が `remove_pid` のあとで `TERM` を送って `EPERM` を拾わない**（＝ **pid ファイルだけ消えて孤児が確定する**）。⚠ **「プロセスの寿命を設計に含める」に真正面から当たる**うえ、⚠⚠ **#80 の黄 6 で `alive?` を上書きしたが、`super` の先はまだ fail-open。**
 
-⚠ **取り込みは無条件に安全ではない**（`HTTP#repeat` の再送対象・`Config#reload`・`format: uri` の厳格化が同梱される）。⚠⚠ **リハーサル（10 月）より前に、`rubicon` の `local.yaml` へ `rake config:lint` を当ててから入れる。**⚠ **ライブ直前の `bundle update` は避ける。**
+⚠ **取り込みは無条件に安全ではない**（`HTTP#repeat` の再送対象・`Config#reload`・`format: uri` の厳格化が同梱される）。⚠⚠ **リハーサル（10 月）より前に、`rubicon` の `config/local.yaml` へ `rake config:lint` を当ててから入れる。**⚠ **ライブ直前の `bundle update` は避ける。**
 
 ### 却下した選択肢
 

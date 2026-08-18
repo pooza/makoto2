@@ -107,8 +107,19 @@ module Makoto
       # 空くと、戻ってきた瞬間から赤い。**
       #
       # ⚠ **猶予を過ぎても痕跡が無ければ、そこからは本物の詰まり**なので検知は残る。
+      #
+      # 🔴 **猶予を張り直すのは、前回の起動から tick が 1 回でも完走したときだけ**
+      # （リリース前レビューの黄 2）。⚠⚠ **無条件に書き換えると、起き上がるたびに
+      # 猶予が再武装される** — ⚠ **systemd は `Restart=always` / `RestartSec=5`** なので、
+      # 🔴 **初回 tick の途中で落ち続ける常駐は、tick の観点で永遠に健全を返す。**
+      # ⚠⚠ **#80 の黄 7 が消したかった「検知のための痕跡が、検知したい状態で更新され
+      # 続ける」構造そのもの**なので、ここで塞ぐ。
       def record_start(now: nil)
         return update do |record|
+          started = parse_time(record[:started_at])
+          ticked = parse_time(record[:ticked_at])
+          # ⚠ 前回の猶予がまだ 1 回も tick で解消されていなければ、据え置く。
+          next record if started && (ticked.nil? || ticked < started)
           record.merge(started_at: (now || Time.now).getutc.iso8601)
         end
       end

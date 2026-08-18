@@ -234,6 +234,41 @@ module Makoto
     end
 
     # ⚠⚠ **閾値は設定から出す**（`limit` と同じ理由）。⚠ **既定値に逃がさない** —
+    # 🔴 **猶予を張り直すのは、前回の起動から tick が 1 回でも完走したときだけ。**
+    # ⚠⚠ **無条件に書き換えると、起き上がるたびに猶予が再武装される** — ⚠ **systemd は
+    # `Restart=always` / `RestartSec=5`** なので、**初回 tick の途中で落ち続ける常駐が
+    # tick の観点で永遠に健全を返す**（リリース前レビューの黄 2）。
+    def test_a_crash_loop_does_not_rearm_the_grace
+      Heartbeat.record_tick(now: now - 7200)
+      12.times do |i|
+        Heartbeat.record_start(now: now + (i * 5))
+
+        assert_false(Heartbeat.tick_stale?(now + (i * 5)))
+      end
+
+      # ⚠ **猶予は最初の 1 回だけ**なので、そこから tick_limit を過ぎれば赤くなる。
+      assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
+    end
+
+    # ⚠ **前回の稼働で tick が完走していれば、猶予は張り直す。**⚠⚠ **落ちて猶予より
+    # 長く空いてから戻る形**（古い `ticked_at` が残る）がこれ。
+    def test_a_healthy_restart_rearms_the_grace
+      Heartbeat.record_start(now: now - 3600)
+      Heartbeat.record_tick(now: now - 3000)
+      Heartbeat.record_start(now: now)
+
+      assert_false(Heartbeat.tick_stale?(now))
+      assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
+    end
+
+    # ⚠ 痕跡がまったく無い初回起動でも猶予は付く（→ `Health` の回帰テスト）。
+    def test_the_first_start_gets_the_grace
+      Heartbeat.record_start(now: now)
+
+      assert_false(Heartbeat.tick_stale?(now))
+      assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
+    end
+
     # 設定を消しただけで検知が静かに緩む形を作らない（#77 の裏返し）。
     def test_rejects_bad_failure_limit
       config['/scheduler/posting/failure_limit'] = 0

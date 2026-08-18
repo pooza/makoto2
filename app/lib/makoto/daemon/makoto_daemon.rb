@@ -53,7 +53,7 @@ module Makoto
       # ⚠⚠ **初回の tick は枠を全部回し終えるまで痕跡を書かない**ので、これが無いと
       # ⚠ **口を開けた直後から「tick が止まっている」と赤くなる**
       # （→ `Heartbeat.record_start`）。
-      Heartbeat.record_start
+      record_start
       monitor_server.start
       Scheduler.instance.exec
     rescue => e
@@ -88,6 +88,22 @@ module Makoto
     end
 
     private
+
+    # 起き上がったことを痕跡に残す（→ `Heartbeat.record_start`）。
+    #
+    # 🔴 **書けなくても常駐は止めない**（リリース前レビューの黄 1）。⚠⚠ **痕跡は
+    # 観測のためのもの**なので、**`Scheduler` 側の `record_tick` / `touch` はどちらも
+    # rescue の内側に置いてある**（`test/scheduler.rb` が「痕跡が書けなくても tick は
+    # 止めない」を保証している）。⚠ **ここだけ素で呼ぶと、`tmp/run` が書けないだけで
+    # `start` の rescue が再送出し**、🔴 **監視の口も投稿も立ち上がらないまま
+    # systemd が 5 秒ごとに叩き直す**（警告は stderr → `/dev/null`）。
+    def record_start
+      Heartbeat.record_start
+      return nil
+    rescue => e
+      logger.error(daemon: app_name, error: e)
+      return nil
+    end
 
     # ⚠ **投稿の経路が使うのと同じ接続を掴む**（#80 の緑 5）。
     #
