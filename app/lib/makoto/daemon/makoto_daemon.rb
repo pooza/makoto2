@@ -83,11 +83,14 @@ module Makoto
 
     private
 
+    # ⚠ **投稿の経路が使うのと同じ接続を掴む**（#80 の緑 5）。
+    #
+    # 🔴 **以前はここで別に `Sequel.connect` して PRAGMA を当てていたが、その接続は
+    # 誰も使っていなかった** — ⚠⚠ **原稿を引く口が使うのは `Database.connection` の
+    # ほう**なので、**WAL も busy_timeout も効いていなかった。**⚠ **PRAGMA は
+    # `Database.connect` に移した**ので、**この先増やすぶんも空振りしない。**
     def connect_db
-      db = Sequel.connect(Environment.dsn)
-      db.run('PRAGMA journal_mode=WAL')
-      db.run('PRAGMA busy_timeout=5000')
-      return db
+      return Database.connection
     end
   end
 end

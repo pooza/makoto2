@@ -223,6 +223,46 @@ module Makoto
       assert_equal([4650], health.orphans)
     end
 
+    # 🔴 **#80 の緑 6。**⚠⚠ **編集・閲覧・grep はどれも「先頭 ＋ ファイルのパス」**
+    # なので、⚠ **2 つ目の要素を無条件にスクリプトとみなすと、開発中は恒常的に
+    # 誤報する**（実測で `vim app/lib/makoto/daemon/makoto_daemon.rb` が孤児になった）。
+    # ⚠⚠ **恒常的に踏むと、本物の孤児が誤報に埋もれる。**
+    def test_editing_the_daemon_source_is_not_an_orphan
+      beat
+      fake_process(4650, ['vim', 'app/lib/makoto/daemon/makoto_daemon.rb'])
+      fake_process(4651, ['less', 'bin/makoto_daemon.rb'])
+      fake_process(4652, ['git', 'diff', 'app/lib/makoto/daemon/makoto_daemon.rb'])
+
+      assert_equal([], health.orphans)
+    end
+
+    # ⚠ **常駐にならないサブコマンドは孤児ではない**（#80 の緑 6）。
+    # ⚠⚠ **`status` は監視から繰り返し叩かれる**ので、数えると誤報の常連になる。
+    def test_a_transient_subcommand_is_not_an_orphan
+      beat
+      fake_process(4650, ['bin/makoto_daemon.rb status'])
+      fake_process(4651, ['bin/makoto_daemon.rb stop'])
+
+      assert_equal([], health.orphans)
+    end
+
+    # ⚠⚠ **`restart` は除かない。**⚠ **fork した子は argv を引き継ぐ**ので、
+    # **本物の常駐が `restart` のまま走っている**（実機の形）。
+    def test_a_daemon_started_by_restart_is_an_orphan
+      beat
+      fake_process(4650, ['bin/makoto_daemon.rb restart'])
+
+      assert_equal([4650], health.orphans)
+    end
+
+    # ⚠ インタプリタ越しが 1 要素にまとまっている形でも検知する。
+    def test_a_daemon_behind_an_interpreter_in_one_element_is_an_orphan
+      beat
+      fake_process(4650, ['ruby bin/makoto_daemon.rb start'])
+
+      assert_equal([4650], health.orphans)
+    end
+
     # ⚠⚠ **インタプリタのオプションを読み飛ばす**（#68 のレビュー指摘）。
     # ⚠ **スクリプトの位置を「インタプリタの次」と決め打つと、`--yjit` を付けた
     # 起動を取り逃がす。**bydo の Ruby は YJIT 有効なので、実際に取りうる形。

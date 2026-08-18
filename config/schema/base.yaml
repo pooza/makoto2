@@ -128,6 +128,42 @@ properties:
     enum:
       - development
       - production
+  # ⚠ 外への HTTP（#80 の緑 3）。⚠⚠ **origin/main からの持ち越しで、設定に在るのに
+  # schema が知らなかった。**
+  #
+  # ⚠ **どれも運用上必須。**⚠⚠ **timeout が欠けると 1 本の投稿が最悪 92 秒 →
+  # 既定の 60 秒 × 再送で枠を跨ぐ**（#90 で塞いだところがそのまま戻る）。
+  # ⚠ **retry が欠けると `Ginseng::HTTP` が起動時に落ちる**（`retry_limit` を素で読む）。
+  http:
+    type: object
+    properties:
+      retry:
+        type: object
+        properties:
+          # ⚠ 再送の回数。⚠⚠ 0 でも意味を持つ（再送しない）ので minimum は 0。
+          limit:
+            type: integer
+            minimum: 0
+          # 再送までの待ち（秒）。
+          seconds:
+            type: number
+            minimum: 0
+        required:
+          - limit
+          - seconds
+      timeout:
+        type: object
+        properties:
+          # ⚠⚠ これは wall-clock の上限ではない（Net::HTTP の 1 回の socket 操作ごと
+          # → #92）。⚠ 黙って止まっている相手には効く。
+          seconds:
+            type: number
+            exclusiveMinimum: 0
+        required:
+          - seconds
+    required:
+      - retry
+      - timeout
   logger:
     type: object
     properties:
@@ -304,6 +340,9 @@ required:
   - corpus
   - cure_api
   - environment
+  # ⚠ 節ごと消えたときも止める（#80 の緑 3）。⚠⚠ 中の required だけでは、
+  # 節そのものが無い設定を通してしまう。
+  - http
   - live
   - logger
   - mastodon

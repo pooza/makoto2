@@ -54,6 +54,14 @@ module Makoto
       end
     end
 
+    # ⚠⚠ **`status` は即座に終わるので常駐ではない**（#80 の緑 6）。⚠ pid ファイルが
+    # そこを指しているなら、それは実体とずれている。
+    def test_a_transient_subcommand_is_not_the_daemon
+      with_daemon(command: ['bin/makoto_daemon.rb status']) do |daemon|
+        assert_false(daemon.alive?)
+      end
+    end
+
     # ⚠ インタプリタ越しでも本物は本物（`ruby --yjit bin/makoto_daemon.rb start`）。
     def test_the_daemon_behind_interpreter_options_is_alive
       with_daemon(command: ['ruby', '--yjit', 'bin/makoto_daemon.rb', 'start']) do |daemon|
