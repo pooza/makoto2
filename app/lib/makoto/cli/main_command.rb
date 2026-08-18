@@ -56,6 +56,9 @@ module Makoto
     desc 'live SUBCOMMAND', 'バースデーライブの並び・枠の下見'
     subcommand 'live', LiveCommand
 
+    desc 'rehearsal SUBCOMMAND', 'リハーサルの結果の集計（#110）'
+    subcommand 'rehearsal', RehearsalCommand
+
     desc 'status', '常駐プロセスの健全性を表示（監視から叩く口）'
     long_desc <<~TEXT
       終了コード: 0 = 健全 / 1 = 異常（復旧させる）/ 2 = 警告（人が見る）
