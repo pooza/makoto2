@@ -48,6 +48,12 @@ module Makoto
       register_jobs
       # ⚠ 監視の口は登録のあとに開ける（#84）。⚠⚠ **先に開けると、まだ 0 本の
       # `jobs` を見た `/healthz` が「投稿を 1 本も持たない」と赤くする。**
+      #
+      # 🔴 **起き上がったことを、口を開ける前に記録する**（PR #98 の Codex 指摘）。
+      # ⚠⚠ **初回の tick は枠を全部回し終えるまで痕跡を書かない**ので、これが無いと
+      # ⚠ **口を開けた直後から「tick が止まっている」と赤くなる**
+      # （→ `Heartbeat.record_start`）。
+      Heartbeat.record_start
       monitor_server.start
       Scheduler.instance.exec
     rescue => e

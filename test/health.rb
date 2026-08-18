@@ -133,6 +133,35 @@ module Makoto
       assert_true(health.errors.any? {|m| m.include?('tick is stale')})
     end
 
+    # 🔴 **起き上がった直後は、初回 tick がまだ終わっていないだけ**（PR #98 の Codex
+    # 指摘）。⚠⚠ **監視の口は初回 tick より先に開く**ので、ここを異常と読むと
+    # **起動のたびに `/healthz` が赤くなる。**
+    def test_a_fresh_start_is_not_stale_before_the_first_tick
+      Heartbeat.record_start(now: now)
+      beat(tick: false)
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **前回の稼働が残した古い痕跡でも同じ。**⚠ **落ちて猶予より長く空いてから
+    # 戻ってくる**のがまさにその形で、**戻った瞬間から赤い**のが元の挙動だった。
+    def test_a_restart_supersedes_an_old_tick
+      Heartbeat.record_tick(now: now - (Heartbeat.tick_limit * 10))
+      Heartbeat.record_start(now: now)
+      beat(tick: false)
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠ **猶予を過ぎれば検知は戻る。**⚠⚠ **起き上がったことを口実に黙り続けない** —
+    # 起きているのに tick が回らないのは #80 の黄 7 そのもの。
+    def test_a_start_stops_covering_after_the_grace_period
+      Heartbeat.record_start(now: now - (Heartbeat.tick_limit * 2))
+      beat(tick: false)
+
+      assert_true(health.errors.any? {|m| m.include?('tick is stale')})
+    end
+
     # ⚠ 閾値は設定から出す（間隔を延ばした瞬間に誤検知しはじめるのを防ぐ）。
     def test_tick_threshold_comes_from_the_setting
       config['/scheduler/tick_stale'] = '1h'

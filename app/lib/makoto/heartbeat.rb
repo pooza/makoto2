@@ -97,6 +97,22 @@ module Makoto
         end
       end
 
+      # 常駐が起き上がったこと。🔴 **初回の tick が終わるまで `tick_stale?` を
+      # 鳴らさないための基準**（PR #98 の Codex 指摘）。
+      #
+      # ⚠⚠ **監視の口は初回 tick より先に開く**（→ `MakotoDaemon#start`）。⚠ **tick が
+      # 痕跡を書くのは枠を全部回し終えたあと**で、⚠⚠ **1 回の tick は投稿の再送で
+      # 90 秒以上かかりうる** — 🔴 **起き上がっただけで `/healthz` が赤くなる**形だった。
+      # ⚠ **前回の稼働が残した古い `ticked_at` も同じ**で、⚠⚠ **落ちて猶予より長く
+      # 空くと、戻ってきた瞬間から赤い。**
+      #
+      # ⚠ **猶予を過ぎても痕跡が無ければ、そこからは本物の詰まり**なので検知は残る。
+      def record_start(now: nil)
+        return update do |record|
+          record.merge(started_at: (now || Time.now).getutc.iso8601)
+        end
+      end
+
       # 枠が 1 つ投稿できた。⚠ **失敗の数を 0 に戻す。**
       def record_success(now: nil)
         return update do |record|
@@ -187,6 +203,11 @@ module Makoto
         return parse_time(stored[:ticked_at])
       end
 
+      # 最後に常駐が起き上がった時刻。⚠ **一度も無ければ nil**（→ `record_start`）。
+      def started_at
+        return parse_time(stored[:started_at])
+      end
+
       def jobs
         record = read
         return nil unless record
@@ -245,8 +266,13 @@ module Makoto
       # ⚠⚠ **痕跡が無いときも「止まっている」と扱う。**⚠ **常駐は登録の直後に 1 回
       # 叩く**（→ `Scheduler#schedule_posts`）ので、⚠⚠ **生きているのに痕跡が無いのは、
       # tick が一度も回っていないということ。**
+      #
+      # ⚠⚠ **ただし基準は「最後の tick」と「起き上がった時刻」の新しいほう。**
+      # 🔴 **初回の tick は枠を回し終えるまで痕跡を書かない**ので、⚠ **起き上がった
+      # 直後を「一度も回っていない」と読むと、起動のたびに赤くなる**（→ `record_start`）。
+      # ⚠⚠ **猶予を過ぎればどちらの基準でも赤い**ので、検知そのものは緩まない。
       def tick_stale?(now = nil)
-        last = ticked_at
+        last = [ticked_at, started_at].compact.max
         return true unless last
         return ((now || Time.now) - last) > tick_limit
       end
