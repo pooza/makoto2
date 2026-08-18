@@ -75,6 +75,10 @@ module Makoto
       interval = config['/scheduler/heartbeat/interval']
       @scheduler.every interval, first: :now do
         logger.info(scheduler: 'heartbeat', version: Package.version, jobs: jobs)
+        # 🔴 **日付を騙している間は鳴らし続ける**（#110）。⚠⚠ **リハーサルの
+        # つもりで無い常駐が偽の日付で動いていたら、それは事故。**⚠ **1 回きりの
+        # 起動ログでは、後から入った人が気づけない。**
+        logger.warn(time_travel: TimeTravel.describe) if TimeTravel.active?
         # ⚠ **監視はログではなくこの痕跡を見る**（→ `Heartbeat` / `Health`）。
         # 書けなくてもハートビートそのものは止めない（下の rescue の内側）。
         Heartbeat.touch(jobs: jobs)
