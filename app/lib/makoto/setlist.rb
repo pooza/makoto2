@@ -44,7 +44,13 @@ module Makoto
     # ⚠⚠ **`mc_hinge` は蝶番（アンカーの再演）の直後に来る MC の番号**（#73）。
     # ⚠ **台本の中間アンカー（`後半。`）はここに合わせる。**両端（`ordinal 0` と
     # `mc_total - 1`）だけでは、⚠⚠ **中間が曲数の増減で蝶番をまたいでずれる。**
-    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, :mc_hinge, keyword_init: true) do
+    #
+    # ⚠⚠ **`mc_covers` はゲストコーナーの塊の直前に来る MC の番号**（#117・塊ごとに 1 つ）。
+    # ⚠ **カバー宣言の台本（`ここから何曲か、お借りした歌を歌う。`）はここに合わせる。**
+    # 🔴 **塊の位置と台本の位置は根拠が別**（前者は曲と MC を並べた配列の位置、後者は
+    # 「MC の何番目か」）なので、⚠⚠ **繋がないと曲数が動くたびにずれる**（実測で 3 曲）。
+    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, :mc_hinge, :mc_covers,
+      keyword_init: true) do
       def song?
         return kind == :song
       end
@@ -250,12 +256,32 @@ module Makoto
     def with_mc_total(entries)
       total = entries.count(&:mc?)
       hinge = hinge_mc_ordinal(entries)
+      covers = cover_mc_ordinals(entries)
       entries.each do |entry|
         next unless entry.mc?
         entry.mc_total = total
         entry.mc_hinge = hinge
+        entry.mc_covers = covers
       end
       return entries
+    end
+
+    # ゲストコーナーの塊の**直前に来る MC の番号**（#117）。⚠ **塊ごとに 1 つ、前から順。**
+    #
+    # ⚠⚠ **塊の直前に MC が無ければ `nil`**（前半の埋め草をコーナーが使い切った日など）。
+    # 🔴 **詰めない。**⚠⚠ **詰めると後ろの塊が前の塊の宣言と対応してしまう**
+    # （`/live/mc/cover` は並び順で塊と対応させる → `LiveProgram#cover_anchors`）。
+    # ⚠ **`hinge_mc_ordinal` と同じく、位置は組むときにしか分からない。**
+    def cover_mc_ordinals(entries)
+      starts = entries.each_index.select {|index| corner_start?(entries, index)}
+      return starts.map {|index| entries[0...index].reverse_each.find(&:mc?)&.ordinal}
+    end
+
+    # 塊の先頭か。⚠ **2 曲目以降は同じ塊なので数えない。**
+    def corner_start?(entries, index)
+      return false unless entries[index].cover?
+      return false if index.positive? && entries[index - 1].cover?
+      return true
     end
 
     # 蝶番（アンカーの再演）の**直後に来る最初の MC の番号**。⚠ 無ければ nil。
@@ -300,8 +326,22 @@ module Makoto
       items = weave(tracks.map {|track| Entry.new(kind: :song, track: track)},
         fillers - corner.size, ordinal_from)
       return items if corner.empty?
-      items.insert(items.size * 2 / 3, *corner.map {|t| Entry.new(kind: :cover, track: t)})
+      items.insert(corner_position(items), *corner.map {|t| Entry.new(kind: :cover, track: t)})
       return items
+    end
+
+    # ゲストコーナーを差し込む位置。⚠ **その部の 2/3。**
+    #
+    # 🔴 **ただし MC の直後まで手前に寄せる**（#117）。⚠⚠ **宣言の台本（`ここから何曲か、
+    # お借りした歌を歌う。`）は「塊の直前の MC」に置く**ので、⚠ **間に曲が挟まると
+    # 「ここから」が嘘になる**（実測で 3 曲挟まっていた）。**塊を MC にくっつける。**
+    #
+    # ⚠ **手前に MC が 1 本も無ければ 2/3 のまま**（前半の頭に寄る日）。
+    def corner_position(items)
+      target = items.size * 2 / 3
+      index = items[0...target].rindex(&:mc?)
+      return target unless index
+      return index + 1
     end
 
     # MC を等間隔で挟む。⚠ 端に寄せず、曲の間に散らす。

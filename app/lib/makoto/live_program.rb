@@ -132,26 +132,76 @@ module Makoto
 
     private
 
-    # 台本を割る継ぎ目。⚠ **中間アンカーが引けなければ 1 本の直線に戻す**
+    # 台本を割る継ぎ目。⚠ **継ぎ目が 1 つも引けなければ 1 本の直線に戻す**
     # （`Setlist` のアンカーと同じ判断 — 引けなければ黙って別のものを置かない）。
+    #
+    # ⚠⚠ **継ぎ目は 1 つとは限らない**（#117）。**蝶番（`後半。`）に加えて、
+    # ゲストコーナーの宣言が前半・後半に 1 つずつ**あるので、⚠ **最大 4 本の直線**になる。
     def segment(entry, total, scripts)
-      hinge = entry.mc_hinge.to_i
-      pivot = hinge_index(scripts).to_i
-      straight = [0, total - 1, 0, scripts.size - 1]
-      return straight unless hinge.positive? && pivot.positive?
-      return straight unless hinge < total && pivot < scripts.size
-      # ⚠⚠ **前半は継ぎ目の 1 本手前まで。**⚠ 継ぎ目を前半の終端にすると、
-      # **丸めで名指しの台本が蝶番の前に出て、蝶番でもう一度出る**
-      # （`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6` が 5 に丸まる。#76 の指摘）。
-      return [0, hinge - 1, 0, pivot - 1] if entry.ordinal < hinge
-      return [hinge, total - 1, pivot, scripts.size - 1]
+      points = anchors(entry, total, scripts)
+      return [0, total - 1, 0, scripts.size - 1] if points.empty?
+      # ⚠ **`entry.ordinal` を含む区間**。手前に継ぎ目が無ければ台本の頭から。
+      index = points.rindex {|ordinal, _| ordinal <= entry.ordinal}
+      from, script_from = index ? points[index] : [0, 0]
+      to, script_to = upto(points[(index || -1) + 1], total, scripts.size)
+      return [from, to, script_from, script_to]
+    end
+
+    # 区間の終端。⚠⚠ **次の継ぎ目の 1 本手前まで**（#76 の指摘）。
+    #
+    # ⚠ **継ぎ目そのものを終端にすると、丸めで名指しの台本が継ぎ目の前に出て、
+    # 継ぎ目でもう一度出る**（`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6`
+    # が 5 に丸まる）。⚠ 次が無ければ台本の終端。
+    def upto(point, total, size)
+      return [total - 1, size - 1] unless point
+      return [point.first - 1, point.last - 1]
+    end
+
+    # 台本を割る継ぎ目 `[MC の番号, 台本の位置]` を前から順に。⚠ **引けないものは捨てる。**
+    #
+    # ⚠⚠ **両端は継ぎ目ではない**（`0` と終端は区間の側が持つ）ので、**内側だけを見る。**
+    def anchors(entry, total, scripts)
+      found = [[entry.mc_hinge, hinge_index(scripts)]] + cover_anchors(entry, scripts)
+      inside = found.select do |ordinal, index|
+        inside?(ordinal, total) && inside?(index, scripts.size)
+      end
+      return increasing(inside.sort)
+    end
+
+    def inside?(value, size)
+      return false unless value.is_a?(Integer)
+      return value.positive? && value < size
+    end
+
+    # ⚠⚠ **前へ進まない継ぎ目は捨てる。**⚠ **残すと台本が巻き戻る**（同じ MC の番号に
+    # 2 つ来た日や、台本の並びと塊の並びが食い違った日）。**先に来たほうを残す。**
+    def increasing(points)
+      return points.each_with_object([]) do |point, kept|
+        last = kept.last
+        next if last && (point.first <= last.first || point.last <= last.last)
+        kept.push(point)
+      end
     end
 
     # ⚠ 蝶番の直後に置く台本（`/live/mc/hinge` の `slug`）。⚠ 無ければ nil。
     def hinge_index(scripts)
-      slug = optional_config('/live/mc/hinge').to_s
-      return nil if slug.empty?
-      return scripts.index {|script| script[:slug] == slug}
+      return script_index_of(scripts, optional_config('/live/mc/hinge'))
+    end
+
+    # ゲストコーナーの塊の直前に置く台本（`/live/mc/cover` の `slug`）。
+    #
+    # ⚠⚠ **並び順で塊と対応させる**（1 つ目が前半、2 つ目が後半）。⚠ **塊の数より
+    # slug が多ければ余りは引けない**ので、そのぶんは継ぎ目にならない。
+    def cover_anchors(entry, scripts)
+      ordinals = Array(entry.mc_covers)
+      return Array(optional_config('/live/mc/cover')).each_with_index.map do |slug, index|
+        [ordinals[index], script_index_of(scripts, slug)]
+      end
+    end
+
+    def script_index_of(scripts, slug)
+      return nil if slug.to_s.empty?
+      return scripts.index {|script| script[:slug] == slug.to_s}
     end
 
     # ⚠ 浮動小数を使わない（同じ日付なら同じ並び、が前提 → `Setlist`）。
