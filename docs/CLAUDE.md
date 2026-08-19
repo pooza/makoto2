@@ -665,7 +665,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/cover_selector.rb` | ゲストコーナーの選曲。⚠ **こちらは母集合を絞ってから引く**（本編とは別軸）。⚠⚠ **0 件になる経路すべてに警告を置く** |
 | `app/lib/makoto/live_program.rb` | 進行の枠に載せる中身。⚠ **枠の番号から `Setlist` の 1 項目を引くだけ**（状態を持たない） |
 | `app/lib/makoto/script_rotation.rb` | 原稿を枠の順に頭から消化する `source`。⚠ **1 日に何本も出す枠で `MessageSelector` の乱択を使わないための層** |
-| `app/lib/makoto/hashtag_source.rb` | 本文の最終行にハッシュタグを足す `source`（#64）。⚠ **原稿の側に書き足さない**（曲の投稿は原稿ではないので、書き足す形にすると曲だけ付かない）。⚠⚠ **本文が無ければタグも出さない** |
+| `app/lib/makoto/hashtag_source.rb` | 本文の最終行にハッシュタグを足す `source`（#64）。⚠ **原稿の側に書き足さない**（曲の投稿は原稿ではないので、書き足す形にすると曲だけ付かない）。⚠⚠ **本文が無ければタグも出さない**。⚠ **組み立ては上流の `Ginseng::Fediverse::TagContainer`**（本文に既にあるタグは足さない・#124） |
 | `app/lib/makoto/script_importer.rb` | ファイルに書いた原稿を `message` へ取り込む（#50）。⚠⚠ **原稿は DB の行で git 管理下に無い**ので、これが無いと `bydo` に入れた台本が本番へ運ばれない |
 | `app/lib/makoto/track_presenter.rb` | 曲 1 本ぶんの投稿本文。⚠ **画像を添付せず URL を貼る**（→ 上記）。日常の曲紹介（#16）も同じ形を使う |
 | `app/lib/makoto/service/mastodon_service.rb` | 投稿の口。⚠⚠ **モロヘイヤを経由するかをここで決める**（`/mastodon/mulukhiya` → `X-Mulukhiya`・#124）。⚠ **恒久的な失敗と一時的な失敗を分けて上げる**（#7）。⚠ **`verify_credentials` は常に直** |
