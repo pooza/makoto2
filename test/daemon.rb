@@ -116,6 +116,71 @@ module Makoto
       Heartbeat.define_singleton_method(:record_start, original)
     end
 
+    # ログを数えるための受け皿。⚠ **水準ごとに分けて数える**（#106 は失効とそれ以外を
+    # 分けるのが要点なので、「何か出た」では足りない）。
+    Recorder = Struct.new(:records) do
+      [:info, :warn, :error].each do |severity|
+        define_method(severity) {|payload| records[severity].push(payload)}
+      end
+
+      def debug(*)
+      end
+    end
+
+    def records_of_verify
+      records = Hash.new {|hash, key| hash[key] = []}
+      @daemon.instance_variable_set(:@logger, Recorder.new(records))
+      @daemon.send(:verify_credentials).join
+      return records
+    end
+
+    # ⚠ **`return` に多行のチェインを繋がない**（4 スペースを要求される →
+    # ginseng-style の docs/ruby.md）。受け皿の変数に置く。
+    def stub_verify(status, body = {})
+      headers = {'Content-Type' => 'application/json'}
+      stub = stub_request(:get, "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials")
+      return stub.to_return(status: status, body: body.to_json, headers: headers)
+    end
+
+    # 🔴 **トークンが生きているかを起き上がりで 1 回見る**（#106）。
+    # ⚠ **投稿はしない**ので、当日の並びには影響しない。
+    def test_the_token_is_verified_at_start
+      stub_verify(200, acct: 'test', statuses_count: 183)
+      records = records_of_verify
+
+      assert_equal(1, records[:info].size)
+      assert_equal('test', records[:info].first[:acct])
+      assert_empty(records[:error])
+    end
+
+    # 🔴 **失効はエラー。**⚠⚠ **これが無いと、気付くのが 11/3 になる。**
+    def test_a_dead_token_is_logged_as_an_error
+      stub_verify(401, error: 'The access token is invalid')
+      records = records_of_verify
+
+      assert_equal(1, records[:error].size)
+      assert_equal('token is not valid', records[:error].first[:message])
+      assert_empty(records[:warn])
+    end
+
+    # ⚠⚠ **「引けなかった」を「失効」に化けさせない**（→ #124 と同じ形）。
+    # ⚠ Mastodon 側の不調は警告どまり。
+    def test_an_unreachable_mastodon_is_only_a_warning
+      stub_verify(404)
+      records = records_of_verify
+
+      assert_equal(1, records[:warn].size)
+      assert_equal('could not verify the token', records[:warn].first[:message])
+      assert_empty(records[:error])
+    end
+
+    # ⚠ **失敗しても常駐は止めない**（痕跡が書けないときと同じ扱い）。
+    def test_a_failed_verification_does_not_raise
+      stub_verify(401)
+
+      assert_nothing_raised {@daemon.send(:verify_credentials).join}
+    end
+
     def test_pid_file
       assert_equal(File.join(Environment.dir, 'tmp/pids/MakotoDaemon.pid'), @daemon.pid_file)
     end
