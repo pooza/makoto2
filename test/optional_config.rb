@@ -19,6 +19,7 @@ module Makoto
       '/live/setlist/exclude/tracks',
       '/live/mc/hinge',
       '/live/mc/cover',
+      '/live/setlist/own_artists',
     ].freeze
 
     def date
@@ -110,6 +111,16 @@ module Makoto
 
       # ⚠ 継ぎ目が 1 つも無い＝両端を結ぶ直線（`14 × 25 ÷ 47`）。
       assert_equal(7, program.script_index(entry, scripts))
+    end
+
+    # ⚠ 自分名義の一覧を消せば、ライブでも名義を出す（機能のフラグを別に持たない）。
+    def test_the_credit_is_shown_without_own_artists
+      drop('/live/setlist/own_artists')
+      entry = Setlist::Entry.new(kind: :song,
+        track: {name: '曲名', artist_name: '宮本佳那子', url: 'https://example.test/t'})
+      program = Live.new(repository: MessageRepository.new(corpus_db)).program
+
+      assert_includes(program.track_text(entry), '宮本佳那子')
     end
 
     # ⚠ カバーの断りを消しても曲の本文は組める。

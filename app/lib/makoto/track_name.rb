@@ -34,6 +34,14 @@ module Makoto
     # 版の語がどこかにあるだけで後ろが全部消える。**
     VERSION_NOTE = /[〜~～][^〜~～]*#{VERSION}[^〜~～]*(?:[〜~～]|\z)/
 
+    # 感嘆符・疑問符の連なり（#120）。⚠ **全角・半角と `!` `?` を混ぜて 1 つの連なり**
+    # として数える（`!?` も 2 つ）。
+    MARKS = /[!！?？]+/
+
+    NARROW_MARKS = '!?'.freeze
+
+    WIDE_MARKS = '！？'.freeze
+
     # 選曲の同一視に使う曲名。⚠ **これを `dedupe_key` に通したものが鍵**になる。
     #
     # ⚠⚠ **落とした結果が空になるものは落とさない**（保険）。曲名が但し書きだけで
@@ -46,7 +54,38 @@ module Makoto
     # （`~ロング・バージョン(おかあさんといっしょ)`）ので、逆にすると末尾に当たらない。
     def self.strip_notes(name)
       stripped = name.to_s.gsub(BRACKETS, ' ').gsub(VERSION_NOTE, ' ')
-      return stripped.gsub(/[[:space:]]+/, ' ').strip
+      return squeeze(stripped)
+    end
+
+    # 表示に使う曲名（#119）。⚠ **落とすのは括弧書きだけ。**
+    #
+    # ⚠⚠ **`base` と落とす範囲が違う。**⚠ **選曲では版違いを 1 曲に寄せたいが、
+    # 表示では「どの版を歌っているか」を消したくない**（`~ロング・バージョン` は残す）。
+    # 🔴 **規則そのもの（`BRACKETS`）は共有する** — **「どこからが括弧書きか」を 2 つ持たない。**
+    #
+    # ⚠ **落とした結果が空になるものは落とさない**（`base` と同じ保険）。
+    def self.display(name)
+      return squeeze(name.to_s.gsub(BRACKETS, ' ')).presence || name.to_s
+    end
+
+    # 感嘆符・疑問符の見え方を揃える（#120）。⚠ **連なっていれば半角、単発なら全角。**
+    #
+    # ⚠ **実データはほぼ全部が半角**なので、**単発だと文字が痩せて見える**。⚠⚠ **連なりは
+    # 半角のほうが締まる**（`いえイェイ!!`）ので、**数で分ける。**
+    #
+    # ⚠ **`！` と `？` が混ざった連なり**（`!?`）も 1 つの連なりとして扱う。
+    # ⚠⚠ **全角で入っていても同じ結果になる**（供給元の揺れを吸収する）。
+    #
+    # 🔴 **表示だけ。`dedupe_key` には触らない** — **触ると曲の同一視が動く**
+    # （`NOISE` が約物を落とすので鍵は元から同じ → `TrackImporter`）。
+    def self.normalize_marks(name)
+      return name.to_s.gsub(MARKS) do |run|
+        run.size == 1 ? run.tr(NARROW_MARKS, WIDE_MARKS) : run.tr(WIDE_MARKS, NARROW_MARKS)
+      end
+    end
+
+    def self.squeeze(value)
+      return value.gsub(/[[:space:]]+/, ' ').strip
     end
   end
 end

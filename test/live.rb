@@ -403,6 +403,71 @@ module Makoto
       assert_equal(12, indexes[13])
     end
 
+    # ⚠ 名義だけを差し替えた 1 行。**投稿の見え方（#119 / #121）を見るのに使う。**
+    def track_row(artist, name: '曲名')
+      return {name: name, artist_name: artist, url: 'https://example.test/t/9'}
+    end
+
+    # 🔴 **ライブの本編では自分名義を出さない**（#121）。**歌っているのが自分であることが
+    # 自明**なので、名義がノイズになる。
+    def test_own_credit_is_hidden_in_the_program
+      entry = Setlist::Entry.new(kind: :song, track: track_row('宮本佳那子'))
+
+      assert_not_includes(live.program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ **合成名義でも、全部自分なら隠す**（実データは `キュアソード/剣崎真琴(CV:宮本佳那子)`）。
+    def test_a_composite_own_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('キュアソード/剣崎真琴(CV:宮本佳那子)'))
+
+      assert_not_includes(live.program.track_text(entry), 'キュアソード')
+    end
+
+    # ⚠⚠ **共演曲は出す。**⚠ **隠すと相手の名前まで消える。**
+    def test_a_shared_credit_is_shown
+      entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美&宮本佳那子'))
+
+      assert_includes(live.program.track_text(entry), '五條真由美&宮本佳那子')
+    end
+
+    # ⚠⚠ **ゲストコーナーは必ず出す** — **他の歌手の持ち歌なので名義が意味を持つ。**
+    def test_a_cover_credit_is_always_shown
+      entry = Setlist::Entry.new(kind: :cover, track: track_row('宮本佳那子'))
+
+      assert_includes(live.program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ **ライブでは曲名の括弧書きを落とす**（#119）。
+    def test_the_program_drops_brackets_from_the_name
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('宮本佳那子', name: 'パジャマジャ(光るパジャマCM曲)'))
+      text = live.program.track_text(entry)
+
+      assert_includes(text, '♪ パジャマジャ')
+      assert_not_includes(text, '光るパジャマ')
+    end
+
+    # ⚠⚠ **カバーの断りの後ろは 1 行アキ**（#122）。
+    def test_the_cover_prefix_is_followed_by_a_blank_line
+      entry = Setlist::Entry.new(kind: :cover, track: track_row('池田 彩', name: 'カバーの曲'))
+      lines = live.program.track_text(entry).lines.map(&:chomp)
+
+      assert_equal(config['/live/setlist/cover_prefix'], lines.first)
+      assert_equal('', lines[1])
+      assert_equal('♪ カバーの曲', lines[2])
+    end
+
+    # ⚠⚠ **下見は投稿と同じ口を通す**（#62）。⚠ **「ライブでどう見えるか」の正本を
+    # 下見の側に写さない。**
+    def test_the_preview_uses_the_same_presenter
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('宮本佳那子', name: 'スマイル!(テレビサイズ)'))
+      presenter = live.program.track_presenter(entry)
+
+      assert_equal('スマイル！', presenter.name)
+      assert_nil(presenter.credit)
+    end
+
     # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
     # ⚠ **「何本目の MC がどの原稿になるか」の正本を 2 つに割らない** — 下見と実際の
     # 投稿が食い違うと、下見そのものが信用できなくなる。
