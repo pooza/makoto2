@@ -93,6 +93,58 @@ module Makoto
       assert_equal('', TrackName.base(''))
     end
 
+    # ⚠ **表示（#119）は括弧書きだけを落とす。**⚠⚠ **版の但し書きは残す** —
+    # **選曲の鍵（`base`）とは落とす範囲が違う。**
+    def test_display_drops_brackets_only
+      assert_equal('ねこ ときどき らいおん', TrackName.display('ねこ ときどき らいおん【ひょうげんあそび】'))
+      assert_equal('パジャマジャ', TrackName.display('パジャマジャ(光るパジャマCM曲)'))
+      assert_equal('おおきいはみがき ちいさいはみがき', TrackName.display('おおきいはみがき ちいさいはみがき[6月]'))
+      assert_equal(
+        'キッチンオーケストラ ~ロング・バージョン',
+        TrackName.display('キッチンオーケストラ ~ロング・バージョン'),
+      )
+    end
+
+    # ⚠ 落とした結果が空になるものは落とさない（`base` と同じ保険）。
+    def test_display_keeps_the_original_when_everything_would_go
+      assert_equal('(まるごと括弧)', TrackName.display('(まるごと括弧)'))
+    end
+
+    # ⚠ **単発は全角**（#120）。⚠⚠ **連なっていないものは 3 つとも全角。**
+    def test_a_single_mark_becomes_wide
+      assert_equal('スマイル！', TrackName.normalize_marks('スマイル!'))
+      assert_equal('サンキュ！は I LOVE YOU', TrackName.normalize_marks('サンキュ!は I LOVE YOU'))
+      assert_equal('グルグル・マジ？カル・パスポート', TrackName.normalize_marks('グルグル・マジ?カル・パスポート'))
+      assert_equal('ホ！ホ！ホ！', TrackName.normalize_marks('ホ!ホ!ホ!'))
+    end
+
+    # ⚠⚠ **連なりは半角のまま。**⚠ `！` と `？` が混ざった連なりも 1 つの連なり。
+    def test_a_run_of_marks_becomes_narrow
+      assert_equal('いえイェイ!!', TrackName.normalize_marks('いえイェイ!!'))
+      assert_equal('ぴっちぴち♪しずくちゃん!!', TrackName.normalize_marks('ぴっちぴち♪しずくちゃん!!'))
+      assert_equal('うた!?', TrackName.normalize_marks('うた!?'))
+    end
+
+    # ⚠ **1 つの曲名の中で混ざる。**
+    def test_marks_can_mix_in_one_name
+      assert_equal(
+        'We can!! HUGっと！ プリキュア',
+        TrackName.normalize_marks('We can!! HUGっと! プリキュア'),
+      )
+    end
+
+    # ⚠⚠ **全角で入っていても同じ結果になる**（供給元の揺れを吸収する）。
+    def test_wide_input_gets_the_same_result
+      assert_equal('スマイル！', TrackName.normalize_marks('スマイル！'))
+      assert_equal('いえイェイ!!', TrackName.normalize_marks('いえイェイ！！'))
+      assert_equal('うた!?', TrackName.normalize_marks('うた！？'))
+    end
+
+    def test_names_without_marks_are_untouched
+      assert_equal('こころをこめて', TrackName.normalize_marks('こころをこめて'))
+      assert_equal('', TrackName.normalize_marks(nil))
+    end
+
     # ⚠ 但し書きの無い曲名は 1 文字も変わらない。
     def test_plain_name_is_untouched
       assert_equal('こころをこめて', TrackName.base('こころをこめて'))

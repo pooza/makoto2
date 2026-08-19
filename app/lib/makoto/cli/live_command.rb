@@ -64,13 +64,26 @@ module Makoto
       return "MC #{slots} 枠 / 原稿 #{scripts} 本（⚠ #{slots - scripts} 本が 2 回出る）"
     end
 
-    # ⚠ **MC の本文は `LiveProgram` から引く。**「何本目がどの原稿か」の正本を
-    # 下見の側に写さない（写すと下見と実際の投稿が食い違いうる）。
+    # ⚠ **本文は `LiveProgram` から引く。**「何がどう出るか」の正本を下見の側に
+    # 写さない（写すと下見と実際の投稿が食い違いうる）。
     def label(entry, time)
-      return entry.to_s unless entry.mc? && options[:mc]
+      return song_label(entry) unless entry.mc?
+      return entry.to_s unless options[:mc]
       body = @live.program.mc_text(entry, time)
       return "#{entry}: （原稿が無いので投稿しない）" if body.blank?
       return "#{entry}:#{repeat_mark(entry, time)} #{body.lines.first.to_s.chomp}"
+    end
+
+    # 曲とカバーの 1 行。⚠⚠ **実際に投稿される見え方で出す**（#119 / #120 / #121）。
+    #
+    # 🔴 **`Entry#to_s` の素の曲名・名義を出さない** — ⚠ **括弧書きを落とし、自分名義を
+    # 隠すのはライブの都合**なので、**下見が素のまま出すと「当日どう見えるか」を
+    # 下見で確かめられない**（→ #62 の「下見と実際の投稿が食い違うと信用できない」）。
+    def song_label(entry)
+      presenter = @live.program.track_presenter(entry)
+      label = entry.cover? ? 'カバー' : '曲'
+      return "#{label}: #{presenter.name}" if presenter.credit.blank?
+      return "#{label}: #{presenter.name} / #{presenter.credit}"
     end
 
     # ⚠ 同じ原稿が 2 回目に出る枠を目で拾えるようにする。⚠⚠ **原稿は進行の割合で

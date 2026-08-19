@@ -55,7 +55,31 @@ module Makoto
     end
 
     def track_text(entry)
-      return TrackPresenter.new(entry.track, prefix: (cover_prefix if entry.cover?)).to_s
+      return track_presenter(entry).to_s
+    end
+
+    # 曲 1 本ぶんの出力。⚠⚠ **下見（`makoto live setlist`）もここを通す**（#62 と同じ理由）
+    # — **「ライブでどう見えるか」の正本を 2 つに割らない。**
+    #
+    # ⚠ **ライブの都合はここが持つ**（→ `TrackPresenter` 冒頭の表）。
+    def track_presenter(entry)
+      return TrackPresenter.new(
+        entry.track,
+        prefix: (cover_prefix if entry.cover?),
+        # ⚠ 括弧書きを落とすのはライブだけ（#119）。日常の曲紹介（#16）では落とさない。
+        plain_name: true,
+        artist: show_artist?(entry),
+      )
+    end
+
+    # 名義を出すか（#121）。
+    #
+    # ⚠⚠ **ゲストコーナーは必ず出す** — **他の歌手の持ち歌なので名義が意味を持つ**
+    # （→ `CoverSelector`）。🔴 **本編で隠すのは「名義が全部自分」のときだけ。**
+    # ⚠ **共演曲（`五條真由美&宮本佳那子`）は相手が消えるので出す。**
+    def show_artist?(entry)
+      return true if entry.cover?
+      return !own_credit?(entry.track[:artist_name])
     end
 
     # ⚠⚠ **ライブ当日か。**告知や MC は「その日の原稿が無ければ出ない」で黙るが、
@@ -131,6 +155,50 @@ module Makoto
     end
 
     private
+
+    # 名義が全部自分のものか（#121）。
+    #
+    # ⚠ **一覧は設定に置く**（`/live/setlist/own_artists`）。⚠⚠ **コードに埋めない** —
+    # **名義の表記は供給元しだいで増える**（`キュアソード/剣崎真琴(CV:宮本佳那子)`）。
+    #
+    # ⚠⚠ **名義を「何人並んでいるか」で割る規則は `CureApiService` の側にある**（#65）。
+    # 🔴 **規則を 2 つ持たない** — **括弧の中は数えない**（`CV:` は「もう 1 人」ではない）
+    # ので、`グロッサムX2(CV:宮本佳那子)` は `グロッサムX2` として扱われる（＝ 出す）。
+    #
+    # ⚠ **設定が無ければ隠さない**（`optional_config`。消せば元の挙動に戻る → #77）。
+    def own_credit?(value)
+      return false if own_artists.empty?
+      parts = CureApiService.credit_parts(value)
+      return false if parts.empty?
+      return parts.all? {|part| own_name?(part)}
+    end
+
+    # 1 組が自分か。🔴 **「自分の名前を含むか」で見ない。**
+    #
+    # ⚠⚠ **`五條真由美・宮本佳那子` は 1 組のまま来る** — **`credit_parts` は中黒 1 つを
+    # 区切りとみなさない**（`キュア・カルテット` のような 1 組の名前を割らないため → #65）。
+    # 🔴 **「含む」で判定すると、この形で共演者ごと名義が消える**（Codex の指摘・PR #134。
+    # 実データの `リワインドメモリー` で確認した）。
+    #
+    # ⚠ **自分の名前を抜いたあとに、文字が残らないことを見る。**⚠⚠ **完全一致にはしない** —
+    # **実データの名義は `剣崎真琴(CV:宮本佳那子)` のような合成**（括弧は `credit_parts`
+    # が落とす）で、**区切り記号だけが残るのは自分の名義が並んでいるだけ。**
+    def own_name?(part)
+      return !part.gsub(own_pattern, '').match?(/[[:alnum:]]/)
+    end
+
+    def own_pattern
+      @own_pattern ||= Regexp.union(own_artists)
+      return @own_pattern
+    end
+
+    # ⚠ **突き合わせる前に正規化する**（NFKC ＋ 空白除去）。⚠⚠ **設定は「宮本 佳那子」、
+    # 曲データは「宮本佳那子」**という形で揺れる（→ `CureApiService.normalize`）。
+    def own_artists
+      @own_artists ||= Array(optional_config('/live/setlist/own_artists'))
+        .map {|name| CureApiService.normalize(name)}.compact_blank
+      return @own_artists
+    end
 
     # 台本を割る継ぎ目。⚠ **継ぎ目が 1 つも引けなければ 1 本の直線に戻す**
     # （`Setlist` のアンカーと同じ判断 — 引けなければ黙って別のものを置かない）。

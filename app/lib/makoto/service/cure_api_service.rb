@@ -142,9 +142,16 @@ module Makoto
     #
     # ⚠ **括弧の中は数えない**（CV 表記・コーラス表記は「もう 1 人」ではない）。
     def self.credit_count(value)
+      return [credit_parts(value).size, 1].max
+    end
+
+    # 名義を「並んでいる 1 組ずつ」に割ったもの。⚠ **正規化済み**（NFKC ＋ 空白除去）。
+    #
+    # ⚠⚠ **数えるだけでなく、1 組ずつを見たい側もある**（#121 の「名義が全部自分か」）。
+    # 🔴 **割り方の規則を 2 つ持たない**ためにここに置く。
+    def self.credit_parts(value)
       stripped = normalize(value).gsub(/[(（\[「][^)）\]」]*[)）\]」]/, '')
-      parts = stripped.split(credit_separator(stripped)).map(&:strip)
-      return [parts.count {|part| !part.empty?}, 1].max
+      return stripped.split(credit_separator(stripped)).map(&:strip).compact_blank
     end
 
     # ⚠ **中黒を区切りに足すかは名義ごとに決まる**（→ 上記 `MIDDLE_DOT`）。
