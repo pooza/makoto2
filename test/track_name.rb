@@ -36,6 +36,20 @@ module Makoto
       )
     end
 
+    # ⚠ **波括りが閉じている形も落とす**（Codex の指摘・PR #129）。⚠⚠ **曲名の途中に
+    # 来ることがある**ので、閉じている形だけは末尾に限らない。
+    def test_paired_version_note_is_dropped
+      assert_equal(
+        'We can!! HUGっと! プリキュア',
+        TrackName.base('We can!! HUGっと! プリキュア ~ロング・イントロ・バージョン~ (TVサイズ)'),
+      )
+      assert_equal(
+        "Let's! フレッシュプリキュア! for the Movie",
+        TrackName.base("Let's! フレッシュプリキュア! ~Hybrid ver.~ for the Movie"),
+      )
+      assert_equal('友情のハーモニー', TrackName.base('友情のハーモニー ～Strings version～'))
+    end
+
     # 🔴 **波括りの副題は曲名の一部。**⚠⚠ **波括りというだけで落とすと、別の曲が
     # 1 曲に寄る。**版を指す語があるときだけ落とす。
     def test_subtitles_survive
@@ -54,11 +68,19 @@ module Makoto
       assert_equal('うた ~Very Merry~', TrackName.base('うた ~Very Merry~'))
     end
 
-    # ⚠ **版の但し書きは末尾のものだけ。**曲名の途中の波括りは触らない。
-    def test_version_note_in_the_middle_survives
-      name = 'ハピネスたいそう ~ トライ・エヴリシング version ~ ナミナミナ'
+    # ⚠⚠ **落とすのは波括りか括弧に入っているものだけ。**⚠ **裸の版表記は曲名の一部**
+    # として扱う（実データ: `DANZEN! ふたりはプリキュア ver.Max Heart`）。
+    def test_bare_version_word_is_untouched
+      assert_equal(
+        'DANZEN! ふたりはプリキュア ver.Max Heart',
+        TrackName.base('DANZEN! ふたりはプリキュア ver.Max Heart'),
+      )
+    end
 
-      assert_equal(name, TrackName.base(name))
+    # ⚠ **波括りが閉じていなければ末尾までが但し書き。**⚠⚠ **曲名の途中で閉じない
+    # 波括りは実データに無い**ので、ここは「末尾の但し書き」として畳んでよい。
+    def test_unclosed_note_takes_the_rest
+      assert_equal('きらきらきらりん・みゅーじかる', TrackName.base('きらきらきらりん・みゅーじかる~ロング・バージョン'))
     end
 
     # ⚠⚠ **落とした結果が空になるなら落とさない**（空の鍵に全部が寄るのを防ぐ）。
