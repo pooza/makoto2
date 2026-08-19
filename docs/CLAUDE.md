@@ -918,6 +918,31 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ⚠ **取り込みは無条件に安全ではない**（`HTTP#repeat` の再送対象・`Config#reload`・`format: uri` の厳格化が同梱される）。⚠⚠ **リハーサル（10 月）より前に、`rubicon` の `config/local.yaml` へ `rake config:lint` を当ててから入れる。**⚠ **ライブ直前の `bundle update` は避ける。**
 
+#### ✅ 当番の空白は埋まった（2026-08-20・オーナーから）
+
+🔴 **`ginseng-*` に専任のプロジェクトができた。**⚠⚠ **Issue を出せば向こうで管理される**（余裕があれば PR を送る）。**makoto2 が上流のコードを抱え込む必要は無くなった。**
+
+⚠ **したがって、これ以降の分担はこう:**
+
+| 出てきたもの | どこへ |
+| --- | --- |
+| ⚠⚠ **`Ginseng::*` の挙動そのもの** | 🔴 **`pooza/ginseng-core` などへ Issue**（余裕があれば PR も） |
+| ⚠⚠ **RuboCop 設定・Ruby の書き方の規約** | 🔴 **`pooza/ginseng-style` へ Issue**（正本は向こう → 下記「lint の設定」） |
+| **makoto2 の使い方・設定・当日の運用** | ここ |
+| **11/4 に間に合わせるための暫定の塞ぎ** | ⚠ **ここ**（→ #111 の「先に自分の箱で塞ぐ」）。⚠⚠ **上流にも出したうえで** |
+
+⚠ **「先に自分の箱を塞ぐ」はやめない。**⚠⚠ **変わったのは「塞いだきり誰も上流へ持って行かない」が無くなったこと**で、**11/4 という締め切りを持つ側が上流の反映を待てない事情は変わらない。**
+
+✅ **実例**（2026-08-20）: **#100（429 で `Retry-After` を見ない）を `pooza/ginseng-core#525` として上流へ出した。**⚠ **#95（`return` の多行チェイン）は上流に既に判断があった**ので**makoto2 側はクローズ**（→ 下記「lint の設定」）。
+
+### ✅ lint の設定は `ginseng-style` が正本（2026-08-20・#131 / PR #132）
+
+**`.rubocop.yml` は [pooza/ginseng-style](https://github.com/pooza/ginseng-style) から `inherit_gem` する**（165 行 → 34 行）。⚠ **ここに残すのは MAKOTO 固有の差分だけ**（`TargetRubyVersion` / `rubocop-sequel` と `Sequel/*` / `seed`・`var` の除外 / `bin/makoto`）。
+
+- 🔴 **共通に見える緩和をこのリポジトリに足さない。**⚠⚠ **足したくなったら `pooza/ginseng-style` に Issue を立てる**（22 リポジトリに散った設定が drift した、というのが正本化の動機）
+- ⚠⚠ **`inherit_gem` 先で `AllCops/Include` を書くと継承した配列を「置換」する。**⚠ **`Include: [bin/makoto]` とだけ書くと対象が 87 ファイル → 1 ファイルになり、しかも `rubocop` は緑のまま通る。**`Exclude` は `inherit_mode: merge`、**`Include` は全部書く**
+- ⚠ **`return` に多行のチェインを繋がない**（`Layout/MultilineMethodCallIndentation` が 4 スペースを要求する）。**受け皿の変数に置くか 1 行にする** — **cop は切らない**（→ ginseng-style の docs/ruby.md・makoto2 #95）
+
 ### 却下した選択肢
 
 - **Sidekiq + Redis（旧実装・モロヘイヤ踏襲）** — モロヘイヤは webhook を大量に捌くので必要だが、MAKOTO の負荷は平常時 5〜7 投稿/日 ＋ ライブ当日 8 時間で桁が違う。**2GB CT に重く、孤児プロセスを撒いた構成そのもの**
