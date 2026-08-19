@@ -36,10 +36,14 @@ live:
     start: '12:02'
     finish: '20:00'
     interval: '3m'
-  # ⚠⚠ **投稿の最終行をハッシュタグだけの行にする**（#64）。モロヘイヤがその形を
-  # 処理する。⚠ **ライブの 4 枠すべてに機械的に付く**（曲の投稿は原稿ではないので、
+  # ⚠⚠ **投稿の最終行をハッシュタグだけの行にする**（#64）。⚠ **由来は Mastodon の
+  # 仕様であって、モロヘイヤではない**（2026-08-19 訂正）。⚠⚠ **タグの直前の空行は
+  # モロヘイヤが勝手に入れる**ので、ここでは足さない（→ HashtagSource）。
+  # ⚠ **ライブの 4 枠すべてに機械的に付く**（曲の投稿は原稿ではないので、
   # 原稿の側に書き足す形にすると曲だけ付かない → HashtagSource）。
   # ⚠ **空にすれば止まる。**機能のフラグを別に持たない。来年は年号だけ差し替える。
+  # ⚠⚠ **MAKOTO が自分で付けるのはこの 1 つだけ**で、あとはモロヘイヤに任せる
+  # （→ 下記 `mastodon.mulukhiya`）。
   hashtag: '#SONGBIRD_PARTY_2026'
   setlist:
     # ⚠ アンカーの 2 曲だけは曲名で指す。⚠⚠ **引けなければその位置を諦める**
@@ -167,6 +171,29 @@ logger:
     - api_key
     - authorization
     - code
+mastodon:
+  # 🔴 **モロヘイヤ（投稿プロキシ）を経由するか**（#124）。⚠⚠ **`url` / `acct` /
+  # `token` は秘密情報なので config/local.yaml に置く。**ここは経路だけ。
+  #
+  # ⚠⚠ **`true` が「経由する」＝ `X-Mulukhiya` を送らない。**⚠ **ヘッダを付けたほうが
+  # 「経由しない」** — モロヘイヤ側の nginx が `map $http_x_mulukhiya` で**付いている
+  # 要求を Mastodon 本体へ直に流す**（自己ループ防止）ため。
+  # ⚠⚠ **ginseng-fediverse の既定は「付ける」なので、素で継承すると黙って迂回する**
+  # — **2026-08-19 の当日通しリハーサル 162 投稿が 1 本も通っていなかった。**
+  #
+  # ⚠ **経由するとタグ付け・URL 正規化・画像添付が掛かる。**⚠⚠ **MAKOTO が自分で
+  # 付けるのは /live/hashtag の 1 つだけで、あとはモロヘイヤに任せる**（→ 上記
+  # `live.hashtag` / HashtagSource）。
+  #
+  # ⚠⚠ **切り戻しは config/local.yaml に `mulukhiya: false` の 1 行。**当日に
+  # モロヘイヤ側が不調なら、これで Mastodon API 直へ戻せる。
+  # ⚠ **`optional_config` で既定値に逃がしていない**ので、**消すと起動時ではなく
+  # `rake config:lint` で落ちる**（schema の required）。
+  #
+  # ⚠ **冪等キーはこの経路では上流へ転送されない**（pooza/mulukhiya-toot-proxy#4598）。
+  # ⚠⚠ **プロセス内の重なりは PostingJob#claim が塞いでいる**ので、残るのは
+  # 1 回の post_status の中の HTTP 再送だけ。
+  mulukhiya: true
 monitor:
   # 監視（Uptime Kuma）が叩く HTTP の口（#84 → MonitorApp / MonitorServer）。
   #
