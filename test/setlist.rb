@@ -371,6 +371,36 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {setlist(3)}
     end
 
+    # 🔴 **ゲストコーナーは MC の直後から始まる**（#117）。⚠⚠ **宣言の台本は塊の直前の
+    # MC に置く**ので、⚠ **間に曲が挟まると「ここから何曲か」が嘘になる**（実測で 3 曲）。
+    def test_the_guest_corner_starts_right_after_an_mc
+      seed(songs: 10, covers: 6)
+      entries = setlist(24).entries
+      starts = entries.each_index.select {|i| entries[i].cover? && !entries[i - 1].cover?}
+
+      assert_equal(2, starts.size)
+      starts.each {|i| assert_predicate(entries[i - 1], :mc?, "[#{i}] の直前が MC でない")}
+    end
+
+    # ⚠ **塊ごとに、直前の MC の番号を配る**（`mc_hinge` と同じ。組むときにしか分からない）。
+    def test_mc_covers_records_the_ordinal_before_each_corner
+      seed(songs: 10, covers: 6)
+      entries = setlist(24).entries
+      starts = entries.each_index.select {|i| entries[i].cover? && !entries[i - 1].cover?}
+      expected = starts.map {|i| entries[i - 1].ordinal}
+
+      assert_equal(expected, entries.find(&:mc?).mc_covers)
+      # ⚠ すべての MC が同じものを持つ（どの枠から見ても同じ並びであること）。
+      assert_equal([expected], entries.select(&:mc?).map(&:mc_covers).uniq)
+    end
+
+    # ⚠ カバーが 1 曲も無い日は空。**「塊が無い」を nil と空で割らない。**
+    def test_mc_covers_is_empty_without_corners
+      seed(songs: 8, covers: 0)
+
+      assert_equal([], setlist(20).entries.find(&:mc?).mc_covers)
+    end
+
     # ⚠ 本編から外す（#63）。**アルバム単位**。
     def test_excludes_a_collection_from_the_program
       seed(songs: 8, covers: 0)

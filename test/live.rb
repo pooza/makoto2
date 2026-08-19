@@ -298,6 +298,88 @@ module Makoto
       assert_empty(indexes.first(13).select {|index| index >= 5})
     end
 
+    # 🔴 **カバー宣言の台本は、ゲストコーナーの塊の直前の MC に来る**（#117）。
+    # ⚠⚠ **塊の位置は曲と MC を並べた配列の位置、台本の位置は「MC の何番目か」**で
+    # 決まるので、⚠ **繋がないと曲数が動くたびにずれる**（実測で 3 曲）。
+    def test_the_cover_script_lands_right_before_the_corner
+      program = live.program
+      config['/live/mc/cover'] = ['s7', 's20']
+      expected = [7, 20]
+      # ⚠ 枠数を変えても、宣言の MC には必ずその台本が来ること。
+      [[48, [14, 39]], [26, [8, 21]], [60, [18, 48]]].each do |slots, covers|
+        covers.each_with_index do |ordinal, index|
+          entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: slots,
+            mc_hinge: nil, mc_covers: covers)
+
+          assert_equal(expected[index], program.script_index(entry, fake_scripts(26)),
+            "#{slots} 枠 / 宣言 #{ordinal}")
+        end
+      end
+    end
+
+    # ⚠⚠ **継ぎ目は 3 つ同時に立つ**（前半の宣言・蝶番・後半の宣言）。
+    # ⚠ **どれも自分の MC にぴったり来て、並びは巻き戻らない。**
+    def test_three_anchors_all_land
+      program = live.program
+      config['/live/mc/hinge'] = 's13'
+      config['/live/mc/cover'] = ['s7', 's20']
+      scripts = fake_scripts(26)
+      indexes = Array.new(48) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 48,
+          mc_hinge: 24, mc_covers: [14, 39])
+        program.script_index(entry, scripts)
+      end
+
+      assert_equal([7, 13, 20], [indexes[14], indexes[24], indexes[39]])
+      # ⚠ **名指しの台本は自分の継ぎ目より前に出ない**（#76 と同じ規則）。
+      assert_equal([14, 24, 39], [indexes.index(7), indexes.index(13), indexes.index(20)])
+      assert_equal(indexes, indexes.sort)
+      assert_equal([0, 25], [indexes.first, indexes.last])
+    end
+
+    # ⚠ 引けない slug は継ぎ目にしない。**残りの継ぎ目は生きる。**
+    def test_a_missing_cover_script_keeps_the_other_anchors
+      program = live.program
+      config['/live/mc/hinge'] = 's13'
+      config['/live/mc/cover'] = ['存在しない slug', 's20']
+      entry = lambda do |ordinal|
+        Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 48,
+          mc_hinge: 24, mc_covers: [14, 39])
+      end
+
+      assert_equal(13, program.script_index(entry.call(24), fake_scripts(26)))
+      assert_equal(20, program.script_index(entry.call(39), fake_scripts(26)))
+    end
+
+    # ⚠⚠ **前へ進まない継ぎ目は捨てる。**⚠ **残すと台本が巻き戻る** — 台本の並びと
+    # 塊の並びが食い違った日（宣言の slug を入れ替えてしまった等）の保険。
+    def test_anchors_that_go_backwards_are_dropped
+      program = live.program
+      config['/live/mc/hinge'] = 's13'
+      # ⚠ 後半の宣言（MC 39）に、前半より前の台本（s3）を指してしまった状態。
+      config['/live/mc/cover'] = ['s7', 's3']
+      scripts = fake_scripts(26)
+      indexes = Array.new(48) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 48,
+          mc_hinge: 24, mc_covers: [14, 39])
+        program.script_index(entry, scripts)
+      end
+
+      assert_equal(indexes, indexes.sort)
+      assert_equal([7, 13], [indexes[14], indexes[24]])
+    end
+
+    # ⚠ カバーの塊が無い日（`mc_covers` が空）は蝶番だけで割る。
+    def test_without_corners_only_the_hinge_splits
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      config['/live/mc/cover'] = ['s7']
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 13, mc_total: 26, mc_hinge: 13,
+        mc_covers: [])
+
+      assert_equal(12, program.script_index(entry, fake_scripts(25)))
+    end
+
     # ⚠ 台本の順序は蝶番をまたいでも巻き戻らない。
     def test_the_hinge_split_stays_monotonic
       program = live.program

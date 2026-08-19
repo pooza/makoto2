@@ -18,6 +18,7 @@ module Makoto
       '/live/setlist/exclude/collections',
       '/live/setlist/exclude/tracks',
       '/live/mc/hinge',
+      '/live/mc/cover',
     ].freeze
 
     def date
@@ -98,6 +99,17 @@ module Makoto
       program = Live.new(repository: MessageRepository.new(corpus_db)).program
 
       assert_equal(13, program.script_index(entry, scripts))
+    end
+
+    # ⚠ カバー宣言の名指しを消しても落ちない（`hinge` と同じ — 通常の割合で引く）。
+    def test_script_index_falls_back_without_the_cover_setting
+      drop('/live/mc/cover')
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 14, mc_total: 48, mc_covers: [14, 39])
+      scripts = Array.new(26) {|i| {slug: "s#{i}", body: "MC #{i}"}}
+      program = Live.new(repository: MessageRepository.new(corpus_db)).program
+
+      # ⚠ 継ぎ目が 1 つも無い＝両端を結ぶ直線（`14 × 25 ÷ 47`）。
+      assert_equal(7, program.script_index(entry, scripts))
     end
 
     # ⚠ カバーの断りを消しても曲の本文は組める。

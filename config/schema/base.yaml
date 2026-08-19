@@ -115,6 +115,12 @@ properties:
           # 引けなければ通常の割合で引く（Setlist のアンカーと同じ判断）。
           hinge:
             type: string
+          # ⚠ ゲストコーナーの塊の直前に置く台本の slug（#117）。前半・後半の順。
+          # ⚠⚠ 必須にしない — 引けなければ通常の割合で引く。
+          cover:
+            type: array
+            items:
+              type: string
         required:
           - type
     required:
