@@ -135,20 +135,18 @@ module Makoto
       assert_requested(:post, @url, times: 2)
     end
 
-    # ⚠ **覚える数には上限がある**（常駐に上限の無い記憶を持たせない）。
-    # ⚠⚠ **8 時間で 160 枠**あるので、**古いほうから落ちること**を確かめる。
-    def test_the_claim_memory_is_bounded
+    # 🔴 **どれだけ枠が進んでも、進んだ位置より前は通さない**（#126・Codex の指摘）。
+    #
+    # ⚠⚠ **停滞に上限が無い**（`HTTP` の timeout はソケット単位で、相手がデータを
+    # 送り続ける限り壁時計は止まらない）ので、⚠ **「直近いくつか」では足りない。**
+    def test_an_old_slot_is_refused_however_far_the_program_has_moved
       stub_post
       subject = job
-      (0..PostingJob::CLAIM_MEMORY).each {|i| subject.exec(jst(12, i * 2))}
-      before = WebMock::RequestRegistry.instance.times_executed(
-        WebMock::RequestPattern.new(:post, @url),
-      )
-      # ⚠ 上限を超えて古くなった枠は忘れている（＝ もう一度通る）。
+      (0..10).each {|i| subject.exec(jst(12, i * 2))}
+      # ⚠ 10 枠ぶん先へ進んだあとに、いちばん古い枠を握った tick が到達する。
       subject.exec(jst(12, 0))
 
-      assert_equal(PostingJob::CLAIM_MEMORY + 1, before)
-      assert_requested(:post, @url, times: before + 1)
+      assert_requested(:post, @url, times: 11)
     end
 
     # ⚠ tick はぴったりの時刻には来ない。拾う幅の内側なら投稿すること。

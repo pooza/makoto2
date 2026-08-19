@@ -37,14 +37,6 @@ module Makoto
 
     attr_reader :name, :timetable, :tolerance, :visibility
 
-    # 直近いくつの枠を覚えておくか（#126）。
-    #
-    # ⚠ **決めるのは「停滞しうる時間 ÷ 枠の間隔」**であって、拾う幅ではない。
-    # ⚠⚠ **1 回の tick は投稿の再送で 90 秒以上かかりうる**うえ、⚠ **いちばん短い枠は
-    # 予告・告知の 1 分**なので、**数枠ぶんの余裕を持たせる。**
-    # 🔴 **8 なら、1 分の枠でも 8 分ぶんの遅れに耐える**（ライブの 3 分枠なら 24 分）。
-    CLAIM_MEMORY = 8
-
     # @param name [String] ログと冪等キーに使う名前。⚠ 投稿の種類ごとに一意にする
     # @param timetable [Timetable] 枠
     # @param source [#call] 枠の頭の時刻を受け取り、投稿の本文を返すもの
@@ -63,8 +55,8 @@ module Makoto
       # 🔴 **同じ枠を二度叩かないための記憶**（#109）。⚠ **`tick` は重なりうる**
       # （rufus の `every` は前の回が終わるのを待たず、⚠⚠ **1 回の tick は投稿の
       # 再送で 90 秒以上かかりうる**）ので、**見て書くまでを不可分にする。**
-      # ⚠ **直近いくつかを覚える**（#126 → `claim`）。
-      @claimed = []
+      # ⚠ **覚えるのは「どこまで進んだか」の 1 点**（#126 → `claim`）。
+      @claimed = nil
       @claim_mutex = Mutex.new
       validate
     end
@@ -150,17 +142,21 @@ module Makoto
     #
     # ⚠⚠ **遅れは判定に現れない** — `due_slot` が見るのは**tick が握った時刻**なので、
     # **どれだけ遅れて到達しても `(time - slot) < tolerance` は成立したまま。**
-    # 🔴 **1 つしか覚えないと、A(枠 N) → B(枠 N+1) → 遅れた A(枠 N) で N をもう一度通す。**
+    # 🔴 **直前の枠だけを覚えると、A(枠 N) → B(枠 N+1) → 遅れた A(枠 N) で N をもう一度通す。**
     #
-    # ⚠ **上限付きにする。**⚠⚠ **枠は増え続ける**ので、覚えたままにすると 8 時間で
-    # 160 個溜まる（実害は無いが、上限の無い記憶を常駐に持たせない）。
+    # ⚠ **覚えるのは「どこまで進んだか」の 1 点で、そこ以前を全部断る**（#126）。
+    # ⚠⚠ **直近いくつかを覚える形にしない** — 🔴 **停滞に上限が無い**（`HTTP` の timeout は
+    # ソケット単位で、**相手がデータを送り続ける限り壁時計は止まらない**）ので、
+    # **いくつ覚えても「それより長く停滞した tick」で同じ穴が開く**（Codex の指摘・PR #135）。
+    #
+    # ⚠ **落とした枠を後から拾い直さない**のは意図どおり（→ docs/CLAUDE.md
+    # 「投稿の欠落は詰めない」）。⚠⚠ **枠は前にしか進まない**ので、**進んだ位置より
+    # 前の枠は「もう終わった枠」しかない。**
     def claim(slot)
       return nil unless slot
       @claim_mutex.synchronize do
-        return nil if @claimed.include?(slot)
-        @claimed.push(slot)
-        # ⚠ **古いほうから捨てる。**枠は前にしか進まないので、落ちるのは十分に古い枠。
-        @claimed.shift while @claimed.size > CLAIM_MEMORY
+        return nil if @claimed && slot <= @claimed
+        @claimed = slot
         return slot
       end
     end
