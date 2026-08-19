@@ -195,11 +195,18 @@ properties:
         type: string
       token:
         type: string
+      # 🔴 モロヘイヤを経由するか（#124）。⚠⚠ true が「経由する」＝ X-Mulukhiya を
+      # 送らない（ヘッダを付けたほうが迂回する）。
+      # ⚠⚠ optional_config で既定値に逃がさない — 消しただけで経路が静かに
+      # 戻り、タグ付けが掛からなくなる（#77 の裏返し）。だから required に入れる。
+      mulukhiya:
+        type: boolean
     # ⚠ `whoami` も `post` も、この 2 つが無ければ動かない。ここに書いておかないと
     # `rake config:lint` は通り、投稿しようとした瞬間に初めて失敗する。
     required:
       - url
       - token
+      - mulukhiya
   message:
     type: object
     properties:
