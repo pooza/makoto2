@@ -55,6 +55,9 @@ module Makoto
       # （→ `Heartbeat.record_start`）。
       record_start
       monitor_server.start
+      # 🔴 **トークンが生きているかを起き上がりで 1 回見る**（#106）。
+      # ⚠ **投稿はしないので副作用は無い。**
+      verify_credentials
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -88,6 +91,36 @@ module Makoto
     end
 
     private
+
+    # トークンの失効を起き上がりで見に行く（#106）。⚠ **`verify_credentials` は
+    # 投稿しない**ので、**叩いても当日の並びに影響しない。**
+    #
+    # 🔴 **これが無いと、失効に気付くのが 11/3 になる。**⚠ **8/15〜10/31 は 1 本も
+    # 投稿しない**ので痕跡が出ず、⚠⚠ **予告は 1 日 1 枠なので `failure_limit: 3` に
+    # 届くのに 3 日かかる**（11/1 → 11/3）。**気付いたときには前日。**
+    #
+    # ⚠⚠ **別スレッドで投げる。**🔴 **ここで待つと最悪 93 秒**（timeout 30 秒 × 再送 3）
+    # **初回の tick が遅れ、枠の頭 ＋ 拾う幅を過ぎて 1 枠落ちる**（→ #47 / #92）。
+    #
+    # ⚠ **失効（401 / 403）とそれ以外を分ける。**⚠⚠ **「Mastodon が落ちている」が
+    # 「トークンが死んでいる」に化けると、当日いちばん困る**（→ #124 と同じ形）。
+    # ⚠ **どちらでも常駐は止めない**（痕跡が書けないときと同じ扱い）。
+    #
+    # ⚠ **`/healthz` には載せない**（#106 で明示）。**Mastodon 側の一時的な不調で
+    # 「復旧させる」が叩かれる**ので、**ログに残すだけにする。**
+    #
+    # @return [Thread] ⚠ テストが待ち合わせに使う
+    def verify_credentials
+      return Thread.new do
+        account = MastodonService.new.account
+        logger.info(mastodon: 'verify_credentials', acct: account['acct'],
+          statuses: account['statuses_count'])
+      rescue Ginseng::AuthError => e
+        logger.error(mastodon: 'verify_credentials', message: 'token is not valid', error: e)
+      rescue => e
+        logger.warn(mastodon: 'verify_credentials', message: 'could not verify the token', error: e)
+      end
+    end
 
     # 起き上がったことを痕跡に残す（→ `Heartbeat.record_start`）。
     #
