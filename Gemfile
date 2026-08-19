@@ -18,10 +18,7 @@ gem 'thor'
 gem 'timecop'
 
 group :development do
-  gem 'rubocop'
-  gem 'rubocop-minitest'
-  gem 'rubocop-performance'
-  gem 'rubocop-rake'
+  gem 'ginseng-style', github: 'pooza/ginseng-style', branch: 'main', require: false
   gem 'rubocop-sequel'
   gem 'test-unit'
   gem 'webmock'
