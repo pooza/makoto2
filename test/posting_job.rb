@@ -119,6 +119,36 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
+    # 🔴 **古い時刻を握った tick が後から到達しても、通した枠は通さない**（#126）。
+    #
+    # ⚠⚠ **`Scheduler#tick` は先頭で 1 回だけ時刻を取り、その値で全ジョブを回す。**
+    # ⚠ **rufus の `every` は前の回を待たない**ので、**別のジョブの再送で停滞した tick が、
+    # 新しい tick より後にここへ到達しうる。**
+    def test_a_delayed_tick_does_not_reclaim_an_older_slot
+      stub_post
+      subject = job
+      subject.exec(jst(12, 0))
+      subject.exec(jst(12, 2))
+      # ⚠ 停滞していた tick が、枠 12:00 の時刻を握ったまま到達する。
+      subject.exec(jst(12, 0, 10))
+
+      assert_requested(:post, @url, times: 2)
+    end
+
+    # 🔴 **どれだけ枠が進んでも、進んだ位置より前は通さない**（#126・Codex の指摘）。
+    #
+    # ⚠⚠ **停滞に上限が無い**（`HTTP` の timeout はソケット単位で、相手がデータを
+    # 送り続ける限り壁時計は止まらない）ので、⚠ **「直近いくつか」では足りない。**
+    def test_an_old_slot_is_refused_however_far_the_program_has_moved
+      stub_post
+      subject = job
+      (0..10).each {|i| subject.exec(jst(12, i * 2))}
+      # ⚠ 10 枠ぶん先へ進んだあとに、いちばん古い枠を握った tick が到達する。
+      subject.exec(jst(12, 0))
+
+      assert_requested(:post, @url, times: 11)
+    end
+
     # ⚠ tick はぴったりの時刻には来ない。拾う幅の内側なら投稿すること。
     def test_posts_within_tolerance
       stub_post

@@ -103,8 +103,20 @@ module Makoto
     end
 
     # 🔴 **赤が 1 つでもあるか。**⚠ 呼ぶ側の終了コードに使う。
+    #
+    # ⚠⚠ **落ちた枠も赤**（#127・Codex の指摘）。🔴 **応答を伴わない失敗**（`source` の
+    # 例外・名前解決・タイムアウト）は **`{"post":…,"slot":…,"error":…}` の 1 行しか
+    # 残さない**ので、⚠ **`http_errors` にも `anomalous_slots`（exec は 1 回のまま）にも
+    # `duplicated_slots`（`status_id` が無い）にも掛からなかった。**
+    # ⚠⚠ **枠が落ちているのに終了コード 0 で通っていた** — **毎リリースの結合テストの
+    # 合否そのもの**（→ docs/CLAUDE.md リリース手順 4）なので、ここが緑になるのは困る。
+    #
+    # ⚠ **`silenced`（本文が無い）は赤にしない。**⚠⚠ **「今日は投稿しない」であって
+    # 失敗ではない**（→ `PostingJob#exec`）。**出るべき日に出なかったことを言えるのは
+    # 中身を知っている側だけ**（→ #114 が入るまでこの集計には現れない）。
     def red?
-      return anomalous_slots.any? || duplicated_slots.any? || http_errors.positive?
+      return true if anomalous_slots.any? || duplicated_slots.any?
+      return http_errors.positive? || failed.positive?
     end
 
     def http_errors
@@ -194,6 +206,9 @@ module Makoto
     def format_posts
       out = ['', "投稿: 成功 #{posted} 回（status #{unique_posts} 件）" \
         " / 失敗 #{failed} 回 / 沈黙 #{silenced} 回"]
+      # ⚠⚠ **赤にした理由を本文にも書く**（#127）。⚠ **終了コードだけが赤で、読んでも
+      # どこが赤か分からない形にしない。**
+      out.push("🔴 #{failed} 回の投稿が落ちた") if failed.positive?
       # 🔴 **500 が止まった世界で現れる壊れ方。**⚠ 回数の異常とは別に名指しする。
       duplicated_slots.each do |(name, slot), row|
         out.push("🔴 #{name} #{slot} が #{row[:posts].uniq.size} 件の status を作った（重複投稿）")
