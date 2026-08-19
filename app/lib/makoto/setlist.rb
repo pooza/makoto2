@@ -97,9 +97,14 @@ module Makoto
 
     # 本編の曲。⚠ **発売日順。**同じ発売日の中は id で安定させる（実行のたびに
     # 並びが変わると、再起動で曲順がずれる）。
+    #
+    # ⚠ **バージョン違いはここで 1 曲に寄せる**（#118）。⚠⚠ **`distinct` を通しても
+    # 残る**のは、`dedupe_key` が括弧の中身を残すから（→ `TrackName`）。
     def songs
-      @songs ||= distinct(@repository.by_kind('vocal', @repository.live))
-        .order(:release_date, :id).all.reject {|track| excluded?(track)}
+      @songs ||= dedupe_versions(
+        distinct(@repository.by_kind('vocal', @repository.live))
+          .order(:release_date, :id).all.reject {|track| excluded?(track)},
+      )
       return @songs
     end
 
@@ -152,6 +157,47 @@ module Makoto
     def excluded?(track)
       return true if exclusions('collections').include?(dedupe(track[:collection_name]))
       return exclusions('tracks').include?(dedupe(track[:name]))
+    end
+
+    # バージョン違いを 1 曲に寄せる（#118）。
+    #
+    # ⚠⚠ **発売日順に並べる以上、同じ曲の版違いは必ず隣接する**ので、寄せないと
+    # 塊で流れる（実測で「ねこ ときどき らいおん」が 6 曲続いた）。⚠ **#63 の間引きと
+    # 同じ構造**で、**並びの都合はライブの選曲が持つ** — 🔴 **`live` フラグも
+    # `dedupe_key` も触らない。**
+    #
+    # ⚠ **落とした曲を `CoverSelector` に流さない**（#63 と同じ理由）。ここは
+    # `live` の中だけを絞っているので、カバーの母集合（`live` に無い vocal）は動かない。
+    #
+    # ⚠⚠ **代表を選んでから元の並びで拾い直す。**⚠ **寄せた位置に置くと、代表の
+    # 発売日ではない場所に曲が出る**（グループの先頭は但し書き付きの版でありうる）。
+    def dedupe_versions(tracks)
+      groups = tracks.group_by {|track| version_key(track)}
+      ids = groups.values.to_set {|group| representative(group)[:id]}
+      return tracks.select {|track| ids.include?(track[:id])}
+    end
+
+    # ⚠ **但し書きを落とした曲名を、取り込みと同じ規則で正規化したもの。**
+    # ⚠⚠ **`TrackName.base` だけでは寄らない** — `We can!! HUGっと! プリキュア` と
+    # `We can HUGっと!プリキュア(Long Intro ver.)` は記号と空白が違う（実データ）。
+    def version_key(track)
+      return dedupe(TrackName.base(track[:name]))
+    end
+
+    # 残す 1 曲。⚠ **但し書きの無いものを優先し、無ければ id の小さいほう。**
+    #
+    # ⚠⚠ **安定していることが要件**（同じ日付・同じ枠数なら何度組んでも同じ並び）
+    # なので、**発売日や url の有無のような動く条件を混ぜない。**
+    #
+    # ⚠ **アンカーは曲名で引く**（`/live/setlist/opening` / `closing`）ので、
+    # ⚠⚠ **但し書きの付いた版を代表にすると、その日のアンカーが黙って消える。**
+    # 但し書きの無いものを優先するのは、それを避ける意味もある。
+    def representative(group)
+      return group.min_by {|track| [plain?(track) ? 0 : 1, track[:id]]}
+    end
+
+    def plain?(track)
+      return dedupe(track[:name]) == version_key(track)
     end
 
     def exclusions(name)

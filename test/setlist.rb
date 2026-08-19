@@ -450,6 +450,74 @@ module Makoto
       assert_equal(setlist(20).covers.map {|t| t[:id]}, setlist(20).covers.map {|t| t[:id]})
     end
 
+    # ⚠⚠ **バージョン違いは 1 曲に寄せる**（#118）。⚠ **`dedupe_key` は括弧の中身を
+    # 残す**ので、`distinct` を通しても 6 曲並ぶ（実測）。
+    def test_version_variants_are_merged
+      seed(songs: 8, covers: 0)
+      add('版違いの曲', day: 20)
+      add('版違いの曲【ひょうげんあそび】', day: 21)
+      add('版違いの曲 (『番組』より)', day: 22)
+      add('版違いの曲~ロング・バージョン(番組)', day: 23)
+      list = names(setlist(30).entries)
+
+      assert_equal(1, list.count {|name| name.start_with?('版違いの曲')})
+      assert_includes(list, '版違いの曲')
+    end
+
+    # ⚠ **残すのは但し書きの無いもの。**⚠⚠ **アンカーは曲名で引く**ので、
+    # 但し書きの付いた版を代表にすると、その日のアンカーが黙って消える。
+    def test_representative_prefers_the_plain_name
+      seed(songs: 8, covers: 0)
+      add('版違いの曲 (ロング・バージョン)', day: 20)
+      add('版違いの曲', day: 21)
+
+      assert_equal(['版違いの曲'], setlist(30).songs.map {|t| t[:name]}.grep(/版違い/))
+    end
+
+    # ⚠ 但し書きの無いものが無ければ id の小さいほう。**同じ日付なら何度組んでも同じ。**
+    def test_representative_falls_back_to_the_smallest_id
+      seed(songs: 8, covers: 0)
+      first = add('版違いの曲 (ロング・バージョン)', day: 20)
+      add('版違いの曲(番組)', day: 21)
+
+      assert_equal([first], setlist(30).songs.map {|t| t[:id]} & [first, @id])
+      assert_equal(1, setlist(30).songs.count {|t| t[:name].start_with?('版違いの曲')})
+    end
+
+    # 🔴 **アンカーを巻き込まない。**⚠⚠ **開始の曲に版違いがあっても、再演を含めて
+    # 2 回置かれる**こと（`opening` が引けないと蝶番ごと消える）。
+    def test_anchor_survives_a_version_variant
+      seed(songs: 8, covers: 0)
+      add("#{OPENING} (ロング・バージョン)", day: 20)
+      list = names(setlist(30).entries)
+
+      assert_equal(2, list.count(OPENING))
+      assert_not_includes(list, "#{OPENING} (ロング・バージョン)")
+    end
+
+    # ⚠⚠ **寄せた曲をカバーに流さない**（#63 と同じ理由）。⚠ **`live` フラグを
+    # 触っていないので、カバーの母集合は動かない。**
+    def test_merged_versions_do_not_leak_into_covers
+      seed(songs: 8, covers: 6)
+      add('版違いの曲', day: 20)
+      add('版違いの曲(番組)', day: 21)
+      list = setlist(20)
+
+      assert_not_includes(names(list.entries), '版違いの曲(番組)')
+      assert_not_includes(list.covers.map {|track| track[:name]}, '版違いの曲(番組)')
+    end
+
+    # ⚠ **別の曲まで寄せない。**括弧書きを落としても曲名が違えば別のまま。
+    def test_different_songs_are_not_merged
+      seed(songs: 8, covers: 0)
+      add('ねこざかなダンシング', day: 20)
+      add('ねこざかな体操', day: 21)
+      list = names(setlist(30).entries)
+
+      assert_includes(list, 'ねこざかなダンシング')
+      assert_includes(list, 'ねこざかな体操')
+    end
+
     # ⚠ 除外の一覧が空なら何も外さない（既定の挙動を変えない）。
     # ⚠⚠ **これは「キーはあるが空」を見るテスト。**⚠ **キーそのものが無い場合は
     # `test/optional_config.rb` の側**（#77。名前が「無い」を謳っていて素通ししていた）。
