@@ -119,6 +119,38 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
+    # 🔴 **古い時刻を握った tick が後から到達しても、通した枠は通さない**（#126）。
+    #
+    # ⚠⚠ **`Scheduler#tick` は先頭で 1 回だけ時刻を取り、その値で全ジョブを回す。**
+    # ⚠ **rufus の `every` は前の回を待たない**ので、**別のジョブの再送で停滞した tick が、
+    # 新しい tick より後にここへ到達しうる。**
+    def test_a_delayed_tick_does_not_reclaim_an_older_slot
+      stub_post
+      subject = job
+      subject.exec(jst(12, 0))
+      subject.exec(jst(12, 2))
+      # ⚠ 停滞していた tick が、枠 12:00 の時刻を握ったまま到達する。
+      subject.exec(jst(12, 0, 10))
+
+      assert_requested(:post, @url, times: 2)
+    end
+
+    # ⚠ **覚える数には上限がある**（常駐に上限の無い記憶を持たせない）。
+    # ⚠⚠ **8 時間で 160 枠**あるので、**古いほうから落ちること**を確かめる。
+    def test_the_claim_memory_is_bounded
+      stub_post
+      subject = job
+      (0..PostingJob::CLAIM_MEMORY).each {|i| subject.exec(jst(12, i * 2))}
+      before = WebMock::RequestRegistry.instance.times_executed(
+        WebMock::RequestPattern.new(:post, @url),
+      )
+      # ⚠ 上限を超えて古くなった枠は忘れている（＝ もう一度通る）。
+      subject.exec(jst(12, 0))
+
+      assert_equal(PostingJob::CLAIM_MEMORY + 1, before)
+      assert_requested(:post, @url, times: before + 1)
+    end
+
     # ⚠ tick はぴったりの時刻には来ない。拾う幅の内側なら投稿すること。
     def test_posts_within_tolerance
       stub_post

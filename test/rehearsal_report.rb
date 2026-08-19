@@ -120,6 +120,30 @@ module Makoto
       assert_include(subject.to_s, '枠が 1 つも無い')
     end
 
+    # 🔴 **応答を伴わない失敗も赤**（#127・Codex の指摘）。⚠⚠ **`source` の例外・名前解決・
+    # タイムアウトは `{"post":…,"slot":…,"error":…}` の 1 行しか残さない**ので、
+    # ⚠ **枠あたりの exec は 1 回のまま・`status_id` も無い・HTTP の行も出ない。**
+    # **枠が落ちているのに終了コード 0 で通っていた。**
+    def test_a_failed_slot_alone_is_red
+      subject = report(FAILURE)
+
+      assert_equal(1, subject.failed)
+      assert_equal(0, subject.http_errors)
+      assert_true(subject.anomalous_slots.empty?)
+      assert_true(subject.duplicated_slots.empty?)
+      assert_true(subject.red?)
+      # ⚠⚠ **赤にした理由が本文にも出ること**（終了コードだけ赤にしない）。
+      assert_include(subject.to_s, '🔴 1 回の投稿が落ちた')
+    end
+
+    # ⚠ **沈黙は赤にしない。**⚠⚠ **「今日は投稿しない」であって失敗ではない。**
+    def test_a_silent_slot_is_not_red
+      subject = report(SILENCE)
+
+      assert_equal(0, subject.failed)
+      assert_false(subject.red?)
+    end
+
     def test_silenced_slots_are_counted_when_the_level_shows_them
       subject = report(SILENCE)
 
