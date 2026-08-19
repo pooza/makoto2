@@ -423,6 +423,23 @@ module Makoto
       assert_not_includes(live.program.track_text(entry), 'キュアソード')
     end
 
+    # 🔴 **中黒 1 つで並んだ共演名義を隠さない**（Codex の指摘・PR #134）。
+    # ⚠⚠ **`credit_parts` は中黒 1 つを区切りとみなさない**ので 1 組のまま来る。
+    # ⚠ **「自分の名前を含むか」で判定すると、実データの `リワインドメモリー` で
+    # 五條真由美ごと消える。**
+    def test_a_middle_dot_credit_is_not_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美・宮本佳那子'))
+
+      assert_includes(live.program.track_text(entry), '五條真由美・宮本佳那子')
+    end
+
+    # ⚠ 区切りだけが残るのは自分の名義が並んでいるだけ（隠す）。
+    def test_own_names_in_a_row_are_still_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('キュアソード・剣崎真琴'))
+
+      assert_not_includes(live.program.track_text(entry), 'キュアソード')
+    end
+
     # ⚠⚠ **共演曲は出す。**⚠ **隠すと相手の名前まで消える。**
     def test_a_shared_credit_is_shown
       entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美&宮本佳那子'))

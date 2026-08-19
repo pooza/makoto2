@@ -170,11 +170,23 @@ module Makoto
       return false if own_artists.empty?
       parts = CureApiService.credit_parts(value)
       return false if parts.empty?
-      return parts.all? {|part| part.match?(own_pattern)}
+      return parts.all? {|part| own_name?(part)}
     end
 
-    # ⚠ **完全一致にしない。**⚠⚠ **実データの名義は `剣崎真琴(CV:宮本佳那子)` のような
-    # 合成**なので、**1 組の中に自分の名前が入っていれば自分**とみなす。
+    # 1 組が自分か。🔴 **「自分の名前を含むか」で見ない。**
+    #
+    # ⚠⚠ **`五條真由美・宮本佳那子` は 1 組のまま来る** — **`credit_parts` は中黒 1 つを
+    # 区切りとみなさない**（`キュア・カルテット` のような 1 組の名前を割らないため → #65）。
+    # 🔴 **「含む」で判定すると、この形で共演者ごと名義が消える**（Codex の指摘・PR #134。
+    # 実データの `リワインドメモリー` で確認した）。
+    #
+    # ⚠ **自分の名前を抜いたあとに、文字が残らないことを見る。**⚠⚠ **完全一致にはしない** —
+    # **実データの名義は `剣崎真琴(CV:宮本佳那子)` のような合成**（括弧は `credit_parts`
+    # が落とす）で、**区切り記号だけが残るのは自分の名義が並んでいるだけ。**
+    def own_name?(part)
+      return !part.gsub(own_pattern, '').match?(/[[:alnum:]]/)
+    end
+
     def own_pattern
       @own_pattern ||= Regexp.union(own_artists)
       return @own_pattern
