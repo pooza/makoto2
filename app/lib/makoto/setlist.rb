@@ -268,15 +268,20 @@ module Makoto
 
     # ゲストコーナーの塊の**直前に来る MC の番号**（#117）。⚠ **塊ごとに 1 つ、前から順。**
     #
-    # ⚠⚠ **塊の直前に MC が無ければその塊は数えない**（前半の頭にコーナーが来た日など）。
+    # ⚠⚠ **塊の直前に MC が無ければ `nil`**（前半の埋め草をコーナーが使い切った日など）。
+    # 🔴 **詰めない。**⚠⚠ **詰めると後ろの塊が前の塊の宣言と対応してしまう**
+    # （`/live/mc/cover` は並び順で塊と対応させる → `LiveProgram#cover_anchors`）。
     # ⚠ **`hinge_mc_ordinal` と同じく、位置は組むときにしか分からない。**
     def cover_mc_ordinals(entries)
-      return entries.each_index.filter_map do |index|
-        next nil unless entries[index].cover?
-        # ⚠ 塊の先頭だけ。**2 曲目以降は同じ塊なので数えない。**
-        next nil if index.positive? && entries[index - 1].cover?
-        entries[0...index].reverse_each.find(&:mc?)&.ordinal
-      end
+      starts = entries.each_index.select {|index| corner_start?(entries, index)}
+      return starts.map {|index| entries[0...index].reverse_each.find(&:mc?)&.ordinal}
+    end
+
+    # 塊の先頭か。⚠ **2 曲目以降は同じ塊なので数えない。**
+    def corner_start?(entries, index)
+      return false unless entries[index].cover?
+      return false if index.positive? && entries[index - 1].cover?
+      return true
     end
 
     # 蝶番（アンカーの再演）の**直後に来る最初の MC の番号**。⚠ 無ければ nil。

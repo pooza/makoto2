@@ -351,6 +351,16 @@ module Makoto
       assert_equal(20, program.script_index(entry.call(39), fake_scripts(26)))
     end
 
+    # ⚠⚠ **直前に MC が無い塊は `nil` で場所を空けてある**（Codex の指摘・PR #133）。
+    # 🔴 **2 つ目の塊が 1 つ目の宣言と対応してはいけない。**
+    def test_a_corner_without_an_mc_does_not_shift_the_declarations
+      program = live.program
+      config['/live/mc/cover'] = ['s7', 's20']
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 39, mc_total: 48, mc_covers: [nil, 39])
+
+      assert_equal(20, program.script_index(entry, fake_scripts(26)))
+    end
+
     # ⚠⚠ **前へ進まない継ぎ目は捨てる。**⚠ **残すと台本が巻き戻る** — 台本の並びと
     # 塊の並びが食い違った日（宣言の slug を入れ替えてしまった等）の保険。
     def test_anchors_that_go_backwards_are_dropped

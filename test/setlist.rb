@@ -394,6 +394,19 @@ module Makoto
       assert_equal([expected], entries.select(&:mc?).map(&:mc_covers).uniq)
     end
 
+    # ⚠⚠ **塊の直前に MC が無い日でも、塊の順番は崩さない**（Codex の指摘・PR #133）。
+    # 🔴 **詰めると後ろの塊が前の塊の宣言（`/live/mc/cover` の 1 つ目）と対応する。**
+    #
+    # ⚠ **前半の埋め草をコーナーが使い切ると、前半に MC が 1 本も立たない**（実測）。
+    def test_mc_covers_keeps_a_placeholder_for_a_corner_without_an_mc
+      seed(songs: 8, covers: 6)
+      entries = setlist(15).entries
+      starts = entries.each_index.select {|i| entries[i].cover? && !entries[i - 1].cover?}
+
+      assert_equal(2, starts.size)
+      assert_equal([nil, 0], entries.find(&:mc?).mc_covers)
+    end
+
     # ⚠ カバーが 1 曲も無い日は空。**「塊が無い」を nil と空で割らない。**
     def test_mc_covers_is_empty_without_corners
       seed(songs: 8, covers: 0)
