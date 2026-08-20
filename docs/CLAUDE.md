@@ -881,8 +881,14 @@ bin/makoto corpus stat     # 件数を確認する
    ⚠ **2026-08-15 に実際に踏んだ** — `pooza/chubo2#160`（dev25 の `@makoto`）を「2026-08-13 起票のまま動いていない」と報告したが、⚠⚠ **その `updatedAt` は「✅ 実行完了」コメントが付いた時刻**だった。**同じ日に `#104`（`rubicon`）も「未作成」と報告したが、箱は 2026-08-08 にできていた**（infra-note の表にある）。⚠ **どちらも makoto2 の docs が古いまま残っていたのを鵜呑みにしたのが元**なので、**docs と Issue が食い違ったら Issue のコメントと infra-note を正とする。**
 
    ⚠ **前セッションの締めも読む。**「次は〜」と書いてあれば、**そこが前提の答え合わせになる**（このときも「前提はもう揃っています」と書いてあった）。
-8. **マイルストーンの状態確認** — docs / メモリの記載と GitHub の open/closed が一致しているか
-9. メモリの更新 → 結果を報告
+8. 🔴 **`ginseng-*` の追跡**（2026-08-21・#139）— 下記「`ginseng-*` との往復」の 4 点を見る
+9. 🔴 **`pooza/cure-api` の同期確認**（2026-08-21・#139）— open Issue / PR と、makoto2 が使うエンドポイントの変更。⚠⚠ **とくに「緑のまま眠っている PR」**
+
+   ⚠ **makoto2 は cure-api の最大の消費者なので、cure-api の面倒も makoto2 のセッションで見る**（2026-08-21・オーナー）。⚠ **7. の chubo2 と同じ注意** — open / `updatedAt` だけで判断せず、コメントまで読む。
+
+   🔴 **実際に 2 日眠っていた**（2026-08-21 に発見）: `pooza/cure-api#338`（`.rubocop.yml` の `inherit_gem` 化）は **`CLEAN`・`test` 緑・レビューコメント無し**で、**マージを押す人がいないだけ**だった。⚠⚠ **CI が赤いから止まっていたのではなく、誰も見ていなかった。**
+10. **マイルストーンの状態確認** — docs / メモリの記載と GitHub の open/closed が一致しているか
+11. メモリの更新 → 結果を報告
 
 ## デプロイ・運用
 
@@ -959,20 +965,50 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 #### ✅ 当番の空白は埋まった（2026-08-20・オーナーから）
 
-🔴 **`ginseng-*` に専任のプロジェクトができた。**⚠⚠ **Issue を出せば向こうで管理される**（余裕があれば PR を送る）。**makoto2 が上流のコードを抱え込む必要は無くなった。**
+🔴 **`ginseng-*` に専任のプロジェクトができた。**⚠⚠ **Issue か PR を出せば向こうで管理される**（🔴 **なるべく PR** → 下記「`ginseng-*` との往復」）。**makoto2 が上流のコードを抱え込む必要は無くなった。**
 
 ⚠ **したがって、これ以降の分担はこう:**
 
 | 出てきたもの | どこへ |
 | --- | --- |
-| ⚠⚠ **`Ginseng::*` の挙動そのもの** | 🔴 **`pooza/ginseng-core` などへ Issue**（余裕があれば PR も） |
-| ⚠⚠ **RuboCop 設定・Ruby の書き方の規約** | 🔴 **`pooza/ginseng-style` へ Issue**（正本は向こう → 下記「lint の設定」） |
+| ⚠⚠ **`Ginseng::*` の挙動そのもの** | 🔴 **`pooza/ginseng-core` などへ PR**（出せなければ Issue） |
+| ⚠⚠ **RuboCop 設定・Ruby の書き方の規約** | 🔴 **`pooza/ginseng-style` へ PR か Issue**（正本は向こう → 下記「lint の設定」） |
 | **makoto2 の使い方・設定・当日の運用** | ここ |
 | **11/4 に間に合わせるための暫定の塞ぎ** | ⚠ **ここ**（→ #111 の「先に自分の箱で塞ぐ」）。⚠⚠ **上流にも出したうえで** |
 
 ⚠ **「先に自分の箱を塞ぐ」はやめない。**⚠⚠ **変わったのは「塞いだきり誰も上流へ持って行かない」が無くなったこと**で、**11/4 という締め切りを持つ側が上流の反映を待てない事情は変わらない。**
 
 ✅ **実例**（2026-08-20）: **#100（429 で `Retry-After` を見ない）を `pooza/ginseng-core#525` として上流へ出した。**⚠ **#95（`return` の多行チェイン）は上流に既に判断があった**ので**makoto2 側はクローズ**（→ 下記「lint の設定」）。
+
+### 🔴 `ginseng-*` との往復（2026-08-21・#139 / #37）
+
+⚠⚠ **上流は自走している。**⚠ **要望は Issue か PR で送れば埋もれずに処理される**ので、**makoto2 側で抱え込まない**。規約の正本は [ginseng-style の docs/workflow.md](https://github.com/pooza/ginseng-style/blob/main/docs/workflow.md)。**ここにはそれを毎回読み直さずに済むだけの要点を置く。**
+
+**出すとき:**
+
+- 🔴 **Issue より PR で出す。**⚠⚠ **PR だけ送ってよい** — **受け取った gem 側が Issue を起こして紐づける**（管理の単位は向こうの Issue のまま）。⚠ **再現の文脈を持っているのはこちらなので、往復が減る**
+- **PR を出せないときは Issue。**⚠ **再現手順と、どのアプリのどの経路で踏んだか**を必ず書く
+- ⚠⚠ **アプリ側リポジトリで回避策を持たない**（分界は変わらない）。⚠ **11/4 に間に合わせるための暫定の塞ぎだけが例外**で、**そのときも上流に出したうえで**（→ 上記の分担表）
+- ⚠ **共通の土台（`HTTP` / `Config` / `Logger`）に触る依頼は、もう 1 人の利用者に効く。**`ginseng-core` / `ginseng-fediverse` は **makoto2 と `pooza/tomato-shrieker` が両方 `branch: 'main'` で引いている**（#37）。⚠⚠ **横断確認は上流の手順に入った**ので makoto2 から回す必要は無いが、**依頼にはどちらの都合で出したのかを書く**
+
+**追うとき（同期手順 8.）:**
+
+1. **上流から届いた依頼** — makoto2 側の open Issue のうち上流由来のもの。⚠ **マイルストーンが空のまま放置されていないか**（🔴 **#137 / #138 が 2 日埋もれた**）
+2. **こちらから出した依頼の状態** — `ginseng-core` / `ginseng-fediverse` / `ginseng-style` の open Issue・PR。⚠⚠ **`waiting:pr` が付いていたら上流は着手しない ＝ 止まっているのはこちら**（`request` ＝ 利用側からの依頼）
+
+    ```sh
+    for r in ginseng-core ginseng-fediverse ginseng-style; do
+      gh issue list --repo "pooza/$r" --state open --label request --limit 20 \
+        --json number,title,labels > "/tmp/$r.json" || exit 1
+      jq -r --arg r "$r" '.[] | "\($r)#\(.number) [\(.labels|map(.name)|join(","))] \(.title)"' "/tmp/$r.json"
+    done
+    ```
+
+    ⚠⚠ **`gh` を単独で走らせ、終了ステータスを見てから `jq` に渡す。**⚠ **パイプで繋ぐとパイプ全体の状態が `jq` のものになり、ページングの途中で失敗しても「出し終えた分だけ」を全件として読む ＝ 偽のゼロ**（`pooza/ginseng-style#34`）
+3. **ピン留めの現在地** — `Gemfile.lock` の `ginseng-*` のリビジョンが上流 `main` からどれだけ離れているか（→ 上記「上流に追随する当番が無い」）
+4. **規約の正本が動いていないか** — `ginseng-style` の `docs/workflow.md` / `ruby.md` / `writing.md` と、この docs の記述の食い違い。⚠⚠ **`.rubocop.yml` は `inherit_gem` なので、上流が動けば黙って lint の判定が変わる**
+
+⚠ **取り込むときは同梱物を読む。**`1.15.28` は 3 件同梱で、**狙っていない変更（`HTTP#repeat` の再送対象）が一緒に入った**（#37）。
 
 ### ✅ lint の設定は `ginseng-style` が正本（2026-08-20・#131 / PR #132）
 
@@ -1090,7 +1126,9 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 | [pooza/mulukhiya-toot-proxy](https://github.com/pooza/mulukhiya-toot-proxy) | 通称モロヘイヤ。投稿プロキシ。**投稿の出力先**（Slack 互換 webhook）であり、ストリーミング受信（`Listener`）の参考実装。運用プラクティスの本家 |
 | [pooza/chubo2](https://github.com/pooza/chubo2) | インフラ（itamae）。`docs/infra-note.md` がインフラの正本。インフラ課題はここに起票 |
 | [pooza/makoto](https://github.com/pooza/makoto) | 旧実装。**アーカイブ済み**。参照のみ |
-| [pooza/cure-api](https://github.com/pooza/cure-api) | プリキュアの情報を返す REST API。**シリーズ一覧の取得元**（`https://cure-api.precure.ml/series`）。⚠ **rubicure を直接使わない**（下記） |
+| [pooza/cure-api](https://github.com/pooza/cure-api) | プリキュアの情報を返す REST API。**シリーズ一覧の取得元**（`https://cure-api.precure.ml/series`）。⚠ **rubicure を直接使わない**（下記）。🔴 **makoto2 が最大の消費者なので、面倒も makoto2 のセッションで見る**（2026-08-21・オーナー → 同期手順 9.） |
+| [pooza/ginseng-core](https://github.com/pooza/ginseng-core) ほか `ginseng-*` | 土台の gem。🔴 **専任のプロジェクトが自走している** — ⚠⚠ **`Ginseng::*` の挙動は抱え込まず、なるべく PR で送る**（→ 上記「`ginseng-*` との往復」） |
+| [pooza/ginseng-style](https://github.com/pooza/ginseng-style) | 🔴 **RuboCop 設定と Ruby の書き方・開発の進め方の規約の正本。**⚠ **モロヘイヤ / tomato-shrieker で決まった規約を他プロジェクトへ配る場所**でもある（`.rubocop.yml` の `inherit_gem` 化がその 1 例 ＝ #131） |
 | [pooza/capsicum](https://github.com/pooza/capsicum) | Flutter 製クライアント。MAKOTO とは直接関係しないが 5 観点レビューの前例元 |
 
 ## docs 一覧
