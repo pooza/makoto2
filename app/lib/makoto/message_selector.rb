@@ -41,9 +41,11 @@ module Makoto
     end
 
     # 原稿の本文。⚠ **無ければ nil**（通常の生成に任せる）。
+    #
+    # ⚠ **予約された日に引けなかったときだけ警告を残す**（→ `report_silence`・#114）。
     def call(time = nil)
       message = find(time)
-      return nil unless message
+      return report_silence(time) unless message
       return message[:body]
     end
 
@@ -102,6 +104,29 @@ module Makoto
     # （→ `Announcement#validate` / `Live#validate`）。
     def reserved_types
       return anniversary_types.values.flatten.uniq
+    end
+
+    # 🔴 **予約された日に原稿が引けなかったことを警告に残す**（#114）。⚠ **戻り値は常に nil。**
+    #
+    # ⚠⚠ **「本文が無い」は `PostingJob` では `debug` にしかならない。**⚠ **ライブの 4 枠は
+    # 平常日に毎日空回りする設計**なので、あちらを `info` に上げると **11/4 に 160 枠が
+    # 全滅した日のログが平常日と 1 文字も変わらない**（→ `PostingJob#exec`）。⚠⚠ **「出る
+    # べき日に出なかった」を言えるのは中身を知っている側だけ**なので、ここが言う。
+    #
+    # ⚠ **予約の無い日は黙る。**⚠⚠ **朝挨拶（#17）・曲紹介（#16）も同じ選択器を使う**ので、
+    # 無条件に警告すると **8/15〜10/31 の 2 か月半が延々と黄色になる。**
+    #
+    # ⚠ **例外にしない。**1 枠の異常で残りを落とさない（→ docs/CLAUDE.md「投稿の欠落は
+    # 詰めない」）。
+    #
+    # ⚠⚠ **`ScriptRotation` は `list` を使うのでここを通らない。**⚠ **あちらから呼ぶために
+    # public にしてある**（`live-eve` も 4 枠のうちの 1 つ）。
+    def report_silence(time = nil)
+      date = date_of(time || Time.now)
+      types = anniversary_types_on(date)
+      return nil if types.empty?
+      logger.warn(message: 'no message for the reserved date', types: types, date: date.to_s)
+      return nil
     end
 
     private
