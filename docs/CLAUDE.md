@@ -999,10 +999,15 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
     ```sh
     for r in ginseng-core ginseng-fediverse ginseng-style; do
       gh issue list --repo "pooza/$r" --state open --label request --limit 20 \
-        --json number,title,labels > "/tmp/$r.json" || exit 1
-      jq -r --arg r "$r" '.[] | "\($r)#\(.number) [\(.labels|map(.name)|join(","))] \(.title)"' "/tmp/$r.json"
+        --json number,title,labels > "/tmp/$r-issue.json" || exit 1
+      gh pr list --repo "pooza/$r" --state open --limit 20 \
+        --json number,title,labels > "/tmp/$r-pr.json" || exit 1
+      jq -r --arg r "$r" '.[] | "\($r)#\(.number) [\(.labels|map(.name)|join(","))] \(.title)"' \
+        "/tmp/$r-issue.json" "/tmp/$r-pr.json"
     done
     ```
+
+    🔴 **PR も引くこと。**⚠⚠ **`gh issue list` は PR を出さない**（`gh pr list` が別）。⚠ **依頼は PR で出すのが推奨**なので、Issue しか見ないと**この手順が拾いたかったもの（緑のまま眠っている PR）がまさに漏れる**。⚠ **PR には `request` ラベルが付かないことがある**ので、**PR 側は絞り込まない**
 
     ⚠⚠ **`gh` を単独で走らせ、終了ステータスを見てから `jq` に渡す。**⚠ **パイプで繋ぐとパイプ全体の状態が `jq` のものになり、ページングの途中で失敗しても「出し終えた分だけ」を全件として読む ＝ 偽のゼロ**（`pooza/ginseng-style#34`）
 3. **ピン留めの現在地** — `Gemfile.lock` の `ginseng-*` のリビジョンが上流 `main` からどれだけ離れているか（→ 上記「上流に追随する当番が無い」）
