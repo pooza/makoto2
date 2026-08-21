@@ -224,6 +224,21 @@ module Makoto
         ScriptImporter.parse_preview_date('11-04', Date.new(2027, 1, 1)))
     end
 
+    # 🔴 **ホストの TZ で年を補完しない**（PR #148 の Codex 指摘）。
+    # ⚠⚠ **UTC のホストで 12/31 の 15:00 以降は、`Asia/Tokyo` ではもう 1/1。**
+    # ⚠ `Date.today` で補完すると **1 年前の 11 月 4 日**を下見する
+    # （その年だけの台本 ＝ ライブの本番が引けない）。
+    def test_parse_preview_date_fills_the_year_in_the_configured_timezone
+      # ⚠ **ホストの TZ が何であっても差が出る瞬間を選ぶ。**UTC-11 を設定に置き、
+      # ⚠⚠ **ホスト（JST でも UTC でも）は既に 2027 年・設定の側はまだ 2026-12-31**
+      # という時刻で見る。
+      config['/scheduler/timezone'] = 'Pacific/Midway'
+      Timecop.freeze(Time.utc(2027, 1, 1, 5, 0)) do
+        assert_operator(Date.today.year, :>=, 2027, 'ホストの側は既に 2027 年')
+        assert_equal(Date.new(2026, 11, 4), ScriptImporter.parse_preview_date('11-4'))
+      end
+    end
+
     # ⚠ 空は nil（今日に倒すかは呼ぶ側が決める）。
     def test_parse_preview_date_is_nil_when_empty
       assert_nil(ScriptImporter.parse_preview_date(nil))

@@ -156,14 +156,27 @@ module Makoto
       # 下見だけ 8 月 11 日になっていた。**⚠ **エラーにならず、それらしい並びが出る。**
       #
       # ⚠ **`MM-DD`（毎年）は実行日の年に補完する。**
-      def parse_preview_date(value, today = Date.today)
+      def parse_preview_date(value, base = nil)
         parts = parse_date(value)
         return nil unless parts[:month]
-        return Date.new(parts[:year] || today.year, parts[:month], parts[:day])
+        return Date.new(parts[:year] || (base || today).year, parts[:month], parts[:day])
       rescue Date::Error
         # ⚠ 形は合っていても日が無い（`2026-02-30` / `13-45`）。**黙って今日に倒さない。**
         raise Ginseng::ValidateError,
           "日付は MM-DD か YYYY-MM-DD で指定してください（'#{value}'）"
+      end
+
+      private
+
+      # ⚠ **ホストの TZ ではなく `/scheduler/timezone` で「今日」を出す**
+      # （PR #148 の Codex 指摘。規則は `Timetable#today` / `MessageSelector#date_of` と同じ）。
+      #
+      # 🔴 **`Date.today` だと年が 1 つずれる日がある。**⚠⚠ **UTC のホストで 12/31 の
+      # 15:00 以降は、`Asia/Tokyo` ではもう 1/1** — ⚠ **そこで `--date=11-4` を打つと
+      # 1 年前の 11 月 4 日を下見する**（その年だけの台本が引けない）。
+      def today
+        zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
+        return zone.utc_to_local(Time.now.getutc).to_date
       end
     end
   end
