@@ -400,11 +400,43 @@ module Makoto
     # ⚠ **前半の埋め草をコーナーが使い切ると、前半に MC が 1 本も立たない**（実測）。
     def test_mc_covers_keeps_a_placeholder_for_a_corner_without_an_mc
       seed(songs: 8, covers: 6)
+      entries = setlist(16).entries
+      starts = entries.each_index.select {|i| entries[i].cover? && !entries[i - 1].cover?}
+
+      assert_equal(2, starts.size)
+      # ⚠ 1 つ目は直前が MC でない日。**詰めずに nil を残す。**
+      assert_equal([nil, 1], entries.find(&:mc?).mc_covers)
+      assert_not_predicate(entries[starts.first - 1], :mc?)
+      assert_equal(1, entries[starts.last - 1].ordinal)
+    end
+
+    # 🔴 **#140。**⚠⚠ **接頭辞を全部遡ると、隣接していない古い MC を拾う。**
+    #
+    # ⚠ `corner_position` は**その部に MC が足りなければコーナーを曲の間へ置く**
+    # （＝意図的にアンカーしない）ので、⚠⚠ **そこで遠くの MC を拾うと、宣言が
+    # コーナーのずっと前に出る**（この並びでは MC #0 とコーナーの間に曲が 3 本ある）。
+    def test_mc_covers_ignores_an_mc_that_is_not_adjacent
+      seed(songs: 8, covers: 6)
       entries = setlist(15).entries
       starts = entries.each_index.select {|i| entries[i].cover? && !entries[i - 1].cover?}
 
       assert_equal(2, starts.size)
-      assert_equal([nil, 0], entries.find(&:mc?).mc_covers)
+      # ⚠ どちらの塊も直前が曲。**手前に MC が居ても拾わない。**
+      starts.each {|i| assert_not_predicate(entries[i - 1], :mc?, "[#{i}] の直前が MC")}
+      assert_operator(entries.count(&:mc?), :>, 0)
+      assert_equal([nil, nil], entries.find(&:mc?).mc_covers)
+    end
+
+    # ⚠ **番号は必ず「直前の 1 つ」のもの**（#140）。塊の数だけ並び、位置は動かない。
+    def test_mc_covers_always_points_at_the_entry_right_before_the_corner
+      seed(songs: 10, covers: 6)
+      [18, 20, 22, 24, 26].each do |slots|
+        entries = setlist(slots).entries
+        starts = entries.each_index.select {|i| entries[i].cover? && !entries[i - 1].cover?}
+        expected = starts.map {|i| entries[i - 1].mc? ? entries[i - 1].ordinal : nil}
+
+        assert_equal(expected, entries.find(&:mc?).mc_covers, "slots=#{slots}")
+      end
     end
 
     # ⚠ カバーが 1 曲も無い日は空。**「塊が無い」を nil と空で割らない。**
