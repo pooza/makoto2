@@ -66,6 +66,55 @@ module Makoto
     end
 
     # 「マスクしているつもりで素通し」を防ぐ正テスト。実際に伏せられることを見る。
+    # ⚠ `errors` は `@raw`（読み込んだファイル）を検証するので、⚠⚠ **`config['/x'] = y`
+    # では変わらない**（`Config < Hash` の平坦化された側だけが動く）。**差し替えて見る。**
+    def with_errors(found)
+      config.define_singleton_method(:errors) {found.call}
+      return yield
+    ensure
+      config.singleton_class.remove_method(:errors)
+    end
+
+    # 🔴 **設定の検証は 1 回だけ回して覚える**（#99）。⚠⚠ **`errors` は呼ぶたびに
+    # schema 全体を回す**ので、⚠ **60 秒間隔の監視から素で呼ぶと CPU を使い続ける**
+    # （`Health` はリクエストごとに作られる → `MonitorApp`）。
+    def test_validation_errors_are_memoised
+      calls = 0
+      counter = lambda do
+        calls += 1
+        []
+      end
+      with_errors(counter) do
+        3.times {config.validation_errors}
+      end
+
+      assert_equal(1, calls)
+    end
+
+    # ⚠ schema の URI までログに載せない（読む側の役に立たないうえ長い）。
+    def test_validation_errors_drop_the_schema_uri
+      found = ['The property \'#/mastodon\' did not contain a required property in schema abc123']
+
+      with_errors(-> {found}) do
+        assert_equal(["The property '#/mastodon' did not contain a required property"],
+          config.validation_errors)
+      end
+    end
+
+    # ⚠ 書き換えたら捨てる。⚠⚠ **覚えたまま古い判定を返し続けない。**
+    def test_reload_forgets_the_validation
+      found = ['壊れています in schema abc123']
+      with_errors(-> {found}) do
+        assert_not_empty(config.validation_errors)
+        found = []
+
+        assert_not_empty(config.validation_errors, '覚えている間は変わらない')
+        config.reload
+
+        assert_empty(config.validation_errors)
+      end
+    end
+
     def test_secure_dump_masks_secrets
       config['/mastodon/token'] = 'super-secret-token'
       dump = config.secure_dump

@@ -47,6 +47,8 @@ module Makoto
 
     def start(args = [])
       logger.info(daemon: app_name, version: Package.version, message: 'start')
+      # 🔴 **設定を起動時に 1 回検証する**（#99）。⚠ **止めない**（→ `validate_config`）。
+      validate_config
       # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。
       connect_db
       register_jobs
@@ -146,6 +148,29 @@ module Makoto
     # **これが無いと `EPERM` を作るのに他人のプロセスへ本物の signal を送ることになる。**
     def signal(target, value)
       return Process.kill(value, target)
+    end
+
+    # 設定を起動時に 1 回検証する（#99）。
+    #
+    # ⚠⚠ **`rake config:lint` は開発機で流すもの**で、⚠ **稼働ホストにしか無い
+    # `config/local.yaml` は検証を一度も通っていなかった。**
+    #
+    # 🔴 **通らなくても常駐は止めない**（2026-08-21・オーナー判断）。⚠⚠ **止めると
+    # systemd の `Restart=always` が 5 秒ごとに叩き直す形**になり、⚠ **11/4 当日に
+    # 踏むと復旧の時間が要る。**⚠⚠ **代わりに `/healthz` を赤にする**（→ `Health`）。
+    #
+    # ⚠ **ここで例外にしない**のは `record_start` と同じ扱い（痕跡が書けないことで
+    # 常駐が上がらないのを避ける）。
+    def validate_config
+      found = config.validation_errors
+      return found if found.empty?
+      logger.error(daemon: app_name, config: 'invalid', count: found.size, errors: found)
+      return found
+    rescue => e
+      # ⚠⚠ **検証そのものが落ちても常駐は上げる。**⚠ schema が読めないだけで
+      # ボットが動かなくなるほうが痛い。
+      logger.error(daemon: app_name, config: 'unverified', error: e)
+      return []
     end
 
     # トークンの失効を起き上がりで見に行く（#106）。⚠ **`verify_credentials` は

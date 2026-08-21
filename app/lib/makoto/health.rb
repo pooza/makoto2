@@ -128,7 +128,33 @@ module Makoto
       results.push('heartbeat is stale') if Heartbeat.stale?(now)
       results.push('scheduler tick is stale') if Heartbeat.tick_stale?(now)
       results.push('no posting job is registered') if jobs.to_i.zero?
+      results.push(*config_warnings)
       return results
+    end
+
+    # 設定が JSON Schema を通らないこと（#99）。⚠ **通れば空。**
+    #
+    # ⚠⚠ **`rake config:lint` は開発機で流すもの**で、⚠ **稼働ホストにしか無い
+    # `config/local.yaml` は検証を一度も通っていなかった**（`monitor.bind` のように
+    # **レシピが作らず `local.yaml` にしか無い値**がある → chubo2 の infra-note）。
+    #
+    # 🔴 **効くのは「起動はしたが、その設定を使う瞬間に落ちる」形。**⚠⚠ **枠の中で
+    # 読む値が欠けていると `PostingJob` の rescue に飲まれ、「登録ジョブ 5 で健全」の
+    # まま 160 枠が沈黙する**（#77 と同じ構図）。
+    #
+    # ## ⚠⚠ これは `warnings` ではなく `errors` に置いた（2026-08-21・オーナー判断）
+    #
+    # ⚠ **#78（投稿の失敗）を `warnings` にしたのは「再起動で直らないから」**で、
+    # ⚠⚠ **設定エラーも再起動では直らない。**🔴 **それでも `errors` に置くのは、
+    # 「気付けること」を優先したため。**
+    #
+    # ⚠⚠ **いま自動で復旧を叩くものは無い**（Kuma は通知のみ・monit は廃止 →
+    # chubo2 の infra-note）ので、**検知 → 再起動のループにはならない。**
+    # 🔴 **自動復旧を足すときは、この 1 行を `warnings` 側へ移すこと。**
+    def config_warnings
+      found = config.validation_errors
+      return [] if found.empty?
+      return ["config is invalid (#{found.size}): #{found.first}"]
     end
 
     # 人が見るべき問題。⚠ **復旧は叩かせない。**

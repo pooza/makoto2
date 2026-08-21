@@ -163,6 +163,60 @@ module Makoto
       end
     end
 
+    # ⚠ 設定の検証を差し替える（`errors` は読み込んだファイルを見るので
+    # `config['/x'] = y` では変わらない → test/config.rb）。
+    def with_config_errors(found)
+      config.define_singleton_method(:errors) {found}
+      config.reload
+      recorder = []
+      @daemon.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:error) {|payload| recorder.push(payload)}
+        define_method(:info) {|payload| payload}
+      end.new(nil))
+      yield
+      return recorder
+    ensure
+      config.singleton_class.remove_method(:errors)
+      config.reload
+    end
+
+    # 🔴 **#99。**⚠⚠ **通らなくても常駐は止めない**（2026-08-21・オーナー判断）。
+    # ⚠ **止めると systemd の `Restart=always` が 5 秒ごとに叩き直す形**になり、
+    # ⚠⚠ **11/4 当日に踏むと復旧の時間が要る。**代わりに `/healthz` を赤にする。
+    def test_a_broken_config_is_logged_but_does_not_stop_the_start
+      recorder = with_config_errors(['壊れています in schema abc']) do
+        assert_nothing_raised {@daemon.send(:validate_config)}
+      end
+
+      assert_equal(1, recorder.size)
+      assert_equal('invalid', recorder.first[:config])
+      assert_equal(1, recorder.first[:count])
+    end
+
+    # ⚠ 通っていれば何も言わない（**平常時にログを汚さない**）。
+    def test_a_valid_config_is_not_logged
+      recorder = with_config_errors([]) do
+        assert_empty(@daemon.send(:validate_config))
+      end
+
+      assert_empty(recorder)
+    end
+
+    # ⚠⚠ **検証そのものが落ちても常駐は上げる。**⚠ schema が読めないだけでボットが
+    # 動かなくなるほうが痛い（`record_start` と同じ扱い）。
+    def test_a_failed_validation_does_not_stop_the_start
+      config.define_singleton_method(:validation_errors) {raise 'boom'}
+      recorder = []
+      @daemon.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:error) {|payload| recorder.push(payload)}
+      end.new(nil))
+
+      assert_nothing_raised {@daemon.send(:validate_config)}
+      assert_equal('unverified', recorder.first[:config])
+    ensure
+      config.singleton_class.remove_method(:validation_errors)
+    end
+
     # 🔴 **痕跡が書けなくても常駐は止めない**（リリース前レビューの黄 1）。
     # ⚠⚠ **`Scheduler` 側の `record_tick` / `touch` と同じ扱い**にする — ⚠ **素で呼ぶと
     # `tmp/run` が書けないだけで `start` の rescue が再送出し、監視の口も投稿も
