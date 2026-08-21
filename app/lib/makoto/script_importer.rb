@@ -146,6 +146,25 @@ module Makoto
         raise Ginseng::ValidateError,
           "#{prefix}日付は MM-DD か YYYY-MM-DD で指定してください（'#{value}'）"
       end
+
+      # 下見（`makoto live setlist --date` / `makoto message preview --date`）が使う
+      # **1 日に解決した形**。⚠ **空なら nil**（今日に倒すかは呼ぶ側が決める）。
+      #
+      # ⚠⚠ **規則は `parse_date` と同じ。正本を 3 つ目に増やさない**（#96）。
+      # 🔴 **`Date.parse` は緩い** — **`11-4` を「11 日」と読み、月は実行日の月**に
+      # なるので、⚠⚠ **`makoto message add --date=11-4`（11 月 4 日）と同じ文字列が
+      # 下見だけ 8 月 11 日になっていた。**⚠ **エラーにならず、それらしい並びが出る。**
+      #
+      # ⚠ **`MM-DD`（毎年）は実行日の年に補完する。**
+      def parse_preview_date(value, today = Date.today)
+        parts = parse_date(value)
+        return nil unless parts[:month]
+        return Date.new(parts[:year] || today.year, parts[:month], parts[:day])
+      rescue Date::Error
+        # ⚠ 形は合っていても日が無い（`2026-02-30` / `13-45`）。**黙って今日に倒さない。**
+        raise Ginseng::ValidateError,
+          "日付は MM-DD か YYYY-MM-DD で指定してください（'#{value}'）"
+      end
     end
   end
 end

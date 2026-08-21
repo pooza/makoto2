@@ -90,13 +90,31 @@ module Makoto
     end
 
     # ⚠ 壊れた指定は黙って今日に倒さない（下見の日付を間違えたことに気付けない）。
-    #
-    # ⚠⚠ **ただし `Date.parse` は緩い。**⚠ **`--date=11-4` が 8 月 11 日になる**という
-    # 食い違いが残っている（同じ文字列を `makoto message add --date` は 11 月 4 日と
-    # 読む）。**ここでは現状の境界だけを固定する** → #96。
     def test_preview_date_rejects_a_broken_value
       assert_raise(Ginseng::ValidateError) {command.send(:preview_date, 'あした')}
       assert_raise(Ginseng::ValidateError) {command.send(:preview_date, '2026-13-40')}
+    end
+
+    # 🔴 **#96 の本体。**⚠⚠ **`Date.parse` は `11-4` を「11 日」と読み、月は実行日の月**
+    # にしていた（8 月に打つと 8 月 11 日）。⚠ **同じ文字列を `makoto message add --date`
+    # は 11 月 4 日と読む**ので、⚠⚠ **同じ CLI の中で 1 つの文字列が 2 つの意味を持って
+    # いた。**🔴 **エラーにならず、それらしい並びが出る。**
+    def test_preview_date_reads_mm_dd_as_the_importer_does
+      assert_equal(Date.new(Date.today.year, 11, 4), command.send(:preview_date, '11-4'))
+      assert_equal(Date.new(Date.today.year, 11, 1), command.send(:preview_date, '11-01'))
+    end
+
+    # ⚠⚠ **後ろのゴミを黙って捨てない。**⚠ `Date.parse('2026/11/04 と 11/5')` は
+    # **11/4 として通っていた**（⚠ 打ち間違いに気付けない）。
+    def test_preview_date_rejects_a_trailing_garbage
+      assert_raise(Ginseng::ValidateError) {command.send(:preview_date, '2026/11/04 と 11/5')}
+      assert_raise(Ginseng::ValidateError) {command.send(:preview_date, '2026-11-04 と 11-5')}
+    end
+
+    # ⚠ 形は合っていても日が無いものは弾く（`13-45` は `MM-DD` の形をしている）。
+    def test_preview_date_rejects_an_impossible_day
+      assert_raise(Ginseng::ValidateError) {command.send(:preview_date, '13-45')}
+      assert_raise(Ginseng::ValidateError) {command.send(:preview_date, '2026-02-30')}
     end
 
     # ⚠ 原稿が枠に足りていれば、注記は付かない。
