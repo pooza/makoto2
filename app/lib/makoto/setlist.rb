@@ -274,7 +274,20 @@ module Makoto
     # ⚠ **`hinge_mc_ordinal` と同じく、位置は組むときにしか分からない。**
     def cover_mc_ordinals(entries)
       starts = entries.each_index.select {|index| corner_start?(entries, index)}
-      return starts.map {|index| entries[0...index].reverse_each.find(&:mc?)&.ordinal}
+      return starts.map {|index| preceding_mc_ordinal(entries, index)}
+    end
+
+    # 塊の**直前の 1 つ**が MC ならその番号。⚠ **違えば nil**（#140）。
+    #
+    # 🔴 **接頭辞を全部遡らない。**⚠⚠ **遡ると、隣接していない古い MC を拾う** —
+    # `corner_position` は**その部に MC が足りなければコーナーを曲の間へ置く**
+    # （＝意図的にアンカーしない）ので、⚠ **そこで遠くの MC を拾うと、宣言が
+    # コーナーのずっと前に出る。**⚠⚠ **後半では蝶番を跨いで前半の MC を拾いうる**
+    # （前半で宣言して、実際のカバーは後半）。
+    def preceding_mc_ordinal(entries, index)
+      previous = entries[index - 1] if index.positive?
+      return nil unless previous&.mc?
+      return previous.ordinal
     end
 
     # 塊の先頭か。⚠ **2 曲目以降は同じ塊なので数えない。**
