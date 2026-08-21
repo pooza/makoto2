@@ -101,6 +101,68 @@ module Makoto
       end
     end
 
+    # ⚠ signal の送り先を差し替える。⚠⚠ **本物の `EPERM` を作ると他人のプロセスへ
+    # signal を送ることになる**ので、継ぎ目（`MakotoDaemon#signal`）で止める。
+    def with_signal(daemon, &)
+      daemon.define_singleton_method(:signal, &)
+      return daemon
+    end
+
+    # 🔴 **#111 の本体（1）。**⚠⚠ **`EPERM` は「居るが signal を送れない」＝生きている。**
+    # ⚠ 上流 1.15.28 の `Ginseng::Daemon#alive?` は `EPERM` も false に倒すので、
+    # 🔴 **他人の権限で走っている常駐が「死んでいる」と読まれ、二重に起動しうる。**
+    def test_a_permission_error_means_alive
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        with_signal(daemon) {|*| raise Errno::EPERM}
+
+        assert_true(daemon.alive?)
+      end
+    end
+
+    # ⚠ 居ないものは死んでいる（塞いだせいで検知できなくならないこと）。
+    def test_no_such_process_means_dead
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        with_signal(daemon) {|*| raise Errno::ESRCH}
+
+        assert_false(daemon.alive?)
+      end
+    end
+
+    # 🔴 **#111 の本体（2）。**⚠⚠ **上流は先に pid ファイルを消してから TERM を送り、
+    # `EPERM` を拾っていない** — 🔴 **pid ファイルだけ消えてプロセスは生き残る
+    # ＝ 孤児が確定する。**⚠ **旧実装が孤児を 11 日分撒いた形。**
+    def test_run_stop_keeps_the_pid_file_when_it_cannot_signal
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        with_signal(daemon) {|*| raise Errno::EPERM}
+
+        assert_raise(SystemExit) {daemon.send(:run_stop)}
+        assert_path_exist(daemon.pid_file)
+      end
+    end
+
+    # ⚠ 送れたら消す（従来どおり）。**順序だけを入れ替えている。**
+    def test_run_stop_removes_the_pid_file_after_terminating
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        sent = []
+        with_signal(daemon) {|target, value| sent.push([target, value])}
+        daemon.send(:run_stop)
+
+        assert_equal([[Process.pid, 'TERM']], sent)
+        assert_path_not_exist(daemon.pid_file)
+      end
+    end
+
+    # ⚠ 居ないなら掃除してよい。⚠⚠ **残すと `run_start` が「already running」で
+    # 無言終了する**（#80 の黄 6 で踏んだ形）。
+    def test_run_stop_removes_the_pid_file_when_the_process_is_gone
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        with_signal(daemon) {|*| raise Errno::ESRCH}
+        daemon.send(:run_stop)
+
+        assert_path_not_exist(daemon.pid_file)
+      end
+    end
+
     # 🔴 **痕跡が書けなくても常駐は止めない**（リリース前レビューの黄 1）。
     # ⚠⚠ **`Scheduler` 側の `record_tick` / `touch` と同じ扱い**にする — ⚠ **素で呼ぶと
     # `tmp/run` が書けないだけで `start` の rescue が再送出し、監視の口も投稿も
