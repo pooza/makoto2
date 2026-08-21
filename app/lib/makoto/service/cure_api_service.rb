@@ -237,14 +237,49 @@ module Makoto
     def fetch_singer_names
       raise Ginseng::ConfigError, "#{PREFIX}/url is missing" if url.empty?
       records = http.get("#{url}/singers").parsed_response
-      names = Array(records).flat_map do |record|
-        [record['name'], *Array(record['members'])]
+      return report_malformed(records) unless valid_records?(records)
+      names = records.flat_map do |record|
+        [record['name'], *members_of(record)]
       end
       return names.map {|name| self.class.normalize(name)}.reject(&:empty?).uniq
     rescue => e
       # ⚠⚠ **落ちてもライブは止めない。**ただし黙らない（→ 上記）。
       logger.error(cure_api: 'singers', error: e)
       return []
+    end
+
+    # 🔴 **200 で非 JSON が返る形を弾く**（#105）。
+    #
+    # ⚠⚠ **`String#[]` は部分一致で substring を返す。**⚠ 応答が HTML でも
+    # `Array(records)` は `[本文]` になり、`record['name']` が **`"name"` の 4 文字**を
+    # 返す（`<meta name=...>` でまず含まれる）。🔴 **`["name"]` という名義リストが
+    # 成立し、`available?` が真になる。**
+    #
+    # ⚠ **運用側からは「cure-api は生きているのに 1 件も一致しない」と見える**ので
+    # 誤診しやすい（⚠⚠ 実際には 11/4 のゲストコーナー 8 曲がゼロになる）。
+    #
+    # ⚠ **nginx の 502 / 503 は `GatewayError` になるので対象外。**踏むのは
+    # **前段が 200 で非 JSON を返す形**（メンテページ・vhost の誤ルーティング）。
+    def valid_records?(records)
+      return false unless records.is_a?(Array)
+      return records.all?(Hash)
+    end
+
+    # ⚠⚠ **汚れた写しを焼き付けない**（#88 の保険を守る）。`store_singer_names` は
+    # 「引けた」ときだけ走るので、⚠ **ここで `[]` に倒せば写しは更新されない。**
+    #
+    # ⚠ **本文は載せない**（HTML が丸ごとログに出る）。⚠⚠ **型だけで十分に区別できる。**
+    def report_malformed(records)
+      logger.warn(cure_api: 'singers', message: 'unexpected response shape',
+        type: records.class.to_s)
+      return []
+    end
+
+    # ⚠ **`members` は配列のときだけ拾う。**Hash が来ると `Array()` が組の配列を返し、
+    # ⚠⚠ **`[["name", "..."]]` のような値が名義に混ざる。**
+    def members_of(record)
+      members = record['members']
+      return members.is_a?(Array) ? members : []
     end
   end
 end
