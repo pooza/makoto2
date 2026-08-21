@@ -110,11 +110,11 @@ module Makoto
 
     # ⚠⚠ **日付のまま渡す。**時刻を作るとホストの TZ で解釈され、日本の外で
     # 下見すると 11/4 が 11/5 になる（→ MessageCommand と同じ理由）。
+    # ⚠⚠ **規則の正本は `ScriptImporter.parse_date`**（#96）。🔴 **`Date.parse` に戻さない** —
+    # **`11-4` が 8 月 11 日になり、エラーにならずそれらしい並びが出る。**
+    # ⚠ **下見はライブの日付そのものに対する唯一の防御**（→ docs/CLAUDE.md）。
     def preview_date(value)
-      return Date.today if value.blank?
-      return Date.parse(value)
-    rescue Date::Error
-      raise Ginseng::ValidateError, "日付は YYYY-MM-DD で指定してください（'#{value}'）"
+      return ScriptImporter.parse_preview_date(value) || Date.today
     end
   end
 end
