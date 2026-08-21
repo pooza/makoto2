@@ -497,5 +497,51 @@ module Makoto
       assert_equal(2, health.warnings.size)
       assert_equal(Health::WARNING, health.code)
     end
+
+    # ⚠ `errors` は読み込んだファイルを検証するので、⚠⚠ **`config['/x'] = y` では
+    # 変わらない**（→ test/config.rb）。**差し替えて見る。**
+    def with_config_errors(found)
+      config.define_singleton_method(:errors) {found}
+      config.reload
+      return yield
+    ensure
+      config.singleton_class.remove_method(:errors)
+      config.reload
+    end
+
+    # 🔴 **#99 の本体。**⚠⚠ **`rake config:lint` は開発機で流すもの**で、⚠ **稼働ホスト
+    # にしか無い `config/local.yaml` は検証を一度も通っていなかった。**
+    #
+    # ⚠ **効くのは「起動はしたが、その設定を使う瞬間に落ちる」形** — ⚠⚠ **枠の中で
+    # 読む値が欠けていると `PostingJob` の rescue に飲まれ、「登録ジョブ 5 で健全」の
+    # まま 160 枠が沈黙する。**
+    def test_a_broken_config_is_an_error
+      beat
+
+      with_config_errors(['壊れています in schema abc']) do
+        assert_equal(1, health.errors.size)
+        assert_match(/\Aconfig is invalid \(1\): 壊れています\z/, health.errors.first)
+        assert_equal(Health::ERROR, health.code)
+      end
+    end
+
+    # ⚠ 通っていれば何も足さない（**平常時に赤くしない**）。
+    def test_a_valid_config_is_not_reported
+      beat
+
+      with_config_errors([]) do
+        assert_empty(health.errors)
+        assert_equal(Health::OK, health.code)
+      end
+    end
+
+    # ⚠⚠ **件数を出す。**⚠ 1 件目しか本文を載せないので、**まだあることが分かる形にする。**
+    def test_a_broken_config_reports_the_count
+      beat
+
+      with_config_errors(['1 つ目 in schema abc', '2 つ目 in schema abc']) do
+        assert_match(/\Aconfig is invalid \(2\): 1 つ目\z/, health.errors.first)
+      end
+    end
   end
 end
