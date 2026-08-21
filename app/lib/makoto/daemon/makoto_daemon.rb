@@ -25,9 +25,13 @@ module Makoto
     #
     # ⚠ **`run_restart` も同じ穴を踏んでいた** — `run_stop if alive?` を通って
     # ⚠⚠ **無関係なプロセスへ TERM を送る**形だった。
+    # 🔴 **`super` を通さない**（#111）。⚠⚠ **上流 1.15.28 の `Ginseng::Daemon#alive?`
+    # は `EPERM` も `false` に倒す**ので、⚠ **`super` を先に通すと、身元の判定へ
+    # 届く前に fail-open する。**
     def alive?
-      return false unless super
-      return daemon_pid?(pid, proc_dir: @proc_dir)
+      return false unless (target = pid)
+      return false unless process_present?(target)
+      return daemon_pid?(target, proc_dir: @proc_dir)
     end
 
     def command
@@ -91,6 +95,58 @@ module Makoto
     end
 
     private
+
+    # ⚠⚠ **ここから 3 つは上流（`ginseng-core`）の穴を自分の箱で塞いだもの**
+    # （#111 ／ 上流は `pooza/ginseng-core#509` / `#510` で修正済み）。
+    # 🔴 **`bundle update ginseng-core` で追随したら、この 3 つを消す**（→ #101）。
+    # ⚠ **33 commits の追随ごと持ってくるのは 11/4 の前には危険**（`HTTP#repeat` の
+    # 再送対象・`Config#reload`・`format: uri` の厳格化が同梱される）ので、
+    # **ここだけ先に塞いでいる**（→ docs/CLAUDE.md「先に自分の箱を塞ぐ」）。
+
+    # その番号のプロセスが在るか。
+    #
+    # 🔴 **`EPERM` は「居るが signal を送れない」＝生きている**（#111）。
+    # ⚠⚠ **上流はここを `false` に倒していた**ので、⚠ **他人の権限で走っている常駐が
+    # 「死んでいる」と読まれ、`run_start` が二重に起動しうる。**
+    def process_present?(target)
+      signal(target, 0)
+      return true
+    rescue Errno::ESRCH
+      return false
+    rescue Errno::EPERM
+      return true
+    end
+
+    # 🔴 **`TERM` を送ってから pid ファイルを消す**（#111）。
+    #
+    # ⚠⚠ **上流は先に `remove_pid` してから `Process.kill('TERM')` を呼び、`EPERM` を
+    # 拾っていない** — 🔴 **pid ファイルだけ消えてプロセスは生き残る ＝ 孤児が確定する。**
+    # ⚠ **旧実装が孤児を 11 日分撒いた**（→ docs/CLAUDE.md「プロセスの寿命を設計に
+    # 含める」）ので、⚠⚠ **迷ったら孤児を作らないほうへ倒す。**
+    def run_stop
+      unless (target = pid)
+        warn 'PID file not found. Is the daemon started?'
+        exit 1
+      end
+      signal(target, 'TERM')
+      remove_pid
+    rescue Errno::ESRCH
+      # ⚠ 居ないなら pid ファイルは掃除してよい。**残すと `run_start` が
+      # 「already running」で無言終了する。**
+      remove_pid
+      warn 'PID file found, but process was not running.'
+    rescue Errno::EPERM
+      # 🔴 **消さない。**⚠⚠ **消した瞬間に孤児が確定する**（次の起動が別プロセスを立て、
+      # 元のプロセスは誰も知らないまま投稿し続ける）。
+      warn "#{app_name} is running (PID #{target}) but could not be signalled. PID file kept."
+      exit 1
+    end
+
+    # ⚠ **`Process.kill` を直に呼ばずここを通す。**⚠⚠ **テストが差し替える継ぎ目**で、
+    # **これが無いと `EPERM` を作るのに他人のプロセスへ本物の signal を送ることになる。**
+    def signal(target, value)
+      return Process.kill(value, target)
+    end
 
     # トークンの失効を起き上がりで見に行く（#106）。⚠ **`verify_credentials` は
     # 投稿しない**ので、**叩いても当日の並びに影響しない。**
