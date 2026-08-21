@@ -564,6 +564,29 @@ module Makoto
       assert_nil(source.call(jst(6, 15, 13, 0)))
     end
 
+    # 🔴 **#114 の `live-eve` ぶん。**⚠⚠ **`ScriptRotation` は `MessageSelector#call` を
+    # 通らない**（`list` を使う）ので、⚠ **`call` に警告を足しただけではここに穴が残る。**
+    def test_eve_reports_silence_when_the_script_is_missing
+      selector = live.selector('eve')
+      source = ScriptRotation.new(selector: selector, timetable: live.timetable('eve'))
+      recorder = with_recorder(selector) do
+        assert_nil(source.call(jst(11, 3, 13, 0)))
+      end
+
+      assert_include(recorder, 'no message for the reserved date')
+    end
+
+    # ⚠ 前日以外は黙る。⚠⚠ **枠は毎日ある**ので、ここで警告すると平常日が毎日黄色になる。
+    def test_eve_does_not_report_on_other_days
+      selector = live.selector('eve')
+      source = ScriptRotation.new(selector: selector, timetable: live.timetable('eve'))
+      recorder = with_recorder(selector) do
+        assert_nil(source.call(jst(6, 15, 13, 0)))
+      end
+
+      assert_empty(recorder)
+    end
+
     # ⚠⚠ **台本の type が記念日に登録されていなければ作らせない。**登録が無いと
     # 日付を持たない台本が段 5 に混ざって毎日出るが、それは 11/4 まで気付けない。
     def test_rejects_a_type_that_is_not_an_anniversary

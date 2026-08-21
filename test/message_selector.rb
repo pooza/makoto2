@@ -181,5 +181,56 @@ module Makoto
     def test_rejects_empty_types
       assert_raise(Ginseng::ConfigError) {MessageSelector.new([], repository: @repository)}
     end
+
+    # 警告を拾う入れ物。⚠ **実サーバーにも syslog にも書かない。**
+    Recorder = Struct.new(:messages) do
+      define_method(:warn) {|payload| messages.push(payload[:message].to_s)}
+      define_method(:info) {|payload| payload}
+      define_method(:debug) {|payload| payload}
+      def error(*)
+      end
+    end
+
+    def warnings_of(target)
+      recorder = Recorder.new([])
+      target.instance_variable_set(:@logger, recorder)
+      yield
+      return recorder.messages
+    end
+
+    # 🔴 **#114 の本体。**⚠⚠ **予告・開始告知・終了告知は、本文が無くても 1 行も
+    # ログを残さなかった**（`PostingJob` の「本文が無い」は `debug`）。⚠ **11/1 の
+    # 予告が出なくても、`failure_limit` に届く 11/3 まで誰も気付けない。**
+    def test_reports_silence_on_a_reserved_date
+      target = selector(['announcement'])
+      messages = warnings_of(target) do
+        assert_nil(target.call(jst(11, 1)))
+      end
+
+      assert_include(messages, 'no message for the reserved date')
+    end
+
+    # ⚠⚠ **予約の無い日は黙る。**⚠ **枠は毎日空回りする設計**なので、ここで警告を出すと
+    # **8/15〜10/31 の 2 か月半が延々と黄色になる**（→ `LiveProgram#report_silence` と
+    # 同じ判断）。
+    def test_does_not_report_on_an_unreserved_date
+      target = selector(['announcement'])
+      messages = warnings_of(target) do
+        assert_nil(target.call(jst(5, 15)))
+      end
+
+      assert_empty(messages)
+    end
+
+    # ⚠ 原稿が引けた日は当然黙る。⚠⚠ **朝挨拶（#17）・曲紹介（#16）も同じ選択器を
+    # 使う**ので、記念日に本文が出ている限り警告してはいけない。
+    def test_does_not_report_when_a_message_is_found
+      target = selector
+      messages = warnings_of(target) do
+        assert_not_nil(target.call(jst(11, 4)))
+      end
+
+      assert_empty(messages)
+    end
   end
 end
