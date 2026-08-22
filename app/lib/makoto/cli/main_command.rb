@@ -115,16 +115,26 @@ module Makoto
     # ⚠ **`posting` が当てにならない 2 か月半のあいだ「動いている」を確かめる唯一の
     # 手掛かりが tick。**
     #
-    # ⚠⚠ **痕跡が無いときに `never` で終わらせない。**⚠ **判定の基準は「最後の tick」と
-    # 「起き上がった時刻」の新しいほう**（→ `Heartbeat.tick_stale?`）で、
-    # 🔴 **初回の tick は枠を回し終えるまで痕跡を書かない** — **起動直後の `never` は
-    # 正常なので、何からの猶予を数えているのかを一緒に出す。**
+    # ⚠⚠ **判定の基準は「最後の tick」と「起き上がった時刻」の新しいほう**
+    # （→ `Heartbeat.tick_stale?`）。🔴 **初回の tick は枠を回し終えるまで痕跡を
+    # 書かない**ので、**猶予が起き上がった時刻から数えられている間は、それも出す。**
+    #
+    # ⚠ **最後の tick だけを出すと、画面と判定が食い違う**（Codex の指摘・PR #153）—
+    # ⚠⚠ **一度動いてから再起動した常駐は、古い `ticked_at` を抱えたまま猶予が
+    # 張り直される**ので、🔴 **`tick: 3600s ago (limit 300s)` と出ているのに緑**という
+    # 形になる。**赤に見えるのに緑、が画面でいちばん困る。**
     def format_tick(health)
       limit = "limit #{Heartbeat.tick_limit.round}s"
-      return "#{format_seconds(health.now - health.ticked_at)} ago (#{limit})" if health.ticked_at
-      return "never (#{limit})" unless health.started_at
-      started = format_seconds(health.now - health.started_at)
-      return "never (started #{started} ago, #{limit})"
+      last = health.ticked_at ? "#{format_seconds(health.now - health.ticked_at)} ago" : 'never'
+      return "#{last} (#{limit})" unless tick_grace?(health)
+      return "#{last} (started #{format_seconds(health.now - health.started_at)} ago, #{limit})"
+    end
+
+    # 猶予が「起き上がった時刻」から数えられているか。⚠ **`Heartbeat.tick_stale?` が
+    # 新しいほうを採る条件と同じもの。**
+    def tick_grace?(health)
+      return false unless health.started_at
+      return health.ticked_at.nil? || health.ticked_at < health.started_at
     end
 
     def format_seconds(seconds)

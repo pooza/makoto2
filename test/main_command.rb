@@ -86,9 +86,27 @@ module Makoto
     end
 
     def test_tick_with_a_trace
+      Heartbeat.record_start(now: now - 120)
       Heartbeat.record_tick(now: now - 90)
 
       assert_match(/\A90s ago \(limit \d+s\)\z/, command.send(:format_tick, health))
+    end
+
+    # 🔴 **画面と判定を食い違わせない**（Codex の指摘・PR #153）。
+    #
+    # ⚠⚠ **一度 tick が完走してから再起動すると、`record_start` は古い `ticked_at` を
+    # 残したまま新しい `started_at` を書く。**⚠ **`tick_stale?` は新しいほう（＝ 起動）を
+    # 見て緑を返す**ので、🔴 **最後の tick だけを出すと「3600s ago (limit 300s)」と
+    # 赤に見えるのに緑**という形になる。**猶予の出どころを一緒に出す。**
+    def test_tick_after_a_restart_shows_the_grace_it_is_measured_from
+      Heartbeat.record_tick(now: now - 3600)
+      Heartbeat.record_start(now: now - 5)
+
+      assert_false(Heartbeat.tick_stale?(now))
+      assert_match(
+        /\A3600s ago \(started 5s ago, limit \d+s\)\z/,
+        command.send(:format_tick, health),
+      )
     end
 
     # 🔴 **起動直後の `never` は正常。**⚠⚠ **初回の tick は枠を回し終えるまで痕跡を
@@ -110,9 +128,10 @@ module Makoto
     # 数字だけ置き去りになる形にしない）。
     def test_tick_limit_comes_from_the_setting
       config['/scheduler/tick_stale'] = '1h'
+      Heartbeat.record_start(now: now - 60)
       Heartbeat.record_tick(now: now)
 
-      assert_match(/limit 3600s/, command.send(:format_tick, health))
+      assert_match(/\A0s ago \(limit 3600s\)\z/, command.send(:format_tick, health))
     end
   end
 end
