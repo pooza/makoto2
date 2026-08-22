@@ -154,8 +154,16 @@ module Makoto
     # 🔴 **「含むか」を見たいだけの側はここで足りる**（→ `LiveProgram#own_credit?`）。
     # ⚠⚠ **区切り位置は「含むか」の答えを変えない**ので、⚠ **中黒を区切りにするか
     # という一番あやふやな判断を巻き込まずに済む**（→ `credit_separator`）。
+    #
+    # 🔴 **括弧の種類は `split_artist` と揃える**（Codex の指摘・PR #156）。
+    # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `split_artist` のコメント）で、
+    # ⚠ **山括弧を落とさないと `own_credit?` が中の人を拾って役名義ごと隠す** —
+    # **「括弧の中は見ない」という約束が書き方しだいで破れる。**
+    # ⚠ **いまの曲データに `〈〉` は 0 件**だが、**取り込み直しで増えうる。**
+    BRACKETS = /[(（\[「『〈][^)）\]」』〉]*[)）\]」』〉]/
+
     def self.credit_text(value)
-      return normalize(value).gsub(/[(（\[「][^)）\]」]*[)）\]」]/, '')
+      return normalize(value).gsub(BRACKETS, '')
     end
 
     # 名義を「並んでいる 1 組ずつ」に割ったもの。⚠ **正規化済み**（→ `credit_text`）。

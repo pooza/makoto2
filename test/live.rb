@@ -472,6 +472,15 @@ module Makoto
       assert_includes(live.program.track_text(entry), 'グロッサムX2')
     end
 
+    # 🔴 **山括弧の CV 表記も括弧として落とす**（Codex の指摘・PR #156）。
+    # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `CureApiService#split_artist`）で、
+    # ⚠ **落とさないと「括弧の中は見ない」という約束が書き方しだいで破れる。**
+    def test_a_role_credit_with_an_angle_bracket_cv_note_is_shown
+      entry = Setlist::Entry.new(kind: :song, track: track_row('花奈〈CV: 宮本 佳那子〉'))
+
+      assert_includes(live.program.track_text(entry), '花奈')
+    end
+
     # ⚠ **自分を含まない名義は本編でも出す**（隠すのは自分が居るときだけ）。
     def test_an_unrelated_credit_is_shown_in_the_program
       entry = Setlist::Entry.new(kind: :song, track: track_row('高橋秀幸 & 内田順子'))
