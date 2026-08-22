@@ -115,6 +115,15 @@ module Makoto
       return Heartbeat.ticked_at
     end
 
+    # 最後に常駐が起き上がった時刻。⚠ **一度も無ければ nil。**
+    #
+    # ⚠⚠ **`ticked_at` と対で読むもの**（→ `Heartbeat.tick_stale?`）。⚠ **初回の tick は
+    # 枠を回し終えるまで痕跡を書かない**ので、**起動直後の猶予はこちらが基準になる。**
+    # ⚠ **`makoto status` の tick の行が「いつからの猶予か」を言えるように出す**（#150）。
+    def started_at
+      return Heartbeat.started_at
+    end
+
     # 復旧させるべき問題。⚠ **空なら健全。**
     #
     # ⚠⚠ **tick を別に見る**（#80 の黄 7）。⚠ **ハートビートは tick とは別の rufus
