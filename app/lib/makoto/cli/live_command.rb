@@ -14,6 +14,8 @@ module Makoto
     option :date, type: :string, desc: '下見する日付（既定は今日）。YYYY-MM-DD'
     option :limit, type: :numeric, desc: '表示する枠の数（既定は全部）'
     option :mc, type: :boolean, default: false, desc: 'MC の原稿の本文も表示する'
+    option :body, type: :boolean, default: false,
+      desc: '実際に投稿される本文を丸ごと表示する（--limit と併用する）'
     desc 'setlist', 'その日の並び（曲・カバー・MC）を表示する'
     def setlist
       @live = Live.new
@@ -51,7 +53,30 @@ module Makoto
       list.entries.first(options[:limit] || list.size).each_with_index do |entry, index|
         at = times[index]
         puts "#{at&.strftime('%H:%M') || '--:--'} [#{index}] #{label(entry, at)}"
+        dump_body(at) if options[:body]
       end
+    end
+
+    # 実際に投稿される本文（#159）。
+    #
+    # 🔴 **1 行の要約では見えないものがある** — **カバーの断り文とその後ろの 1 行アキ
+    # （#122）・URL の行・ハッシュタグの行（#64）・MC の 2 行目以降。**
+    # ⚠⚠ **#158（断り文が 8 回出て MC 宣言と重複する）は、ここを並べて初めて見えた。**
+    #
+    # ⚠ **ログにも本文は出ない**（`length` だけ）ので、⚠⚠ **投稿を読み返すには
+    # `read:statuses` が要る** — **トークンのスコープに無く、発行後に変更できない。**
+    # 🔴 **「当日どう見えるか」を安く確かめられる唯一の口。**
+    def dump_body(time)
+      body = source.call(time).to_s
+      puts body.empty? ? '（投稿しない）' : body
+      puts
+    end
+
+    # ⚠⚠ **`Live#tagged` を通す。**🔴 **ハッシュタグを足すのは `HashtagSource`** なので、
+    # ⚠ **`LiveProgram` を直に呼ぶと最終行が落ちて、また下見と投稿が食い違う**（#62）。
+    def source
+      @source ||= @live.tagged(@live.program)
+      return @source
     end
 
     # ⚠⚠ **MC は本番でいちばん本数の出る要素なのに、圧縮リハーサルでは構造的に
