@@ -152,6 +152,41 @@ module Makoto
       end
     end
 
+    # 🔴 **#162。**⚠⚠ **空・壊れた pid ファイルは `0` になり、`0` は truthy** なので
+    # `unless (target = pid)` を素通りする。⚠ **そのまま送ると
+    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM。**
+    def test_run_stop_does_not_signal_a_broken_pid_file
+      ['', "\n", 'abc', '0'].each do |body|
+        with_daemon(command: ['sleep', '300']) do |daemon|
+          File.write(daemon.pid_file, body)
+          sent = []
+          with_signal(daemon) {|target, value| sent.push([target, value])}
+          daemon.send(:run_stop)
+
+          assert_equal([], sent, "pid file: #{body.inspect}")
+          assert_path_not_exist(daemon.pid_file, "pid file: #{body.inspect}")
+        end
+      end
+    end
+
+    # 🔴 **#162。**⚠⚠ **`alive?` が false と答えている相手に TERM を送っていた** —
+    # ⚠ **`run_restart` は `run_stop if alive?` なので守られていたが、
+    # `bin/makoto_daemon.rb stop` を直に叩く経路が素通しだった。**
+    def test_run_stop_does_not_signal_a_reused_pid
+      with_daemon(command: ['sleep', '300']) do |daemon|
+        sent = []
+        with_signal(daemon) {|target, value| sent.push([target, value])}
+
+        assert_false(daemon.alive?)
+        # ⚠ `alive?` の在否確認（signal 0）は数えない。**見たいのは TERM だけ。**
+        sent.clear
+        daemon.send(:run_stop)
+
+        assert_equal([], sent)
+        assert_path_not_exist(daemon.pid_file)
+      end
+    end
+
     # ⚠ 居ないなら掃除してよい。⚠⚠ **残すと `run_start` が「already running」で
     # 無言終了する**（#80 の黄 6 で踏んだ形）。
     def test_run_stop_removes_the_pid_file_when_the_process_is_gone
