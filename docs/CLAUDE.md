@@ -1110,6 +1110,16 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 **`.rubocop.yml` は [pooza/ginseng-style](https://github.com/pooza/ginseng-style) から `inherit_gem` する**（165 行 → 34 行）。⚠ **ここに残すのは MAKOTO 固有の差分だけ**（`TargetRubyVersion` / `rubocop-sequel` と `Sequel/*` / `seed`・`var` の除外 / `bin/makoto`）。
 
+🔴 **参照は版で固定する**（2026-08-23・上流からの PR #167 を取り込み）。⚠⚠ **`branch: 'main'` のままだと、正本に cop が足された瞬間に、こちらが 1 行もコミットしていないのに次の push で CI が赤くなる**（`NewCops: enable` があるので rubocop 本体の更新でも同じ）。⚠ **上流は `ginseng-core` でこれを実測している**（同じコミットで手元は赤・CI は緑）。
+
+```ruby
+gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.0', require: false
+```
+
+- ⚠ **版を上げるのは `Gemfile` の 1 行を書き換える明示的な操作になる。**⚠⚠ **上流で設定を変えたら向こうから PR が来る**（今回もそう来た）
+- ⚠ **`group :development` だけなので常駐の挙動には 1 行も効かない。**🔴 **`0.4` の `ginseng-core` の追随（#101）とは切り離せる** — **あちらは常駐の挙動が動くのでライブ直前には入れないが、こちらは lint の設定を固定するだけでリスクを減らす方向**なので v0.3.0 に載せた
+- ⚠ **残る穴: rubocop 本体の版は浮いたまま**（`pooza/ginseng-style#55`）
+
 - 🔴 **共通に見える緩和をこのリポジトリに足さない。**⚠⚠ **足したくなったら `pooza/ginseng-style` に Issue を立てる**（22 リポジトリに散った設定が drift した、というのが正本化の動機）
 - ⚠⚠ **`inherit_gem` 先で `AllCops/Include` を書くと継承した配列を「置換」する。**⚠ **`Include: [bin/makoto]` とだけ書くと対象が 87 ファイル → 1 ファイルになり、しかも `rubocop` は緑のまま通る。**`Exclude` は `inherit_mode: merge`、**`Include` は全部書く**
 - ⚠ **`return` に多行のチェインを繋がない**（`Layout/MultilineMethodCallIndentation` が 4 スペースを要求する）。**受け皿の変数に置くか 1 行にする** — **cop は切らない**（→ ginseng-style の docs/ruby.md・makoto2 #95）
