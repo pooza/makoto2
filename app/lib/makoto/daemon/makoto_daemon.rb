@@ -130,6 +130,22 @@ module Makoto
         warn 'PID file not found. Is the daemon started?'
         exit 1
       end
+      # 🔴 **送る前に身元を確かめる**（#162）。⚠⚠ **`alive?` には #80 の黄 6（pid の
+      # 再利用）と黄 3（`0`）を塞いだが、`run_stop` はその `alive?` を通らない** —
+      # ⚠ **`run_restart` は `run_stop if alive?` なので守られていたが、
+      # `bin/makoto_daemon.rb stop` を直に叩く経路が素通しだった。**
+      #
+      # 🔴 **`pid` は `File.read(pid_file).to_i` なので、空も壊れた文字列も `0`。**
+      # ⚠⚠ **`0` は truthy なので上の `unless` を抜け、`Process.kill('TERM', 0)` ＝
+      # 呼び出し元のプロセスグループ全体に TERM を送る。**⚠ **人が手で止める経路と
+      # 復旧のラッパーが踏む**（systemd は `ExecStop` を書いていないので通らない）。
+      unless daemon_pid?(target, proc_dir: @proc_dir)
+        # ⚠ **`ESRCH` の枝と同じ扱い。**⚠⚠ **pid ファイルは掃除する** — **残すと
+        # `run_start` が「already running」で無言終了する**（#80 の黄 6 で踏んだ形）。
+        remove_pid
+        warn "PID file found, but PID #{target} is not #{app_name}."
+        return nil
+      end
       signal(target, 'TERM')
       remove_pid
     rescue Errno::ESRCH
