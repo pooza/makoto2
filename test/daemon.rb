@@ -187,6 +187,49 @@ module Makoto
       end
     end
 
+    # 🔴 **#169（Codex の P1）。**⚠⚠ **`/proc` が無い環境では身元を確かめられない** —
+    # ⚠ **`daemon_pid?` はそれを `true` に倒す**（`alive?` にとっては正しい）ので、
+    # 🔴 **止める側がそのまま使うと、素性の分からない pid へ TERM を送る。**
+    # ⚠ **pid ファイルは残す**（`EPERM` の枝と同じ。消すと孤児が確定する）。
+    def test_run_stop_refuses_when_proc_is_unavailable
+      with_daemon(proc_dir: '/nonexistent') do |daemon|
+        sent = []
+        with_signal(daemon) {|target, value| sent.push([target, value])}
+
+        assert_raise(SystemExit) {daemon.send(:run_stop)}
+        assert_equal([], sent)
+        assert_path_exist(daemon.pid_file)
+      end
+    end
+
+    # 🔴 **#169。**⚠ **読めない（`EACCES`）ときも同じ。**
+    def test_run_stop_refuses_when_the_argv_cannot_be_read
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        daemon.define_singleton_method(:argv) {|*| raise Errno::EACCES}
+        sent = []
+        with_signal(daemon) {|target, value| sent.push([target, value])}
+
+        assert_raise(SystemExit) {daemon.send(:run_stop)}
+        assert_equal([], sent)
+        assert_path_exist(daemon.pid_file)
+      end
+    end
+
+    # ⚠⚠ **「もう居ない」は確かめられている**（`/proc/{pid}` が無い）ので、
+    # 🔴 **拒まずに掃除する。**⚠ **ここを拒むと `run_start` が「already running」で
+    # 無言終了する**（#80 の黄 6）。
+    def test_run_stop_still_cleans_up_when_the_process_is_gone_from_proc
+      # ⚠ `/proc` そのものは在り、その中に pid の項目だけが無い形を作る。
+      Dir.mktmpdir do |proc_dir|
+        with_daemon(proc_dir: proc_dir) do |daemon|
+          with_signal(daemon) {|*| raise Errno::ESRCH}
+          daemon.send(:run_stop)
+
+          assert_path_not_exist(daemon.pid_file)
+        end
+      end
+    end
+
     # ⚠ 居ないなら掃除してよい。⚠⚠ **残すと `run_start` が「already running」で
     # 無言終了する**（#80 の黄 6 で踏んだ形）。
     def test_run_stop_removes_the_pid_file_when_the_process_is_gone
