@@ -145,12 +145,25 @@ module Makoto
       return [credit_parts(value).size, 1].max
     end
 
-    # 名義を「並んでいる 1 組ずつ」に割ったもの。⚠ **正規化済み**（NFKC ＋ 空白除去）。
+    # 名義を突き合わせられる形にしたもの。⚠ **正規化（NFKC ＋ 空白除去）＋ 括弧落とし**
+    # までで、**割らない。**
     #
-    # ⚠⚠ **数えるだけでなく、1 組ずつを見たい側もある**（#121 の「名義が全部自分か」）。
-    # 🔴 **割り方の規則を 2 つ持たない**ためにここに置く。
+    # ⚠⚠ **括弧の中は名義として扱わない**（`CV:` 表記・コーラス表記は「もう 1 人」では
+    # ない → `credit_count`）。⚠ **`グロッサムX2(CV:宮本佳那子)` は `グロッサムX2`。**
+    #
+    # 🔴 **「含むか」を見たいだけの側はここで足りる**（→ `LiveProgram#own_credit?`）。
+    # ⚠⚠ **区切り位置は「含むか」の答えを変えない**ので、⚠ **中黒を区切りにするか
+    # という一番あやふやな判断を巻き込まずに済む**（→ `credit_separator`）。
+    def self.credit_text(value)
+      return normalize(value).gsub(/[(（\[「][^)）\]」]*[)）\]」]/, '')
+    end
+
+    # 名義を「並んでいる 1 組ずつ」に割ったもの。⚠ **正規化済み**（→ `credit_text`）。
+    #
+    # 🔴 **割り方の規則を 2 つ持たない**ためにここに置く。⚠⚠ **割る必要があるのは
+    # 「何人並んでいるか」を数える側だけ**（#65 の `credit_count`）。
     def self.credit_parts(value)
-      stripped = normalize(value).gsub(/[(（\[「][^)）\]」]*[)）\]」]/, '')
+      stripped = credit_text(value)
       return stripped.split(credit_separator(stripped)).map(&:strip).compact_blank
     end
 

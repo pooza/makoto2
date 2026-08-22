@@ -416,21 +416,35 @@ module Makoto
       assert_not_includes(live.program.track_text(entry), '宮本佳那子')
     end
 
-    # ⚠ **合成名義でも、全部自分なら隠す**（実データは `キュアソード/剣崎真琴(CV:宮本佳那子)`）。
+    # ⚠ **合成名義でも隠す**（実データは `キュアソード/剣崎真琴(CV:宮本佳那子)`）。
     def test_a_composite_own_credit_is_hidden
       entry = Setlist::Entry.new(kind: :song, track: track_row('キュアソード/剣崎真琴(CV:宮本佳那子)'))
 
       assert_not_includes(live.program.track_text(entry), 'キュアソード')
     end
 
-    # 🔴 **中黒 1 つで並んだ共演名義を隠さない**（Codex の指摘・PR #134）。
-    # ⚠⚠ **`credit_parts` は中黒 1 つを区切りとみなさない**ので 1 組のまま来る。
-    # ⚠ **「自分の名前を含むか」で判定すると、実データの `リワインドメモリー` で
-    # 五條真由美ごと消える。**
-    def test_a_middle_dot_credit_is_not_hidden
+    # 🔴 **共演曲も隠す**（2026-08-22・オーナー判断・#155）。⚠⚠ **劇中設定では、
+    # 高橋さんとの曲なども「カバーではなく自分の歌」として歌っている**ので、
+    # ⚠ **共演者の名義はその前提では情報を足さない。**
+    def test_a_shared_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美&宮本佳那子'))
+      text = live.program.track_text(entry)
+
+      assert_not_includes(text, '五條真由美')
+      assert_not_includes(text, '宮本佳那子')
+    end
+
+    # 🔴 **中黒で並んだ共演名義も隠す。**
+    #
+    # ⚠⚠ **これは PR #134 で「隠さない」と決めた形そのもの**（実データの
+    # `リワインドメモリー`）。⚠ **当時の理由は「五條真由美ごと消えるから」**だったが、
+    # 🔴 **#155 でそれを「隠してよい」と決めたので、避ける理由が無くなった。**
+    #
+    # ⚠ **中黒を区切りとみなすかに関わらず同じ答えになる**（→ `own_credit?`）。
+    def test_a_middle_dot_credit_is_hidden
       entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美・宮本佳那子'))
 
-      assert_includes(live.program.track_text(entry), '五條真由美・宮本佳那子')
+      assert_not_includes(live.program.track_text(entry), '五條真由美')
     end
 
     # ⚠ 区切りだけが残るのは自分の名義が並んでいるだけ（隠す）。
@@ -440,11 +454,29 @@ module Makoto
       assert_not_includes(live.program.track_text(entry), 'キュアソード')
     end
 
-    # ⚠⚠ **共演曲は出す。**⚠ **隠すと相手の名前まで消える。**
-    def test_a_shared_credit_is_shown
-      entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美&宮本佳那子'))
+    # ⚠⚠ **姓名の間に空白がある表記も同じ**（#155）。⚠ **設定は「宮本 佳那子」、
+    # 曲データは「宮本佳那子」という揺れが実データにある**（→ `CureApiService.normalize`）。
+    def test_a_spaced_own_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('高橋秀幸 & 宮本 佳那子'))
+      text = live.program.track_text(entry)
 
-      assert_includes(live.program.track_text(entry), '五條真由美&宮本佳那子')
+      assert_not_includes(text, '高橋秀幸')
+      assert_not_includes(text, '佳那子')
+    end
+
+    # 🔴 **括弧の中は見ない**ので、別作品の役名義は出したまま（2026-08-20 のオーナー判断）。
+    # ⚠⚠ **隠すと「誰の曲か」が消える** — 実データの `チョキンとLet's GO！`。
+    def test_a_role_credit_with_a_cv_note_is_shown
+      entry = Setlist::Entry.new(kind: :song, track: track_row('グロッサムX2(CV:宮本佳那子)'))
+
+      assert_includes(live.program.track_text(entry), 'グロッサムX2')
+    end
+
+    # ⚠ **自分を含まない名義は本編でも出す**（隠すのは自分が居るときだけ）。
+    def test_an_unrelated_credit_is_shown_in_the_program
+      entry = Setlist::Entry.new(kind: :song, track: track_row('高橋秀幸 & 内田順子'))
+
+      assert_includes(live.program.track_text(entry), '高橋秀幸')
     end
 
     # ⚠⚠ **ゲストコーナーは必ず出す** — **他の歌手の持ち歌なので名義が意味を持つ。**
