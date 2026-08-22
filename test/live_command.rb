@@ -235,5 +235,44 @@ module Makoto
       assert_include(output, '20 枠')
       assert_equal(5, output.lines.count {|line| line.match?(/\A\d\d:\d\d \[\d+\]/)})
     end
+
+    # 🔴 **下見が実際の投稿本文を見せる**（#159）。⚠⚠ **1 行の要約では、断り文・
+    # URL・ハッシュタグ・MC の 2 行目以降が見えない** — **#158 はここを並べて初めて
+    # 見えた。**
+    def test_the_body_option_prints_what_is_posted
+      config['/live/hashtag'] = 'SONGBIRD_PARTY_TEST'
+      add_scripts(4)
+      list = setlist(20)
+      output = capture {command(body: true, limit: 3).send(:dump, list, live.timetable, date)}
+
+      assert_includes(output, '♪ ')
+      assert_includes(output, 'https://example.test/t/')
+      assert_includes(output, '#SONGBIRD_PARTY_TEST')
+    end
+
+    # ⚠ **既定の出力は変えない**（160 行の一覧としての使い勝手を壊さない）。
+    def test_the_body_is_not_printed_by_default
+      config['/live/hashtag'] = 'SONGBIRD_PARTY_TEST'
+      add_scripts(4)
+      list = setlist(20)
+      output = capture {command(limit: 3).send(:dump, list, live.timetable, date)}
+
+      assert_not_includes(output, '#SONGBIRD_PARTY_TEST')
+      assert_not_includes(output, 'https://example.test/t/')
+    end
+
+    # 🔴 **本文は「いま並べている枠」から作る**（Codex の指摘・PR #160）。
+    # ⚠⚠ **時刻から引き直すと並びをもう 1 つ組むことになり、ラベルと本文が別の枠の
+    # ものになりうる** — **下見が防ごうとしている食い違いを下見自身が作る形。**
+    #
+    # ⚠ **渡した並びの曲がそのまま出ること**で、引き直していないことを縛る。
+    def test_the_body_comes_from_the_listed_entry
+      config['/live/hashtag'] = 'SONGBIRD_PARTY_TEST'
+      add_scripts(4)
+      list = setlist(20)
+      output = capture {command(body: true, limit: 1).send(:dump, list, live.timetable, date)}
+
+      assert_includes(output, "♪ #{list.entries.first.track[:name]}")
+    end
   end
 end

@@ -14,6 +14,8 @@ module Makoto
     option :date, type: :string, desc: '下見する日付（既定は今日）。YYYY-MM-DD'
     option :limit, type: :numeric, desc: '表示する枠の数（既定は全部）'
     option :mc, type: :boolean, default: false, desc: 'MC の原稿の本文も表示する'
+    option :body, type: :boolean, default: false,
+      desc: '実際に投稿される本文を丸ごと表示する（--limit と併用する）'
     desc 'setlist', 'その日の並び（曲・カバー・MC）を表示する'
     def setlist
       @live = Live.new
@@ -51,7 +53,43 @@ module Makoto
       list.entries.first(options[:limit] || list.size).each_with_index do |entry, index|
         at = times[index]
         puts "#{at&.strftime('%H:%M') || '--:--'} [#{index}] #{label(entry, at)}"
+        dump_body(entry, at) if options[:body]
       end
+    end
+
+    # 実際に投稿される本文（#159）。
+    #
+    # 🔴 **1 行の要約では見えないものがある** — **カバーの断り文とその後ろの 1 行アキ
+    # （#122）・URL の行・ハッシュタグの行（#64）・MC の 2 行目以降。**
+    # ⚠⚠ **#158（断り文が 8 回出て MC 宣言と重複する）は、ここを並べて初めて見えた。**
+    #
+    # ⚠ **ログにも本文は出ない**（`length` だけ）ので、⚠⚠ **投稿を読み返すには
+    # `read:statuses` が要る** — **トークンのスコープに無く、発行後に変更できない。**
+    # 🔴 **「当日どう見えるか」を安く確かめられる唯一の口。**
+    #
+    # 🔴 **本文は「いま並べている枠」から作る**（Codex の指摘・PR #160）。
+    # ⚠⚠ **時刻から引き直すと `LiveProgram` が並びをもう 1 つ組む** — ⚠ **cure-api の
+    # 可用性がその間に変われば別のカバーが入りうる**ので、**1 行目のラベルと本文が
+    # 別の枠のものになる。****下見が防ごうとしている食い違いを下見自身が作る形。**
+    #
+    # ⚠ **組み立ての規則は借りたまま持ち込まない** — **本文は `LiveProgram`、
+    # タグは `HashtagSource#tag`**（→ #62）。
+    def dump_body(entry, time)
+      puts body_of(entry, time).presence || '（投稿しない）'
+      puts
+    end
+
+    def body_of(entry, time)
+      return '' if entry.mc? && time.nil?
+      text = entry.mc? ? @live.program.mc_text(entry, time) : @live.program.track_text(entry)
+      return tagger.tag(text).to_s
+    end
+
+    # ⚠⚠ **ハッシュタグを足すのは `HashtagSource`**（#64）。⚠ **ここで足すと、また
+    # 下見と投稿が食い違う。**
+    def tagger
+      @tagger ||= @live.tagged(@live.program)
+      return @tagger
     end
 
     # ⚠⚠ **MC は本番でいちばん本数の出る要素なのに、圧縮リハーサルでは構造的に
