@@ -260,5 +260,19 @@ module Makoto
       assert_not_includes(output, '#SONGBIRD_PARTY_TEST')
       assert_not_includes(output, 'https://example.test/t/')
     end
+
+    # 🔴 **本文は「いま並べている枠」から作る**（Codex の指摘・PR #160）。
+    # ⚠⚠ **時刻から引き直すと並びをもう 1 つ組むことになり、ラベルと本文が別の枠の
+    # ものになりうる** — **下見が防ごうとしている食い違いを下見自身が作る形。**
+    #
+    # ⚠ **渡した並びの曲がそのまま出ること**で、引き直していないことを縛る。
+    def test_the_body_comes_from_the_listed_entry
+      config['/live/hashtag'] = 'SONGBIRD_PARTY_TEST'
+      add_scripts(4)
+      list = setlist(20)
+      output = capture {command(body: true, limit: 1).send(:dump, list, live.timetable, date)}
+
+      assert_includes(output, "♪ #{list.entries.first.track[:name]}")
+    end
   end
 end

@@ -53,7 +53,7 @@ module Makoto
       list.entries.first(options[:limit] || list.size).each_with_index do |entry, index|
         at = times[index]
         puts "#{at&.strftime('%H:%M') || '--:--'} [#{index}] #{label(entry, at)}"
-        dump_body(at) if options[:body]
+        dump_body(entry, at) if options[:body]
       end
     end
 
@@ -66,17 +66,30 @@ module Makoto
     # ⚠ **ログにも本文は出ない**（`length` だけ）ので、⚠⚠ **投稿を読み返すには
     # `read:statuses` が要る** — **トークンのスコープに無く、発行後に変更できない。**
     # 🔴 **「当日どう見えるか」を安く確かめられる唯一の口。**
-    def dump_body(time)
-      body = source.call(time).to_s
-      puts body.empty? ? '（投稿しない）' : body
+    #
+    # 🔴 **本文は「いま並べている枠」から作る**（Codex の指摘・PR #160）。
+    # ⚠⚠ **時刻から引き直すと `LiveProgram` が並びをもう 1 つ組む** — ⚠ **cure-api の
+    # 可用性がその間に変われば別のカバーが入りうる**ので、**1 行目のラベルと本文が
+    # 別の枠のものになる。****下見が防ごうとしている食い違いを下見自身が作る形。**
+    #
+    # ⚠ **組み立ての規則は借りたまま持ち込まない** — **本文は `LiveProgram`、
+    # タグは `HashtagSource#tag`**（→ #62）。
+    def dump_body(entry, time)
+      puts body_of(entry, time).presence || '（投稿しない）'
       puts
     end
 
-    # ⚠⚠ **`Live#tagged` を通す。**🔴 **ハッシュタグを足すのは `HashtagSource`** なので、
-    # ⚠ **`LiveProgram` を直に呼ぶと最終行が落ちて、また下見と投稿が食い違う**（#62）。
-    def source
-      @source ||= @live.tagged(@live.program)
-      return @source
+    def body_of(entry, time)
+      return '' if entry.mc? && time.nil?
+      text = entry.mc? ? @live.program.mc_text(entry, time) : @live.program.track_text(entry)
+      return tagger.tag(text).to_s
+    end
+
+    # ⚠⚠ **ハッシュタグを足すのは `HashtagSource`**（#64）。⚠ **ここで足すと、また
+    # 下見と投稿が食い違う。**
+    def tagger
+      @tagger ||= @live.tagged(@live.program)
+      return @tagger
     end
 
     # ⚠⚠ **MC は本番でいちばん本数の出る要素なのに、圧縮リハーサルでは構造的に

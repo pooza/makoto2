@@ -38,7 +38,16 @@ module Makoto
     end
 
     def call(time = nil)
-      text = @source.call(time)
+      return tag(@source.call(time))
+    end
+
+    # 本文にタグを足す。
+    #
+    # ⚠ **`call` から切り出してある**のは、🔴 **下見が「投稿される本文」を自分で
+    # 組み立て直さないため**（#159）。⚠⚠ **下見は既に組んだ並びから本文を作るので、
+    # `call` の「時刻から引き直す」経路は通れない** — **通すと並びを 2 回組むことに
+    # なり、下見が防ごうとしている食い違いを下見自身が作る**（Codex の指摘・PR #160）。
+    def tag(text)
       return text if text.to_s.strip.empty?
       tags = create_tags(text)
       # ⚠⚠ **本文に既に入っていれば `TagContainer` が落とす。**⚠ **空になった
