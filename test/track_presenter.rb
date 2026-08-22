@@ -18,9 +18,9 @@ module Makoto
 
     # ⚠ カバーは断りを添える。⚠ ゲストコーナーであることが本文だけで分かること。
     def test_cover_carries_the_prefix
-      text = TrackPresenter.new(track, prefix: '今日はカバーもやります。').to_s
+      text = TrackPresenter.new(track, prefix: '（お借りした歌）').to_s
 
-      assert_equal('今日はカバーもやります。', text.lines.first.chomp)
+      assert_equal('（お借りした歌）', text.lines.first.chomp)
       assert_includes(text, '♪ 〜SONGBIRD〜')
     end
 
@@ -73,9 +73,9 @@ module Makoto
     # ⚠⚠ **断りの後ろは 1 行アキ**（#122）。⚠ **断りと曲名が地続きだと、断りが曲名の
     # 一部に見える。**
     def test_the_prefix_is_followed_by_a_blank_line
-      text = TrackPresenter.new(track, prefix: '今日はカバーもやります。').to_s
+      text = TrackPresenter.new(track, prefix: '（お借りした歌）').to_s
 
-      assert_equal(['今日はカバーもやります。', '', '♪ 〜SONGBIRD〜'],
+      assert_equal(['（お借りした歌）', '', '♪ 〜SONGBIRD〜'],
         text.lines.first(3).map(&:chomp))
     end
 
