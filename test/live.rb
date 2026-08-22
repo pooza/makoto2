@@ -464,21 +464,45 @@ module Makoto
       assert_not_includes(text, '佳那子')
     end
 
-    # 🔴 **括弧の中は見ない**ので、別作品の役名義は出したまま（2026-08-20 のオーナー判断）。
-    # ⚠⚠ **隠すと「誰の曲か」が消える** — 実データの `チョキンとLet's GO！`。
-    def test_a_role_credit_with_a_cv_note_is_shown
+    # 🔴 **括弧の中も見る**（2026-08-23 のオーナー判断・#164）。⚠⚠ **別作品の役名義も
+    # 隠す** — 実データの `チョキンとLet's GO！`。
+    #
+    # ⚠ **2026-08-20 は「隠すと『誰の曲か』が消える」として出したままにしていた。**
+    # 🔴 **取り下げた理由は「これはバースデーライブに限った話」だから** — ⚠⚠ **当日は
+    # 本人の持ち歌というテイで通す。**
+    def test_a_role_credit_with_a_cv_note_is_hidden
       entry = Setlist::Entry.new(kind: :song, track: track_row('グロッサムX2(CV:宮本佳那子)'))
 
-      assert_includes(live.program.track_text(entry), 'グロッサムX2')
+      assert_not_includes(live.program.track_text(entry), 'グロッサムX2')
     end
 
-    # 🔴 **山括弧の CV 表記も括弧として落とす**（Codex の指摘・PR #156）。
-    # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `CureApiService#split_artist`）で、
-    # ⚠ **落とさないと「括弧の中は見ない」という約束が書き方しだいで破れる。**
-    def test_a_role_credit_with_an_angle_bracket_cv_note_is_shown
+    # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `CureApiService#split_artist`）。
+    # ⚠ **山括弧でも同じ答えになること**（括弧の種類で判定が変わらない）。
+    def test_a_role_credit_with_an_angle_bracket_cv_note_is_hidden
       entry = Setlist::Entry.new(kind: :song, track: track_row('花奈〈CV: 宮本 佳那子〉'))
 
-      assert_includes(live.program.track_text(entry), '花奈')
+      assert_not_includes(live.program.track_text(entry), '花奈')
+    end
+
+    # 🔴 **ユニット名義の括弧の中に自分が居ても隠す**（#164 の本体）。
+    # ⚠⚠ **実データの `ありがとうがいっぱい`** — **ユニット名そのものには自分が
+    # 入っていないので、括弧を落とすと「自分を含まない名義」に見えていた。**
+    def test_a_unit_credit_listing_own_name_in_brackets_is_hidden
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('キュア・レインボーズ(五條真由美・工藤真由・宮本佳那子・池田彩)'))
+      text = live.program.track_text(entry)
+
+      assert_not_includes(text, 'キュア・レインボーズ')
+      assert_not_includes(text, '五條真由美')
+    end
+
+    # 🔴 **コーラス表記で並んでいても隠す**（#164）。⚠ 実データの
+    # `DANZEN！ふたりはプリキュア ~唯一無二の光たち~`。
+    def test_a_chorus_note_with_own_name_is_hidden
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('五條真由美(コーラス:うちやえゆか・宮本佳那子)'))
+
+      assert_not_includes(live.program.track_text(entry), '五條真由美')
     end
 
     # ⚠ **自分を含まない名義は本編でも出す**（隠すのは自分が居るときだけ）。
