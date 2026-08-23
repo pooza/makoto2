@@ -190,25 +190,15 @@ module Makoto
     # この判定から外せた。**⚠⚠ **割る必要があるのは「何人並んでいるか」を数える側
     # だけ**（#65 の `credit_count`）。
     #
-    # ⚠ **設定が無ければ隠さない**（`optional_config`。消せば元の挙動に戻る → #77）。
+    # 🔴 **本人がメンバーのユニット名義もここに入る**（2026-08-23・**#177**）。
+    # ⚠⚠ **`キュア・カルテット` は名義に本人の名前を含まない**ので、
+    # **`own_artists` だけでは拾えなかった。**
+    #
+    # ⚠ **設定が無ければ隠さない**（消せば元の挙動に戻る → #77）。
+    # 🔴 **規則そのものは `OwnCredit`** — ⚠⚠ **本編・カバー母集合・表示の 3 箇所が
+    # 同じ判定を使う**（食い違うと「本人の曲を借り物として出す」形になる → #177）。
     def own_credit?(value)
-      return false if own_artists.empty?
-      text = CureApiService.normalize(value)
-      return false if text.blank?
-      return text.match?(own_pattern)
-    end
-
-    def own_pattern
-      @own_pattern ||= Regexp.union(own_artists)
-      return @own_pattern
-    end
-
-    # ⚠ **突き合わせる前に正規化する**（NFKC ＋ 空白除去）。⚠⚠ **設定は「宮本 佳那子」、
-    # 曲データは「宮本佳那子」**という形で揺れる（→ `CureApiService.normalize`）。
-    def own_artists
-      @own_artists ||= Array(optional_config('/live/setlist/own_artists'))
-        .map {|name| CureApiService.normalize(name)}.compact_blank
-      return @own_artists
+      return OwnCredit.own?(value)
     end
 
     # 台本を割る継ぎ目。⚠ **継ぎ目が 1 つも引けなければ 1 本の直線に戻す**

@@ -108,8 +108,10 @@ module Makoto
     # 残る**のは、`dedupe_key` が括弧の中身を残すから（→ `TrackName`）。
     def songs
       @songs ||= dedupe_versions(
-        distinct(@repository.by_kind('vocal', @repository.live))
-          .order(:release_date, :id).all.reject {|track| excluded?(track)},
+        distinct(@repository.by_kind('vocal', OwnCredit.records(@repository)))
+          .order(:release_date, :id).all
+          .select {|track| track[:live] || OwnCredit.own?(track[:artist_name])}
+          .reject {|track| excluded?(track)},
       )
       return @songs
     end

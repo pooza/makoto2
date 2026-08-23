@@ -88,6 +88,11 @@ properties:
             type: array
             items:
               type: string
+          # ⚠ 本人がメンバーのユニット名義（#177）。⚠⚠ 必須にしない。
+          own_units:
+            type: array
+            items:
+              type: string
           # ⚠ 本編から外す曲（#63）。live フラグは触らない（Setlist#excluded?）。
           exclude:
             type: object
