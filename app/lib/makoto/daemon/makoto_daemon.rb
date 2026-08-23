@@ -182,6 +182,7 @@ module Makoto
     # | --- | --- | --- | --- |
     # | `/proc` が無い | **false** | true | 🔴 **送らない・pid ファイルは残す** |
     # | `/proc/{pid}` が読めない（`EACCES`） | **false** | true | 🔴 **送らない・pid ファイルは残す** |
+    # | `/proc/{pid}` の stat が拒まれる | **false** | true | 🔴 **送らない・pid ファイルは残す** |
     # | `/proc/{pid}` が無い（もう居ない） | true | true | 送る → `ESRCH` → 掃除 |
     # | argv が読めて別物 | true | **false** | 送らない・掃除 |
     # | argv が読めて常駐 | true | true | ✅ **送る** |
@@ -192,10 +193,25 @@ module Makoto
     def identifiable?(target)
       return false unless File.directory?(@proc_dir)
       entry = File.join(@proc_dir, target.to_s)
-      return true unless File.directory?(entry)
+      return true unless proc_entry?(entry)
       argv(entry)
       return true
     rescue SystemCallError
+      return false
+    end
+
+    # `/proc/{pid}` が**在るか**（#169・Codex の 2 巡目）。
+    #
+    # 🔴 **`File.directory?` を使わない。**⚠⚠ **あれは「無い」も「stat を拒まれた」も
+    # 同じ false に畳む** — ⚠ **拒まれたほうが「もう居ない」に化け、`identifiable?`
+    # が true を返して `TERM` が飛ぶ**（＝ この PR が畳もうとしている形が、
+    # 1 段下に残っていた）。
+    #
+    # ⚠ **`ENOENT` だけを「確かめて、居ないと分かった」に倒し**、⚠⚠ **それ以外の
+    # `SystemCallError` は呼び元の `rescue` へ抜けさせる**（＝ 確かめられなかった）。
+    def proc_entry?(entry)
+      return File.stat(entry).directory?
+    rescue Errno::ENOENT
       return false
     end
 
