@@ -496,13 +496,27 @@ module Makoto
       assert_not_includes(text, '五條真由美')
     end
 
-    # 🔴 **コーラス表記で並んでいても隠す**（#164）。⚠ 実データの
-    # `DANZEN！ふたりはプリキュア ~唯一無二の光たち~`。
-    def test_a_chorus_note_with_own_name_is_hidden
+    # 🔴 **コーラスは本人の判定に使わない**（2026-08-23・オーナー・**#177**）。
+    #
+    # ⚠⚠ **#164 の「コーラス表記で並んでいても隠す」を取り下げた形。**⚠ **実データの
+    # `DANZEN!ふたりはプリキュア ~唯一無二の光たち~`**（本編・2 行）で、
+    # 🔴 **コーラスでの参加はその曲を本人の曲にしない**ので、**名義は出す。**
+    #
+    # ⚠ **`own_units`（#177）で本人の曲を増やす向きだけでなく、
+    # 減らす向きにも同じ規則が効く。**
+    def test_a_chorus_only_credit_is_shown
       entry = Setlist::Entry.new(kind: :song,
         track: track_row('五條真由美(コーラス:うちやえゆか・宮本佳那子)'))
 
-      assert_not_includes(live.program.track_text(entry), '五條真由美')
+      assert_includes(live.program.track_text(entry), '五條真由美')
+    end
+
+    # ⚠ **落とすのはコーラスの区画だけ** — **主名義が本人なら隠す。**
+    def test_a_credit_with_own_name_and_a_chorus_is_hidden
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('宮本佳那子/コーラス:ヤング・フレッシュ'))
+
+      assert_not_includes(live.program.track_text(entry), '宮本佳那子')
     end
 
     # ⚠ **自分を含まない名義は本編でも出す**（隠すのは自分が居るときだけ）。

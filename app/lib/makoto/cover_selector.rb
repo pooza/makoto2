@@ -66,9 +66,14 @@ module Makoto
 
     # ⚠ `dedupe_key` が NULL の行を部分集合に混ぜない。**`NOT IN` は NULL が 1 つでも
     # 混ざると 1 行も返さない**ので、静かに「カバー無し」になる。
+    # 🔴 **本人がメンバーのユニット名義の曲を混ぜない**（#177）。⚠⚠ **`live` フラグは
+    # 収集の産物なので、`キュア・カルテット` 名義の曲は「他の歌手の持ち歌」に見える** —
+    # ⚠ **当たると本人の曲を「（お借りした歌）」として出すことになる**（実測で 4 曲）。
+    # ⚠⚠ **判定は `OwnCredit`**（本編・表示と同じ規則 → `Setlist#own_records`）。
     def pool_of_singers
       live_keys = @repository.live.exclude(dedupe_key: nil).select(:dedupe_key)
       pool = distinct(@repository.by_kind('vocal')).exclude(dedupe_key: live_keys).order(:id).all
+      pool = pool.reject {|track| OwnCredit.own?(track[:artist_name])}
       return pool.select {|track| @cure_api.singer?(track[:artist_name])}
     end
 

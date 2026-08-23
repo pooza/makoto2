@@ -205,6 +205,64 @@ module Makoto
     end
 
     # ⚠ **カバーはライブ用に入っていない曲だけ。**本編の曲をカバーとして出さない。
+    # 🔴 **#177。**⚠⚠ **本人がメンバーのユニット名義の曲は、`live` が立っていなくても
+    # 本編で歌う** — ⚠ **収集（`seed`）は名義で集めるので、ユニット名義の曲は
+    # `live` に入っていない。**
+    def test_a_unit_the_singer_belongs_to_is_a_song_not_a_cover
+      seed(songs: 6, covers: 2)
+      add_cover('ユニットの曲', 'キュア・カルテット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      entries = setlist(12).entries
+
+      assert_includes(names(entries), 'ユニットの曲')
+      assert_empty(entries.select(&:cover?).map {|entry| entry.track[:name]}
+        .grep('ユニットの曲'))
+    end
+
+    # ⚠ **中黒の有無で外れない**（供給元の表記は揃っていない）。
+    def test_the_unit_matches_without_the_separator
+      seed(songs: 6, covers: 2)
+      add_cover('ユニットの曲', 'キュアカルテット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      assert_includes(names(setlist(12).entries), 'ユニットの曲')
+    end
+
+    # ⚠⚠ **粗い絞り込みが混ぜた他人の曲を本編に入れない。**
+    def test_another_singer_stays_a_cover
+      seed(songs: 6, covers: 2)
+      add_cover('他人の曲', '別のユニット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      entries = setlist(12).entries
+      song_names = entries.select(&:song?).map {|entry| entry.track[:name]}
+
+      assert_not_includes(song_names, '他人の曲')
+    end
+
+    # 🔴 **コーラスは本人の判定に使わない**（2026-08-23・オーナー・#177）。
+    # ⚠⚠ **コーラスで参加していても、その曲は本人の曲ではない。**
+    def test_a_chorus_credit_does_not_make_it_a_song
+      seed(songs: 6, covers: 2)
+      add_cover('コーラスで入った曲', '別の歌手/コーラス:キュア・カルテット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      entries = setlist(12).entries
+      song_names = entries.select(&:song?).map {|entry| entry.track[:name]}
+
+      assert_not_includes(song_names, 'コーラスで入った曲')
+    end
+
+    # ⚠ **落とすのはコーラスの区画だけ** — **主名義が本人なら本人の曲。**
+    def test_the_main_credit_still_counts_with_a_chorus
+      seed(songs: 6, covers: 2)
+      add_cover('本人が主名義の曲', 'キュア・カルテット/コーラス:別の歌手')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      assert_includes(names(setlist(12).entries), '本人が主名義の曲')
+    end
+
     def test_covers_never_come_from_the_live_corpus
       seed(songs: 8, covers: 6)
       live_names = setlist(20).songs.map {|track| track[:name]}
@@ -342,10 +400,13 @@ module Makoto
     end
 
     # ⚠ 部分充填も黙らない（要求 4 に対して 1 しか置けない、が静かに起きる）。
+    #
+    # ⚠⚠ **名義は本人以外にする**（#177）— 🔴 **本人名義の曲はカバー母集合から
+    # 落ちる**ので、本人名義で組むと「1 曲しか置けない」ではなく「0 曲」になる。
     def test_partial_fill_is_reported
       seed(songs: 8, covers: 0)
-      add_cover('たった 1 曲', '宮本佳那子')
-      stub_singers([{'name' => '宮本佳那子', 'members' => []}])
+      add_cover('たった 1 曲', '共演の歌手')
+      stub_singers([{'name' => '共演の歌手', 'members' => []}])
 
       assert_include(warnings_of(selector), 'fewer covers than requested')
     end

@@ -20,6 +20,7 @@ module Makoto
       '/live/mc/hinge',
       '/live/mc/cover',
       '/live/setlist/own_artists',
+      '/live/setlist/own_units',
     ].freeze
 
     def date
@@ -121,6 +122,17 @@ module Makoto
       program = Live.new(repository: MessageRepository.new(corpus_db)).program
 
       assert_includes(program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ ユニットの一覧を消せば、ユニット名義の曲は本人の曲として扱わない（#177）。
+    def test_a_unit_track_is_not_a_song_without_own_units
+      drop('/live/setlist/own_units')
+      entry = Setlist::Entry.new(kind: :song,
+        track: {name: '曲名', artist_name: 'キュア・カルテット', url: 'https://example.test/t'})
+      program = Live.new(repository: MessageRepository.new(corpus_db)).program
+
+      # ⚠ 名義を隠す判定も同じ設定を見る（`OwnCredit`）。
+      assert_includes(program.track_text(entry), 'キュア・カルテット')
     end
 
     # ⚠ カバーの断りを消しても曲の本文は組める。
