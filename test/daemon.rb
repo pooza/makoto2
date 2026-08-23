@@ -24,6 +24,15 @@ module Makoto
       end
     end
 
+    # その項目の stat が拒まれるか。⚠ **`File.directory?` と違い、「無い」と
+    # 「拒まれた」を分ける。**
+    def stat_denied?(entry)
+      File.stat(entry)
+      return false
+    rescue Errno::EACCES
+      return true
+    end
+
     def test_alive_without_a_pid_file
       with_daemon(pid: nil) do |daemon|
         assert_false(daemon.alive?)
@@ -184,6 +193,78 @@ module Makoto
 
         assert_equal([], sent)
         assert_path_not_exist(daemon.pid_file)
+      end
+    end
+
+    # 🔴 **#169（Codex の P1）。**⚠⚠ **`/proc` が無い環境では身元を確かめられない** —
+    # ⚠ **`daemon_pid?` はそれを `true` に倒す**（`alive?` にとっては正しい）ので、
+    # 🔴 **止める側がそのまま使うと、素性の分からない pid へ TERM を送る。**
+    # ⚠ **pid ファイルは残す**（`EPERM` の枝と同じ。消すと孤児が確定する）。
+    def test_run_stop_refuses_when_proc_is_unavailable
+      with_daemon(proc_dir: '/nonexistent') do |daemon|
+        sent = []
+        with_signal(daemon) {|target, value| sent.push([target, value])}
+
+        assert_raise(SystemExit) {daemon.send(:run_stop)}
+        assert_equal([], sent)
+        assert_path_exist(daemon.pid_file)
+      end
+    end
+
+    # 🔴 **#169。**⚠ **読めない（`EACCES`）ときも同じ。**
+    def test_run_stop_refuses_when_the_argv_cannot_be_read
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        daemon.define_singleton_method(:argv) {|*| raise Errno::EACCES}
+        sent = []
+        with_signal(daemon) {|target, value| sent.push([target, value])}
+
+        assert_raise(SystemExit) {daemon.send(:run_stop)}
+        assert_equal([], sent)
+        assert_path_exist(daemon.pid_file)
+      end
+    end
+
+    # 🔴 **#169 の 2 巡目（Codex）。**⚠⚠ **`/proc` は読めるが `/proc/{pid}` の stat が
+    # 拒まれる形**（親に検索権が無い）。⚠ **`File.directory?` はこれを「無い」と
+    # 同じ false に畳む**ので、⚠⚠ **「確かめて、居ないと分かった」に化けて TERM が
+    # 飛んでいた。**🔴 **拒まれたなら送らず、pid ファイルも残す。**
+    def test_run_stop_refuses_when_the_proc_entry_cannot_be_stat
+      Dir.mktmpdir do |proc_dir|
+        entry = File.join(proc_dir, Process.pid.to_s)
+        FileUtils.mkdir_p(entry)
+        # ⚠ 検索権（`x`）だけを落とす → 親は読めるが子の stat が `EACCES`。
+        File.chmod(0o600, proc_dir)
+        begin
+          # ⚠⚠ **root で走らせると権限が効かない**（stat が通ってしまう）ので、
+          # **そのときは判定できない**。
+          omit('stat が拒まれない（root か)') unless stat_denied?(entry)
+          with_daemon(proc_dir: proc_dir) do |daemon|
+            sent = []
+            with_signal(daemon) {|target, value| sent.push([target, value])}
+
+            assert_raise(SystemExit) {daemon.send(:run_stop)}
+            assert_equal([], sent)
+            assert_path_exist(daemon.pid_file)
+          end
+        ensure
+          # ⚠ 戻さないと `Dir.mktmpdir` の後始末が失敗する。
+          File.chmod(0o700, proc_dir)
+        end
+      end
+    end
+
+    # ⚠⚠ **「もう居ない」は確かめられている**（`/proc/{pid}` が無い）ので、
+    # 🔴 **拒まずに掃除する。**⚠ **ここを拒むと `run_start` が「already running」で
+    # 無言終了する**（#80 の黄 6）。
+    def test_run_stop_still_cleans_up_when_the_process_is_gone_from_proc
+      # ⚠ `/proc` そのものは在り、その中に pid の項目だけが無い形を作る。
+      Dir.mktmpdir do |proc_dir|
+        with_daemon(proc_dir: proc_dir) do |daemon|
+          with_signal(daemon) {|*| raise Errno::ESRCH}
+          daemon.send(:run_stop)
+
+          assert_path_not_exist(daemon.pid_file)
+        end
       end
     end
 

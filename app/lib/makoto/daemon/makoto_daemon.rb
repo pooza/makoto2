@@ -130,22 +130,7 @@ module Makoto
         warn 'PID file not found. Is the daemon started?'
         exit 1
       end
-      # 🔴 **送る前に身元を確かめる**（#162）。⚠⚠ **`alive?` には #80 の黄 6（pid の
-      # 再利用）と黄 3（`0`）を塞いだが、`run_stop` はその `alive?` を通らない** —
-      # ⚠ **`run_restart` は `run_stop if alive?` なので守られていたが、
-      # `bin/makoto_daemon.rb stop` を直に叩く経路が素通しだった。**
-      #
-      # 🔴 **`pid` は `File.read(pid_file).to_i` なので、空も壊れた文字列も `0`。**
-      # ⚠⚠ **`0` は truthy なので上の `unless` を抜け、`Process.kill('TERM', 0)` ＝
-      # 呼び出し元のプロセスグループ全体に TERM を送る。**⚠ **人が手で止める経路と
-      # 復旧のラッパーが踏む**（systemd は `ExecStop` を書いていないので通らない）。
-      unless daemon_pid?(target, proc_dir: @proc_dir)
-        # ⚠ **`ESRCH` の枝と同じ扱い。**⚠⚠ **pid ファイルは掃除する** — **残すと
-        # `run_start` が「already running」で無言終了する**（#80 の黄 6 で踏んだ形）。
-        remove_pid
-        warn "PID file found, but PID #{target} is not #{app_name}."
-        return nil
-      end
+      return nil unless stoppable?(target)
       signal(target, 'TERM')
       remove_pid
     rescue Errno::ESRCH
@@ -158,6 +143,76 @@ module Makoto
       # 元のプロセスは誰も知らないまま投稿し続ける）。
       warn "#{app_name} is running (PID #{target}) but could not be signalled. PID file kept."
       exit 1
+    end
+
+    # 🔴 **その pid へ `TERM` を送ってよいか**（#162 / #169）。
+    #
+    # ⚠⚠ **`alive?` には #80 の黄 6（pid の再利用）と黄 3（`0`）を塞いだが、`run_stop`
+    # はその `alive?` を通らない** — ⚠ **`run_restart` は `run_stop if alive?` なので
+    # 守られていたが、`bin/makoto_daemon.rb stop` を直に叩く経路が素通しだった。**
+    #
+    # 🔴 **`pid` は `File.read(pid_file).to_i` なので、空も壊れた文字列も `0`。**
+    # ⚠⚠ **`0` は truthy なので `run_stop` 冒頭の `unless` を抜け、
+    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM を送る。**
+    # ⚠ **人が手で止める経路と復旧のラッパーが踏む**（systemd は `ExecStop` を
+    # 書いていないので通らない）。
+    #
+    # 🔴 **確かめられなかったときも送らない**（Codex の P1・#169）。⚠⚠ **`daemon_pid?`
+    # は「確かめられない」を `true` に倒す** — ⚠ **それは `alive?` にとっては正しい**
+    # （二重起動を避けるほうが重い）が、🔴 **止める側は破壊的なので、確かめられないなら
+    # 何もしないほうが安全。**⚠ **そのときは pid ファイルを残す**（`EPERM` の枝と同じ。
+    # ⚠⚠ **消した瞬間に孤児が確定する**）。
+    def stoppable?(target)
+      unless identifiable?(target)
+        warn "#{app_name} (PID #{target}) could not be identified. PID file kept."
+        exit 1
+      end
+      return true if daemon_pid?(target, proc_dir: @proc_dir)
+      # ⚠ **確かめて別物だったなら掃除してよい**（`ESRCH` の枝と同じ扱い）。⚠⚠ **残すと
+      # `run_start` が「already running」で無言終了する**（#80 の黄 6 で踏んだ形）。
+      remove_pid
+      warn "PID file found, but PID #{target} is not #{app_name}."
+      return false
+    end
+
+    # 身元を**確かめられたか**（#169）。⚠⚠ **「確かめて別物だった」とは区別する** —
+    # **`daemon_pid?` は両方を混ぜて `true` / `false` に畳んでしまう。**
+    #
+    # | | `identifiable?` | `daemon_pid?` | `run_stop` |
+    # | --- | --- | --- | --- |
+    # | `/proc` が無い | **false** | true | 🔴 **送らない・pid ファイルは残す** |
+    # | `/proc/{pid}` が読めない（`EACCES`） | **false** | true | 🔴 **送らない・pid ファイルは残す** |
+    # | `/proc/{pid}` の stat が拒まれる | **false** | true | 🔴 **送らない・pid ファイルは残す** |
+    # | `/proc/{pid}` が無い（もう居ない） | true | true | 送る → `ESRCH` → 掃除 |
+    # | argv が読めて別物 | true | **false** | 送らない・掃除 |
+    # | argv が読めて常駐 | true | true | ✅ **送る** |
+    #
+    # ⚠ **「もう居ない」を false にしない。**⚠⚠ **そこを送らずに pid ファイルを残すと、
+    # `run_start` が「already running」で無言終了する**（#80 の黄 6 で踏んだ形）。
+    # 🔴 **確かめられなかったのではなく、確かめて「居ない」と分かった状態。**
+    def identifiable?(target)
+      return false unless File.directory?(@proc_dir)
+      entry = File.join(@proc_dir, target.to_s)
+      return true unless proc_entry?(entry)
+      argv(entry)
+      return true
+    rescue SystemCallError
+      return false
+    end
+
+    # `/proc/{pid}` が**在るか**（#169・Codex の 2 巡目）。
+    #
+    # 🔴 **`File.directory?` を使わない。**⚠⚠ **あれは「無い」も「stat を拒まれた」も
+    # 同じ false に畳む** — ⚠ **拒まれたほうが「もう居ない」に化け、`identifiable?`
+    # が true を返して `TERM` が飛ぶ**（＝ この PR が畳もうとしている形が、
+    # 1 段下に残っていた）。
+    #
+    # ⚠ **`ENOENT` だけを「確かめて、居ないと分かった」に倒し**、⚠⚠ **それ以外の
+    # `SystemCallError` は呼び元の `rescue` へ抜けさせる**（＝ 確かめられなかった）。
+    def proc_entry?(entry)
+      return File.stat(entry).directory?
+    rescue Errno::ENOENT
+      return false
     end
 
     # ⚠ **`Process.kill` を直に呼ばずここを通す。**⚠⚠ **テストが差し替える継ぎ目**で、
