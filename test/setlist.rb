@@ -241,6 +241,28 @@ module Makoto
       assert_not_includes(song_names, '他人の曲')
     end
 
+    # 🔴 **コーラスは本人の判定に使わない**（2026-08-23・オーナー・#177）。
+    # ⚠⚠ **コーラスで参加していても、その曲は本人の曲ではない。**
+    def test_a_chorus_credit_does_not_make_it_a_song
+      seed(songs: 6, covers: 2)
+      add_cover('コーラスで入った曲', '別の歌手/コーラス:キュア・カルテット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      entries = setlist(12).entries
+      song_names = entries.select(&:song?).map {|entry| entry.track[:name]}
+
+      assert_not_includes(song_names, 'コーラスで入った曲')
+    end
+
+    # ⚠ **落とすのはコーラスの区画だけ** — **主名義が本人なら本人の曲。**
+    def test_the_main_credit_still_counts_with_a_chorus
+      seed(songs: 6, covers: 2)
+      add_cover('本人が主名義の曲', 'キュア・カルテット/コーラス:別の歌手')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      assert_includes(names(setlist(12).entries), '本人が主名義の曲')
+    end
+
     def test_covers_never_come_from_the_live_corpus
       seed(songs: 8, covers: 6)
       live_names = setlist(20).songs.map {|track| track[:name]}
