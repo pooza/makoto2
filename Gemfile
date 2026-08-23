@@ -12,12 +12,13 @@ gem 'sqlite3'
 # ⚠ WebUI ではない。⚠⚠ 管理コンソールは作らないという決定は変えていない。
 gem 'puma'
 gem 'thor'
+# リハーサルで日付だけを騙すために使う（#110）。⚠⚠ **本番の group に置く。**
+# ⚠ `bydo` と `rubicon` で gem 構成が違うと、それ自体が「日付以外は全く同じ」を崩す。
+# 🔴 発動は環境変数で、投稿先が allowlist に無ければ起動時に落ちる（→ TimeTravel）。
+gem 'timecop'
 
 group :development do
-  gem 'rubocop'
-  gem 'rubocop-minitest'
-  gem 'rubocop-performance'
-  gem 'rubocop-rake'
+  gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.0', require: false
   gem 'rubocop-sequel'
   gem 'test-unit'
   gem 'webmock'

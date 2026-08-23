@@ -3,8 +3,7 @@ module Makoto
     SINGERS = [
       {'name' => '宮本 佳那子', 'members' => []},
       {'name' => '五條 真由美', 'members' => []},
-      {'name' => 'キュア・レインボーズ',
-       'members' => ['五條真由美', 'うちやえゆか', '工藤真由', '宮本佳那子']},
+      {'name' => 'キュア・レインボーズ', 'members' => ['五條真由美', 'うちやえゆか', '工藤真由', '宮本佳那子']},
     ].freeze
 
     # ⚠⚠ **写しを持ち越さない**（#88）。⚠ **引けなかったときに写しで代わる**ので、
@@ -23,10 +22,11 @@ module Makoto
       @url = config['/cure_api/url']
     end
 
+    # ⚠ `return` に多行のチェインを繋げない（rubocop が 4 スペースを要求し、
+    # 「インデントは論理構造だけ」の方針と衝突する → #80 の黄 12）。
     def stub_singers(records = SINGERS, status: 200)
-      return stub_request(:get, "#{@url}/singers")
-          .to_return(status: status, body: records.to_json,
-            headers: {'Content-Type' => 'application/json'})
+      headers = {'Content-Type' => 'application/json'}
+      return stub_request(:get, "#{@url}/singers").to_return(status: status, body: records.to_json, headers: headers)
     end
 
     def service
@@ -276,6 +276,83 @@ module Makoto
     def test_credit_count_never_returns_zero
       assert_equal(1, CureApiService.credit_count(nil))
       assert_equal(1, CureApiService.credit_count(''))
+    end
+
+    def stub_html(body = '<html><head><meta name="viewport"></head></html>')
+      headers = {'Content-Type' => 'text/html'}
+      return stub_request(:get, "#{@url}/singers").to_return(status: 200, body: body, headers: headers)
+    end
+
+    # 🔴 **#105 の本体。**⚠⚠ **200 で非 JSON が返ると `["name"]` が名義リストとして
+    # 成立していた** — **`String#[]` が部分一致で substring を返す**ので、本文に
+    # `name` の 4 文字があれば（`<meta name=...>` でまず含まれる）`record['name']` が
+    # `"name"` を返す。⚠ **`available?` が真になるので「cure-api は生きているのに
+    # 1 件も一致しない」と見え、誤診しやすい。**
+    def test_a_non_json_body_is_rejected
+      stub_html
+      api = service
+
+      assert_empty(api.singer_names)
+      assert_false(api.available?)
+    end
+
+    # ⚠ 配列でも、中身が Hash でなければ同じく弾く（`['name']` が返る形）。
+    def test_an_array_of_strings_is_rejected
+      headers = {'Content-Type' => 'application/json'}
+      stub_request(:get, "#{@url}/singers")
+        .to_return(status: 200, body: ['name'].to_json, headers: headers)
+
+      assert_empty(service.singer_names)
+    end
+
+    # 🔴 **汚れた写しを焼き付けない。**⚠⚠ **#88 の保険（cure-api が落ちていても
+    # 並びを変えない）が、以後ずっと `["name"]` を返す形**になっていた。⚠ 写しを
+    # 使い始めたら process 内では引き直さないので、**再起動しても写しが正のまま。**
+    def test_a_malformed_response_keeps_the_stored_copy
+      stub_singers
+      expected = service.singer_names
+
+      WebMock.reset!
+      stub_html
+      api = service
+
+      assert_equal(expected, api.singer_names)
+      # ⚠ 写しで代わったこと自体は従来どおり残る。
+      assert_true(api.stale?)
+      assert_includes(JSON.parse(File.read(CureApiService.cache_path)), '宮本佳那子')
+    end
+
+    # ⚠ 写しが無ければ書かない（`["name"]` がディスクに落ちない）。
+    def test_a_malformed_response_does_not_write_a_copy
+      stub_html
+      service.singer_names
+
+      assert_path_not_exist(CureApiService.cache_path)
+    end
+
+    # ⚠⚠ **黙って空にしない。**⚠ 「落ちている」と「200 で変なものを返している」は
+    # 直し方が違うので、ログで区別できること。⚠ **本文は載せない**（HTML が丸ごと出る）。
+    def test_a_malformed_response_is_reported
+      stub_html
+      api = service
+      recorder = []
+      api.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| recorder.push(payload)}
+        def error(*)
+        end
+      end.new(nil))
+      api.singer_names
+
+      assert_include(recorder.map {|payload| payload[:message].to_s}, 'unexpected response shape')
+      assert_equal('String', recorder.first[:type])
+    end
+
+    # ⚠ `members` が配列でなければ拾わない。⚠⚠ Hash だと `Array()` が組の配列を返し、
+    # `[["name", "..."]]` のような値が名義に混ざる。
+    def test_members_must_be_an_array
+      stub_singers([{'name' => '宮本 佳那子', 'members' => {'a' => 'b'}}])
+
+      assert_equal(['宮本佳那子'], service.singer_names)
     end
   end
 end

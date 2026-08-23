@@ -50,6 +50,7 @@ properties:
       url:
         type: string
         format: uri
+        pattern: '^https?://'
     required:
       - url
   # バースデーライブ（#13）。⚠ 欠けると PostingJob が作れず、11/4 に何も起きない。
@@ -81,6 +82,17 @@ properties:
           cover_solo_weight:
             type: integer
             minimum: 0
+          # ⚠ ライブの本編で名義を出さない、自分の名義（#121）。
+          # ⚠⚠ 必須にしない — 消せば名義を出す（元の挙動に戻る）。
+          own_artists:
+            type: array
+            items:
+              type: string
+          # ⚠ 本人がメンバーのユニット名義（#177）。⚠⚠ 必須にしない。
+          own_units:
+            type: array
+            items:
+              type: string
           # ⚠ 本編から外す曲（#63）。live フラグは触らない（Setlist#excluded?）。
           exclude:
             type: object
@@ -114,6 +126,12 @@ properties:
           # 引けなければ通常の割合で引く（Setlist のアンカーと同じ判断）。
           hinge:
             type: string
+          # ⚠ ゲストコーナーの塊の直前に置く台本の slug（#117）。前半・後半の順。
+          # ⚠⚠ 必須にしない — 引けなければ通常の割合で引く。
+          cover:
+            type: array
+            items:
+              type: string
         required:
           - type
     required:
@@ -127,14 +145,61 @@ properties:
     enum:
       - development
       - production
+  # ⚠ 外への HTTP（#80 の緑 3）。⚠⚠ **origin/main からの持ち越しで、設定に在るのに
+  # schema が知らなかった。**
+  #
+  # ⚠ **どれも運用上必須。**⚠⚠ **timeout が欠けると 1 本の投稿が最悪 92 秒 →
+  # 既定の 60 秒 × 再送で枠を跨ぐ**（#90 で塞いだところがそのまま戻る）。
+  # ⚠ **retry が欠けると `Ginseng::HTTP` が起動時に落ちる**（`retry_limit` を素で読む）。
+  http:
+    type: object
+    properties:
+      retry:
+        type: object
+        properties:
+          # ⚠ 再送の回数。⚠⚠ 0 でも意味を持つ（再送しない）ので minimum は 0。
+          limit:
+            type: integer
+            minimum: 0
+          # 再送までの待ち（秒）。
+          seconds:
+            type: number
+            minimum: 0
+        required:
+          - limit
+          - seconds
+      timeout:
+        type: object
+        properties:
+          # ⚠⚠ これは wall-clock の上限ではない（Net::HTTP の 1 回の socket 操作ごと
+          # → #92）。⚠ 黙って止まっている相手には効く。
+          seconds:
+            type: number
+            exclusiveMinimum: 0
+        required:
+          - seconds
+    required:
+      - retry
+      - timeout
   logger:
     type: object
     properties:
+      # ⚠ 出すログの水準（#80 の黄 9）。⚠⚠ 読めない値でも落ちず info へ倒すが、
+      # 綴りの誤りは rake config:lint で先に止める。
+      level:
+        type: string
+        enum:
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
       mask_fields:
         type: array
         items:
           type: string
     required:
+      - level
       - mask_fields
   mastodon:
     type: object
@@ -142,15 +207,23 @@ properties:
       url:
         type: string
         format: uri
+        pattern: '^https?://'
       acct:
         type: string
       token:
         type: string
+      # 🔴 モロヘイヤを経由するか（#124）。⚠⚠ true が「経由する」＝ X-Mulukhiya を
+      # 送らない（ヘッダを付けたほうが迂回する）。
+      # ⚠⚠ optional_config で既定値に逃がさない — 消しただけで経路が静かに
+      # 戻り、タグ付けが掛からなくなる（#77 の裏返し）。だから required に入れる。
+      mulukhiya:
+        type: boolean
     # ⚠ `whoami` も `post` も、この 2 つが無ければ動かない。ここに書いておかないと
     # `rake config:lint` は通り、投稿しようとした瞬間に初めて失敗する。
     required:
       - url
       - token
+      - mulukhiya
   message:
     type: object
     properties:
@@ -197,6 +270,7 @@ properties:
       url:
         type: string
         format: uri
+        pattern: '^https?://'
     required:
       - version
   scheduler:
@@ -218,6 +292,11 @@ properties:
       # 消しただけで拾う幅が tick まで縮み、静かに余裕がゼロに戻る（#77 の裏返し）。
       tolerance:
         type: string
+      # ⚠ tick が回らなくなったことの検知（#80 の黄 7）。⚠⚠ optional_config で
+      # 既定値に逃がさない — 消しただけで「生きているが投稿していない」の検知が
+      # 静かに消える（#77 の裏返し）。
+      tick_stale:
+        type: string
       # 投稿が続けて落ちたことの検知（#78）。
       posting:
         type: object
@@ -237,6 +316,7 @@ properties:
       - timezone
       - tick
       - tolerance
+      - tick_stale
       - posting
   sqlite3:
     type: object
@@ -284,6 +364,9 @@ required:
   - corpus
   - cure_api
   - environment
+  # ⚠ 節ごと消えたときも止める（#80 の緑 3）。⚠⚠ 中の required だけでは、
+  # 節そのものが無い設定を通してしまう。
+  - http
   - live
   - logger
   - mastodon

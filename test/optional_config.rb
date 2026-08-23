@@ -7,7 +7,8 @@ module Makoto
   # **その設定を使う瞬間まで分からない。**
   #
   # ⚠ **既存のテストは「キーはあるが空」しか見ていなかった**（`test/setlist.rb` の
-  # `test_excludes_nothing_without_the_setting`）。**本物の「無い」を見るのがここ。**
+  # `test_excludes_nothing_when_the_lists_are_empty`。⚠ **名前が「設定が無ければ」を
+  # 謳っていたので、#80 の黄 11 で実態に合わせて改名した**）。**本物の「無い」を見るのがここ。**
   class OptionalConfigTest < TestCase
     # ⚠ 消してよい設定（schema が必須にしていないもの）。
     OPTIONAL_KEYS = [
@@ -17,6 +18,9 @@ module Makoto
       '/live/setlist/exclude/collections',
       '/live/setlist/exclude/tracks',
       '/live/mc/hinge',
+      '/live/mc/cover',
+      '/live/setlist/own_artists',
+      '/live/setlist/own_units',
     ].freeze
 
     def date
@@ -97,6 +101,38 @@ module Makoto
       program = Live.new(repository: MessageRepository.new(corpus_db)).program
 
       assert_equal(13, program.script_index(entry, scripts))
+    end
+
+    # ⚠ カバー宣言の名指しを消しても落ちない（`hinge` と同じ — 通常の割合で引く）。
+    def test_script_index_falls_back_without_the_cover_setting
+      drop('/live/mc/cover')
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 14, mc_total: 48, mc_covers: [14, 39])
+      scripts = Array.new(26) {|i| {slug: "s#{i}", body: "MC #{i}"}}
+      program = Live.new(repository: MessageRepository.new(corpus_db)).program
+
+      # ⚠ 継ぎ目が 1 つも無い＝両端を結ぶ直線（`14 × 25 ÷ 47`）。
+      assert_equal(7, program.script_index(entry, scripts))
+    end
+
+    # ⚠ 自分名義の一覧を消せば、ライブでも名義を出す（機能のフラグを別に持たない）。
+    def test_the_credit_is_shown_without_own_artists
+      drop('/live/setlist/own_artists')
+      entry = Setlist::Entry.new(kind: :song,
+        track: {name: '曲名', artist_name: '宮本佳那子', url: 'https://example.test/t'})
+      program = Live.new(repository: MessageRepository.new(corpus_db)).program
+
+      assert_includes(program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ ユニットの一覧を消せば、ユニット名義の曲は本人の曲として扱わない（#177）。
+    def test_a_unit_track_is_not_a_song_without_own_units
+      drop('/live/setlist/own_units')
+      entry = Setlist::Entry.new(kind: :song,
+        track: {name: '曲名', artist_name: 'キュア・カルテット', url: 'https://example.test/t'})
+      program = Live.new(repository: MessageRepository.new(corpus_db)).program
+
+      # ⚠ 名義を隠す判定も同じ設定を見る（`OwnCredit`）。
+      assert_includes(program.track_text(entry), 'キュア・カルテット')
     end
 
     # ⚠ カバーの断りを消しても曲の本文は組める。

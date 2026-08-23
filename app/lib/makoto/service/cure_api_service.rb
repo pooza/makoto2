@@ -142,9 +142,37 @@ module Makoto
     #
     # ⚠ **括弧の中は数えない**（CV 表記・コーラス表記は「もう 1 人」ではない）。
     def self.credit_count(value)
-      stripped = normalize(value).gsub(/[(（\[「][^)）\]」]*[)）\]」]/, '')
-      parts = stripped.split(credit_separator(stripped)).map(&:strip)
-      return [parts.count {|part| !part.empty?}, 1].max
+      return [credit_parts(value).size, 1].max
+    end
+
+    # 名義を突き合わせられる形にしたもの。⚠ **正規化（NFKC ＋ 空白除去）＋ 括弧落とし**
+    # までで、**割らない。**
+    #
+    # ⚠⚠ **括弧の中は名義として扱わない**（`CV:` 表記・コーラス表記は「もう 1 人」では
+    # ない → `credit_count`）。⚠ **`グロッサムX2(CV:宮本佳那子)` は `グロッサムX2`。**
+    #
+    # 🔴 **「含むか」を見たいだけの側はここで足りる**（→ `LiveProgram#own_credit?`）。
+    # ⚠⚠ **区切り位置は「含むか」の答えを変えない**ので、⚠ **中黒を区切りにするか
+    # という一番あやふやな判断を巻き込まずに済む**（→ `credit_separator`）。
+    #
+    # 🔴 **括弧の種類は `split_artist` と揃える**（Codex の指摘・PR #156）。
+    # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `split_artist` のコメント）で、
+    # ⚠ **山括弧を落とさないと `own_credit?` が中の人を拾って役名義ごと隠す** —
+    # **「括弧の中は見ない」という約束が書き方しだいで破れる。**
+    # ⚠ **いまの曲データに `〈〉` は 0 件**だが、**取り込み直しで増えうる。**
+    BRACKETS = /[(（\[「『〈][^)）\]」』〉]*[)）\]」』〉]/
+
+    def self.credit_text(value)
+      return normalize(value).gsub(BRACKETS, '')
+    end
+
+    # 名義を「並んでいる 1 組ずつ」に割ったもの。⚠ **正規化済み**（→ `credit_text`）。
+    #
+    # 🔴 **割り方の規則を 2 つ持たない**ためにここに置く。⚠⚠ **割る必要があるのは
+    # 「何人並んでいるか」を数える側だけ**（#65 の `credit_count`）。
+    def self.credit_parts(value)
+      stripped = credit_text(value)
+      return stripped.split(credit_separator(stripped)).map(&:strip).compact_blank
     end
 
     # ⚠ **中黒を区切りに足すかは名義ごとに決まる**（→ 上記 `MIDDLE_DOT`）。
@@ -230,14 +258,49 @@ module Makoto
     def fetch_singer_names
       raise Ginseng::ConfigError, "#{PREFIX}/url is missing" if url.empty?
       records = http.get("#{url}/singers").parsed_response
-      names = Array(records).flat_map do |record|
-        [record['name'], *Array(record['members'])]
+      return report_malformed(records) unless valid_records?(records)
+      names = records.flat_map do |record|
+        [record['name'], *members_of(record)]
       end
       return names.map {|name| self.class.normalize(name)}.reject(&:empty?).uniq
     rescue => e
       # ⚠⚠ **落ちてもライブは止めない。**ただし黙らない（→ 上記）。
       logger.error(cure_api: 'singers', error: e)
       return []
+    end
+
+    # 🔴 **200 で非 JSON が返る形を弾く**（#105）。
+    #
+    # ⚠⚠ **`String#[]` は部分一致で substring を返す。**⚠ 応答が HTML でも
+    # `Array(records)` は `[本文]` になり、`record['name']` が **`"name"` の 4 文字**を
+    # 返す（`<meta name=...>` でまず含まれる）。🔴 **`["name"]` という名義リストが
+    # 成立し、`available?` が真になる。**
+    #
+    # ⚠ **運用側からは「cure-api は生きているのに 1 件も一致しない」と見える**ので
+    # 誤診しやすい（⚠⚠ 実際には 11/4 のゲストコーナー 8 曲がゼロになる）。
+    #
+    # ⚠ **nginx の 502 / 503 は `GatewayError` になるので対象外。**踏むのは
+    # **前段が 200 で非 JSON を返す形**（メンテページ・vhost の誤ルーティング）。
+    def valid_records?(records)
+      return false unless records.is_a?(Array)
+      return records.all?(Hash)
+    end
+
+    # ⚠⚠ **汚れた写しを焼き付けない**（#88 の保険を守る）。`store_singer_names` は
+    # 「引けた」ときだけ走るので、⚠ **ここで `[]` に倒せば写しは更新されない。**
+    #
+    # ⚠ **本文は載せない**（HTML が丸ごとログに出る）。⚠⚠ **型だけで十分に区別できる。**
+    def report_malformed(records)
+      logger.warn(cure_api: 'singers', message: 'unexpected response shape',
+        type: records.class.to_s)
+      return []
+    end
+
+    # ⚠ **`members` は配列のときだけ拾う。**Hash が来ると `Array()` が組の配列を返し、
+    # ⚠⚠ **`[["name", "..."]]` のような値が名義に混ざる。**
+    def members_of(record)
+      members = record['members']
+      return members.is_a?(Array) ? members : []
     end
   end
 end

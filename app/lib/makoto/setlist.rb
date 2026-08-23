@@ -25,9 +25,10 @@ module Makoto
   # 固まる**（実測・2026-08-13）。元ネタの「昼の部の締めから夜の部の前半にかけて集中」
   # が、特別扱いを 1 つも書かずに再現される。**だから蝶番は曲名ではなく位置で決めてよい。**
   #
-  # ⚠ **アンカーの 3 曲だけは曲名で指すしかない**（`/live/setlist/opening` /
-  # `closing`）。⚠⚠ **曲名が引けなければ黙って別の曲を置かず、その位置を諦める**
-  # （並びは崩さない）。
+  # ⚠ **曲名で指すのは 2 曲だけ**（`/live/setlist/opening` / `closing`）。⚠⚠ **ただし
+  # 置く位置は 3 つ** — **`opening` は頭と蝶番の 2 回歌う**ため。⚠ **「3 曲」と数えると
+  # 設定が 3 つあるように読める**ので、**曲名の数（2）と枠の数（3）を混ぜない。**
+  # ⚠⚠ **曲名が引けなければ黙って別の曲を置かず、その位置を諦める**（並びは崩さない）。
   class Setlist
     include Package
 
@@ -43,7 +44,13 @@ module Makoto
     # ⚠⚠ **`mc_hinge` は蝶番（アンカーの再演）の直後に来る MC の番号**（#73）。
     # ⚠ **台本の中間アンカー（`後半。`）はここに合わせる。**両端（`ordinal 0` と
     # `mc_total - 1`）だけでは、⚠⚠ **中間が曲数の増減で蝶番をまたいでずれる。**
-    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, :mc_hinge, keyword_init: true) do
+    #
+    # ⚠⚠ **`mc_covers` はゲストコーナーの塊の直前に来る MC の番号**（#117・塊ごとに 1 つ）。
+    # ⚠ **カバー宣言の台本（`ここから何曲か、お借りした歌を歌う。`）はここに合わせる。**
+    # 🔴 **塊の位置と台本の位置は根拠が別**（前者は曲と MC を並べた配列の位置、後者は
+    # 「MC の何番目か」）なので、⚠⚠ **繋がないと曲数が動くたびにずれる**（実測で 3 曲）。
+    Entry = Struct.new(:kind, :track, :ordinal, :mc_total, :mc_hinge, :mc_covers,
+      keyword_init: true) do
       def song?
         return kind == :song
       end
@@ -96,9 +103,16 @@ module Makoto
 
     # 本編の曲。⚠ **発売日順。**同じ発売日の中は id で安定させる（実行のたびに
     # 並びが変わると、再起動で曲順がずれる）。
+    #
+    # ⚠ **バージョン違いはここで 1 曲に寄せる**（#118）。⚠⚠ **`distinct` を通しても
+    # 残る**のは、`dedupe_key` が括弧の中身を残すから（→ `TrackName`）。
     def songs
-      @songs ||= distinct(@repository.by_kind('vocal', @repository.live))
-        .order(:release_date, :id).all.reject {|track| excluded?(track)}
+      @songs ||= dedupe_versions(
+        distinct(@repository.by_kind('vocal', OwnCredit.records(@repository)))
+          .order(:release_date, :id).all
+          .select {|track| track[:live] || OwnCredit.own?(track[:artist_name])}
+          .reject {|track| excluded?(track)},
+      )
       return @songs
     end
 
@@ -133,7 +147,7 @@ module Makoto
         "setlist: #{@slots} slots is too few (need #{minimum_slots} or more)"
     end
 
-    # アンカー 3 つと、各部に 1 曲ずつは要る。
+    # アンカーの枠 3 つ（⚠ **曲名は 2 つ。`opening` を 2 回置く**）と、各部に 1 曲ずつは要る。
     def minimum_slots
       return 5
     end
@@ -151,6 +165,47 @@ module Makoto
     def excluded?(track)
       return true if exclusions('collections').include?(dedupe(track[:collection_name]))
       return exclusions('tracks').include?(dedupe(track[:name]))
+    end
+
+    # バージョン違いを 1 曲に寄せる（#118）。
+    #
+    # ⚠⚠ **発売日順に並べる以上、同じ曲の版違いは必ず隣接する**ので、寄せないと
+    # 塊で流れる（実測で「ねこ ときどき らいおん」が 6 曲続いた）。⚠ **#63 の間引きと
+    # 同じ構造**で、**並びの都合はライブの選曲が持つ** — 🔴 **`live` フラグも
+    # `dedupe_key` も触らない。**
+    #
+    # ⚠ **落とした曲を `CoverSelector` に流さない**（#63 と同じ理由）。ここは
+    # `live` の中だけを絞っているので、カバーの母集合（`live` に無い vocal）は動かない。
+    #
+    # ⚠⚠ **代表を選んでから元の並びで拾い直す。**⚠ **寄せた位置に置くと、代表の
+    # 発売日ではない場所に曲が出る**（グループの先頭は但し書き付きの版でありうる）。
+    def dedupe_versions(tracks)
+      groups = tracks.group_by {|track| version_key(track)}
+      ids = groups.values.to_set {|group| representative(group)[:id]}
+      return tracks.select {|track| ids.include?(track[:id])}
+    end
+
+    # ⚠ **但し書きを落とした曲名を、取り込みと同じ規則で正規化したもの。**
+    # ⚠⚠ **`TrackName.base` だけでは寄らない** — `We can!! HUGっと! プリキュア` と
+    # `We can HUGっと!プリキュア(Long Intro ver.)` は記号と空白が違う（実データ）。
+    def version_key(track)
+      return dedupe(TrackName.base(track[:name]))
+    end
+
+    # 残す 1 曲。⚠ **但し書きの無いものを優先し、無ければ id の小さいほう。**
+    #
+    # ⚠⚠ **安定していることが要件**（同じ日付・同じ枠数なら何度組んでも同じ並び）
+    # なので、**発売日や url の有無のような動く条件を混ぜない。**
+    #
+    # ⚠ **アンカーは曲名で引く**（`/live/setlist/opening` / `closing`）ので、
+    # ⚠⚠ **但し書きの付いた版を代表にすると、その日のアンカーが黙って消える。**
+    # 但し書きの無いものを優先するのは、それを避ける意味もある。
+    def representative(group)
+      return group.min_by {|track| [plain?(track) ? 0 : 1, track[:id]]}
+    end
+
+    def plain?(track)
+      return dedupe(track[:name]) == version_key(track)
     end
 
     def exclusions(name)
@@ -203,12 +258,45 @@ module Makoto
     def with_mc_total(entries)
       total = entries.count(&:mc?)
       hinge = hinge_mc_ordinal(entries)
+      covers = cover_mc_ordinals(entries)
       entries.each do |entry|
         next unless entry.mc?
         entry.mc_total = total
         entry.mc_hinge = hinge
+        entry.mc_covers = covers
       end
       return entries
+    end
+
+    # ゲストコーナーの塊の**直前に来る MC の番号**（#117）。⚠ **塊ごとに 1 つ、前から順。**
+    #
+    # ⚠⚠ **塊の直前に MC が無ければ `nil`**（前半の埋め草をコーナーが使い切った日など）。
+    # 🔴 **詰めない。**⚠⚠ **詰めると後ろの塊が前の塊の宣言と対応してしまう**
+    # （`/live/mc/cover` は並び順で塊と対応させる → `LiveProgram#cover_anchors`）。
+    # ⚠ **`hinge_mc_ordinal` と同じく、位置は組むときにしか分からない。**
+    def cover_mc_ordinals(entries)
+      starts = entries.each_index.select {|index| corner_start?(entries, index)}
+      return starts.map {|index| preceding_mc_ordinal(entries, index)}
+    end
+
+    # 塊の**直前の 1 つ**が MC ならその番号。⚠ **違えば nil**（#140）。
+    #
+    # 🔴 **接頭辞を全部遡らない。**⚠⚠ **遡ると、隣接していない古い MC を拾う** —
+    # `corner_position` は**その部に MC が足りなければコーナーを曲の間へ置く**
+    # （＝意図的にアンカーしない）ので、⚠ **そこで遠くの MC を拾うと、宣言が
+    # コーナーのずっと前に出る。**⚠⚠ **後半では蝶番を跨いで前半の MC を拾いうる**
+    # （前半で宣言して、実際のカバーは後半）。
+    def preceding_mc_ordinal(entries, index)
+      previous = entries[index - 1] if index.positive?
+      return nil unless previous&.mc?
+      return previous.ordinal
+    end
+
+    # 塊の先頭か。⚠ **2 曲目以降は同じ塊なので数えない。**
+    def corner_start?(entries, index)
+      return false unless entries[index].cover?
+      return false if index.positive? && entries[index - 1].cover?
+      return true
     end
 
     # 蝶番（アンカーの再演）の**直後に来る最初の MC の番号**。⚠ 無ければ nil。
@@ -253,8 +341,22 @@ module Makoto
       items = weave(tracks.map {|track| Entry.new(kind: :song, track: track)},
         fillers - corner.size, ordinal_from)
       return items if corner.empty?
-      items.insert(items.size * 2 / 3, *corner.map {|t| Entry.new(kind: :cover, track: t)})
+      items.insert(corner_position(items), *corner.map {|t| Entry.new(kind: :cover, track: t)})
       return items
+    end
+
+    # ゲストコーナーを差し込む位置。⚠ **その部の 2/3。**
+    #
+    # 🔴 **ただし MC の直後まで手前に寄せる**（#117）。⚠⚠ **宣言の台本（`ここから何曲か、
+    # お借りした歌を歌う。`）は「塊の直前の MC」に置く**ので、⚠ **間に曲が挟まると
+    # 「ここから」が嘘になる**（実測で 3 曲挟まっていた）。**塊を MC にくっつける。**
+    #
+    # ⚠ **手前に MC が 1 本も無ければ 2/3 のまま**（前半の頭に寄る日）。
+    def corner_position(items)
+      target = items.size * 2 / 3
+      index = items[0...target].rindex(&:mc?)
+      return target unless index
+      return index + 1
     end
 
     # MC を等間隔で挟む。⚠ 端に寄せず、曲の間に散らす。

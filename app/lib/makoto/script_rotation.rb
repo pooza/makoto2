@@ -24,7 +24,10 @@ module Makoto
       index = @timetable.index_at(time)
       return nil unless index
       scripts = @selector.list(time)
-      return nil if scripts.empty?
+      # 🔴 **予約された日に台本が引けなければ警告を残す**（#114）。⚠⚠ **`list` は
+      # `MessageSelector#call` を通らない**ので、⚠ **ここから明示的に呼ぶ**
+      # （→ `MessageSelector#report_silence`）。
+      return @selector.report_silence(time) if scripts.empty?
       return scripts[index % scripts.size][:body]
     end
   end

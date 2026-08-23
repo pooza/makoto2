@@ -27,4 +27,8 @@ module Makoto
   Bundler.require
   loader.setup
   RubyVM::YJIT.enable if Environment.jit?
+  # ⚠⚠ **すべての入り口がここを通る**ので、常駐も CLI も同じ時刻を見る（#110）。
+  # ⚠ **要求されていなければ何もしない。**🔴 **通せない条件なら例外で落とす** —
+  # 偽の日付のまま本物のインスタンスへ投稿するくらいなら起動しないほうがまし。
+  TimeTravel.activate!
 end

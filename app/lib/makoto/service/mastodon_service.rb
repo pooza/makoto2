@@ -15,6 +15,17 @@ module Makoto
   # 応答だけが失われると（タイムアウト・逆プロキシの 502/503）、再送は同じ内容の
   # 投稿をもう 1 つ作る。`Idempotency-Key` を 1 回の `post_status` につき 1 つ作り、
   # 全試行で使い回してサーバー側に畳ませる。
+  #
+  # 🔴 **⚠⚠ モロヘイヤを経由するかは `X-Mulukhiya` の有無で決まる**（#124）。
+  # ⚠ **ヘッダを付けたほうが「経由しない」** — モロヘイヤ側の nginx が
+  # `map $http_x_mulukhiya $mulukhiya_backend` で**付いている要求を Mastodon 本体へ
+  # 直に流す**（自己ループ防止）。⚠⚠ **ginseng-fediverse の既定は「付ける」なので、
+  # 素で継承すると黙って迂回する** — **2026-08-19 の当日通しリハーサル 162 投稿が
+  # 1 本もモロヘイヤを通っていなかった。**
+  #
+  # ⚠ **迂回するとタグ付け・URL 正規化・画像添付が掛からない。**⚠⚠ **旧アカウントの
+  # 朝挨拶に 10 年付いていた `#precure_fun` はモロヘイヤが付けたもの**で、
+  # **キュアスタ！のタグ＝コミュニティ側の導線**（→ docs/CLAUDE.md「北極星」）。
   class MastodonService < Ginseng::Fediverse::MastodonService
     include Package
 
@@ -27,6 +38,14 @@ module Makoto
       422 => Ginseng::ValidateError,
     }.freeze
 
+    def initialize(uri = nil, token = nil)
+      super
+      # ⚠ **`optional_config` で既定値に逃がさない**（→ Package#optional_config）。
+      # ⚠⚠ **設定を消しただけで経路が静かに戻る形を作らない**（#77 の裏返し）。
+      # schema の required に入れてあるので、消せば `rake config:lint` が落ちる。
+      self.mulukhiya_enable = config['/mastodon/mulukhiya']
+    end
+
     # 自分自身の acct。ステージングは @test、本番は @makoto と異なるため、
     # コード側に定数として持たせない。
     def acct
@@ -34,8 +53,13 @@ module Makoto
     end
 
     # 疎通確認用。投稿せずにトークンの有効性とスコープを確かめられる。
+    #
+    # ⚠⚠ **ここは経路の設定に関わらず常に直で叩く**（#124）。⚠ **トークンの検査に
+    # モロヘイヤの都合を巻き込まない** — nginx の `map` が掛かるのは投稿の側で、
+    # ⚠⚠ **#106 で失効を見に行くときに「モロヘイヤが落ちている」が「トークンが
+    # 死んでいる」に化けると、当日いちばん困る形**になる。
     def account
-      response = http.get('/api/v1/accounts/verify_credentials', {headers: create_headers})
+      response = http.get('/api/v1/accounts/verify_credentials', {headers: direct_headers})
       return response.parsed_response
     rescue Ginseng::GatewayError => e
       raise classify(e)
@@ -54,6 +78,10 @@ module Makoto
         url: response['url'],
         visibility: response['visibility'],
         length: text.to_s.length,
+        # 🔴 **経路をログに出す**（#124）。⚠⚠ **「モロヘイヤを通っていない」ことに
+        # 3 週間気付かなかったのは、投稿が 200 で返り、ログにも成功としか出ていな
+        # かったから。**⚠ **経路の間違いは投稿の失敗として現れない。**
+        mulukhiya: mulukhiya_enable?,
       )
       return response
     rescue Ginseng::GatewayError => e
@@ -61,6 +89,14 @@ module Makoto
     end
 
     private
+
+    # モロヘイヤを迂回して Mastodon 本体を直に叩くためのヘッダ。
+    #
+    # ⚠ **`create_headers` は `||=` で足す**ので、先に入れておけば経路の設定に
+    # 関わらずこの値が残る。
+    def direct_headers(headers = {})
+      return create_headers(headers.merge({'X-Mulukhiya' => package_class.full_name}))
+    end
 
     # ⚠ 例外メッセージにトークンを載せない。上流のステータスだけを見て分類する。
     def classify(error)

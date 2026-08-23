@@ -53,6 +53,11 @@ module Makoto
     # **再起動が挟まれば毎回そうなる。**⚠⚠ **成功は冪等キーで Mastodon 側が畳むのに、
     # 失敗だけ畳まれず、落ちた枠 1 つで閾値を 2 つ消費していた**（#81 の指摘・実測）。
     #
+    # 🔴 **「成功は冪等キーで畳まれる」は実機で成立していなかった**（#109・2026-08-18）。
+    # ⚠ **プロセス内の重なりは `PostingJob#claim` が塞いだ**ので、⚠⚠ **ここに残るのは
+    # 再起動をまたぐ重なりだけ**（記憶はプロセスと一緒に消える）。**この数え直し防止は
+    # まだ要る。**
+    #
     # ⚠ **覚える数を絞るのは、痕跡を無限に太らせないため。**同じ枠が重なるのは拾う幅
     # （数秒）の内側だけなので、⚠⚠ **その間に来うる枠の数＝登録されたジョブの本数を
     # 上回っていれば足りる**（いまは 5 本）。
@@ -79,6 +84,48 @@ module Makoto
             version: Package.version,
             pid: Process.pid,
           )
+        end
+      end
+
+      # tick が 1 回まわった（#80 の黄 7）。
+      #
+      # 🔴 **`touch` とは別に持つ。**⚠⚠ **ハートビートは tick とは別の rufus ジョブ**
+      # なので、⚠ **tick 側だけが詰まっても `at` は更新され続ける** —
+      # **「生きているが投稿していない」を検知するための痕跡が、まさにその状態で
+      # 動き続ける**という形だった。
+      #
+      # ⚠ **記録するのは終わった時刻。**始めた時刻にすると、⚠⚠ **90 秒かかった tick が
+      # 「90 秒前に回った」ことになり、詰まりを短く見せる。**
+      def record_tick(now: nil)
+        return update do |record|
+          record.merge(ticked_at: (now || Time.now).getutc.iso8601)
+        end
+      end
+
+      # 常駐が起き上がったこと。🔴 **初回の tick が終わるまで `tick_stale?` を
+      # 鳴らさないための基準**（PR #98 の Codex 指摘）。
+      #
+      # ⚠⚠ **監視の口は初回 tick より先に開く**（→ `MakotoDaemon#start`）。⚠ **tick が
+      # 痕跡を書くのは枠を全部回し終えたあと**で、⚠⚠ **1 回の tick は投稿の再送で
+      # 90 秒以上かかりうる** — 🔴 **起き上がっただけで `/healthz` が赤くなる**形だった。
+      # ⚠ **前回の稼働が残した古い `ticked_at` も同じ**で、⚠⚠ **落ちて猶予より長く
+      # 空くと、戻ってきた瞬間から赤い。**
+      #
+      # ⚠ **猶予を過ぎても痕跡が無ければ、そこからは本物の詰まり**なので検知は残る。
+      #
+      # 🔴 **猶予を張り直すのは、前回の起動から tick が 1 回でも完走したときだけ**
+      # （リリース前レビューの黄 2）。⚠⚠ **無条件に書き換えると、起き上がるたびに
+      # 猶予が再武装される** — ⚠ **systemd は `Restart=always` / `RestartSec=5`** なので、
+      # 🔴 **初回 tick の途中で落ち続ける常駐は、tick の観点で永遠に健全を返す。**
+      # ⚠⚠ **#80 の黄 7 が消したかった「検知のための痕跡が、検知したい状態で更新され
+      # 続ける」構造そのもの**なので、ここで塞ぐ。
+      def record_start(now: nil)
+        return update do |record|
+          started = parse_time(record[:started_at])
+          ticked = parse_time(record[:ticked_at])
+          # ⚠ 前回の猶予がまだ 1 回も tick で解消されていなければ、据え置く。
+          next record if started && (ticked.nil? || ticked < started)
+          record.merge(started_at: (now || Time.now).getutc.iso8601)
         end
       end
 
@@ -167,6 +214,16 @@ module Makoto
         return parse_time(stored[:failed_at])
       end
 
+      # 最後に tick が回った時刻。⚠ **一度も無ければ nil**（起動直後・旧い痕跡）。
+      def ticked_at
+        return parse_time(stored[:ticked_at])
+      end
+
+      # 最後に常駐が起き上がった時刻。⚠ **一度も無ければ nil**（→ `record_start`）。
+      def started_at
+        return parse_time(stored[:started_at])
+      end
+
       def jobs
         record = read
         return nil unless record
@@ -206,6 +263,34 @@ module Makoto
         seconds = age(now)
         return true unless seconds
         return seconds > limit
+      end
+
+      # tick が止まったとみなすまでの猶予（秒）。⚠ **閾値は設定から出す**（`limit` と
+      # 同じ理由）。⚠⚠ **tick の間隔から導かない** — **1 回の tick は投稿の再送で
+      # 90 秒以上かかりうる**ので、間隔の倍数にすると誤報する。
+      def tick_limit
+        seconds = Fugit::Duration.parse(config['/scheduler/tick_stale'].to_s)&.to_sec
+        unless seconds&.positive?
+          raise Ginseng::ConfigError,
+            "heartbeat: bad tick_stale '#{config['/scheduler/tick_stale']}'"
+        end
+        return seconds
+      end
+
+      # tick が回らなくなっているか（#80 の黄 7）。
+      #
+      # ⚠⚠ **痕跡が無いときも「止まっている」と扱う。**⚠ **常駐は登録の直後に 1 回
+      # 叩く**（→ `Scheduler#schedule_posts`）ので、⚠⚠ **生きているのに痕跡が無いのは、
+      # tick が一度も回っていないということ。**
+      #
+      # ⚠⚠ **ただし基準は「最後の tick」と「起き上がった時刻」の新しいほう。**
+      # 🔴 **初回の tick は枠を回し終えるまで痕跡を書かない**ので、⚠ **起き上がった
+      # 直後を「一度も回っていない」と読むと、起動のたびに赤くなる**（→ `record_start`）。
+      # ⚠⚠ **猶予を過ぎればどちらの基準でも赤い**ので、検知そのものは緩まない。
+      def tick_stale?(now = nil)
+        last = [ticked_at, started_at].compact.max
+        return true unless last
+        return ((now || Time.now) - last) > tick_limit
       end
 
       # 何本続けて落ちたら異常とみなすか。⚠ **閾値は設定から出す**（`limit` と同じ理由）。

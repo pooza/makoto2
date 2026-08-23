@@ -212,6 +212,49 @@ module Makoto
       assert_raise(Ginseng::ValidateError) {importer.import(@tmp_path)}
     end
 
+    # 🔴 **下見の日付も同じ規則で読む**（#96）。⚠⚠ **正本を 3 つ目に増やさない** —
+    # `Date.parse` は `11-4` を「11 日」と読み、⚠ **月は実行日の月**になる。
+    def test_parse_preview_date_uses_the_same_rule
+      today = Date.new(2026, 8, 21)
+
+      assert_equal(Date.new(2026, 11, 4), ScriptImporter.parse_preview_date('2026-11-04', today))
+      # ⚠ `MM-DD`（毎年）は実行日の年に補完する。⚠⚠ **8 月に打っても 11 月 4 日。**
+      assert_equal(Date.new(2026, 11, 4), ScriptImporter.parse_preview_date('11-4', today))
+      assert_equal(Date.new(2027, 11, 4),
+        ScriptImporter.parse_preview_date('11-04', Date.new(2027, 1, 1)))
+    end
+
+    # 🔴 **ホストの TZ で年を補完しない**（PR #148 の Codex 指摘）。
+    # ⚠⚠ **UTC のホストで 12/31 の 15:00 以降は、`Asia/Tokyo` ではもう 1/1。**
+    # ⚠ `Date.today` で補完すると **1 年前の 11 月 4 日**を下見する
+    # （その年だけの台本 ＝ ライブの本番が引けない）。
+    def test_parse_preview_date_fills_the_year_in_the_configured_timezone
+      # ⚠ **ホストの TZ が何であっても差が出る瞬間を選ぶ。**UTC-11 を設定に置き、
+      # ⚠⚠ **ホスト（JST でも UTC でも）は既に 2027 年・設定の側はまだ 2026-12-31**
+      # という時刻で見る。
+      config['/scheduler/timezone'] = 'Pacific/Midway'
+      Timecop.freeze(Time.utc(2027, 1, 1, 5, 0)) do
+        assert_operator(Date.today.year, :>=, 2027, 'ホストの側は既に 2027 年')
+        assert_equal(Date.new(2026, 11, 4), ScriptImporter.parse_preview_date('11-4'))
+      end
+    end
+
+    # ⚠ 空は nil（今日に倒すかは呼ぶ側が決める）。
+    def test_parse_preview_date_is_nil_when_empty
+      assert_nil(ScriptImporter.parse_preview_date(nil))
+      assert_nil(ScriptImporter.parse_preview_date(''))
+      assert_nil(ScriptImporter.parse_preview_date('  '))
+    end
+
+    # ⚠⚠ **黙って今日に倒さない。**⚠ 後ろのゴミも、形は合っていても存在しない日も弾く。
+    def test_parse_preview_date_rejects_a_broken_value
+      ['あした', '2026/11/04', '2026/11/04 と 11/5', '13-45', '2026-02-30', '11'].each do |value|
+        assert_raise(Ginseng::ValidateError, value) do
+          ScriptImporter.parse_preview_date(value)
+        end
+      end
+    end
+
     private
 
     # ⚠ 使い捨てのディレクトリに 1 本だけ置く。teardown で消す。

@@ -62,7 +62,11 @@ module Makoto
       File.define_singleton_method(:owned?, owned_method)
     end
 
-    def beat(jobs: 1, at: nil)
+    # ⚠⚠ **健全な常駐は「ハートビート」と「tick」の両方の痕跡を残す**（#80 の黄 7）。
+    # ⚠ **ここで tick まで書くのは、健全の定義がそうなったから** — 片方だけの痕跡は
+    # まさに検知したい状態（tick 側だけが詰まった常駐）を指す。
+    def beat(jobs: 1, at: nil, tick: true)
+      Heartbeat.record_tick(now: at || now) if tick
       return Heartbeat.touch(jobs: jobs, now: at || now)
     end
 
@@ -99,10 +103,88 @@ module Makoto
       assert_true(health.errors.any? {|m| m.include?('stale')})
     end
 
-    # ⚠ 痕跡が無ければ「止まっている」＋「仕事を持っていない」の両方。
+    # 🔴 **#80 の黄 7 の本体。**⚠⚠ **ハートビートは tick とは別の rufus ジョブ**なので、
+    # ⚠ **tick 側だけが詰まってもハートビートは動き続ける** — **「生きているが仕事を
+    # していない」を見るための痕跡が、まさにその状態で健全を返していた。**
+    def test_stale_tick_with_a_live_heartbeat
+      beat(tick: false)
+      Heartbeat.record_tick(now: now - (Heartbeat.tick_limit * 2))
+
+      assert_equal(Health::ERROR, health.code)
+      assert_true(health.errors.any? {|m| m.include?('tick is stale')})
+      # ⚠ ハートビートそのものは新しいままであること（＝旧実装が緑を返した状況）。
+      assert_not_include(health.errors, 'heartbeat is stale')
+    end
+
+    # ⚠ 猶予の内側なら鳴らない。⚠⚠ **1 回の tick は投稿の再送で 90 秒以上かかりうる**
+    # ので、tick の間隔（10 秒）を基準にすると誤報する。
+    def test_a_slow_tick_is_not_stale
+      beat(tick: false)
+      Heartbeat.record_tick(now: now - (Heartbeat.tick_limit - 1))
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **痕跡が無いのは「一度も回っていない」。**⚠ 常駐は登録の直後に 1 回叩く
+    # （→ `Scheduler#schedule_posts`）ので、生きているのに無いのは異常。
+    def test_a_missing_tick_is_stale
+      beat(tick: false)
+
+      assert_true(health.errors.any? {|m| m.include?('tick is stale')})
+    end
+
+    # 🔴 **起き上がった直後は、初回 tick がまだ終わっていないだけ**（PR #98 の Codex
+    # 指摘）。⚠⚠ **監視の口は初回 tick より先に開く**ので、ここを異常と読むと
+    # **起動のたびに `/healthz` が赤くなる。**
+    def test_a_fresh_start_is_not_stale_before_the_first_tick
+      Heartbeat.record_start(now: now)
+      beat(tick: false)
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **前回の稼働が残した古い痕跡でも同じ。**⚠ **落ちて猶予より長く空いてから
+    # 戻ってくる**のがまさにその形で、**戻った瞬間から赤い**のが元の挙動だった。
+    def test_a_restart_supersedes_an_old_tick
+      Heartbeat.record_tick(now: now - (Heartbeat.tick_limit * 10))
+      Heartbeat.record_start(now: now)
+      beat(tick: false)
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠ **猶予を過ぎれば検知は戻る。**⚠⚠ **起き上がったことを口実に黙り続けない** —
+    # 起きているのに tick が回らないのは #80 の黄 7 そのもの。
+    def test_a_start_stops_covering_after_the_grace_period
+      Heartbeat.record_start(now: now - (Heartbeat.tick_limit * 2))
+      beat(tick: false)
+
+      assert_true(health.errors.any? {|m| m.include?('tick is stale')})
+    end
+
+    # ⚠ 閾値は設定から出す（間隔を延ばした瞬間に誤検知しはじめるのを防ぐ）。
+    def test_tick_threshold_comes_from_the_setting
+      config['/scheduler/tick_stale'] = '1h'
+      beat(tick: false)
+      Heartbeat.record_tick(now: now - 600)
+
+      assert_equal(Health::OK, health.code)
+    end
+
+    # ⚠⚠ **既定値に逃がさない**（#77 の裏返し）。設定を消しただけで検知が静かに
+    # 消える形にしない。
+    def test_a_broken_tick_threshold_raises
+      config['/scheduler/tick_stale'] = 'いつか'
+      beat
+
+      assert_raise(Ginseng::ConfigError) {health.errors}
+    end
+
+    # ⚠ 痕跡が無ければ「ハートビートが止まっている」＋「tick が回っていない」＋
+    # 「仕事を持っていない」の 3 つ。
     def test_without_heartbeat
       assert_equal(Health::ERROR, health.code)
-      assert_equal(2, health.errors.size)
+      assert_equal(3, health.errors.size)
     end
 
     def test_no_orphan
@@ -166,6 +248,46 @@ module Makoto
     def test_daemon_behind_an_interpreter_is_an_orphan
       beat
       fake_process(4650, '/home/deploy/.rbenv/versions/4.0.6/bin/ruby bin/makoto_daemon.rb restart')
+
+      assert_equal([4650], health.orphans)
+    end
+
+    # 🔴 **#80 の緑 6。**⚠⚠ **編集・閲覧・grep はどれも「先頭 ＋ ファイルのパス」**
+    # なので、⚠ **2 つ目の要素を無条件にスクリプトとみなすと、開発中は恒常的に
+    # 誤報する**（実測で `vim app/lib/makoto/daemon/makoto_daemon.rb` が孤児になった）。
+    # ⚠⚠ **恒常的に踏むと、本物の孤児が誤報に埋もれる。**
+    def test_editing_the_daemon_source_is_not_an_orphan
+      beat
+      fake_process(4650, ['vim', 'app/lib/makoto/daemon/makoto_daemon.rb'])
+      fake_process(4651, ['less', 'bin/makoto_daemon.rb'])
+      fake_process(4652, ['git', 'diff', 'app/lib/makoto/daemon/makoto_daemon.rb'])
+
+      assert_equal([], health.orphans)
+    end
+
+    # ⚠ **常駐にならないサブコマンドは孤児ではない**（#80 の緑 6）。
+    # ⚠⚠ **`status` は監視から繰り返し叩かれる**ので、数えると誤報の常連になる。
+    def test_a_transient_subcommand_is_not_an_orphan
+      beat
+      fake_process(4650, ['bin/makoto_daemon.rb status'])
+      fake_process(4651, ['bin/makoto_daemon.rb stop'])
+
+      assert_equal([], health.orphans)
+    end
+
+    # ⚠⚠ **`restart` は除かない。**⚠ **fork した子は argv を引き継ぐ**ので、
+    # **本物の常駐が `restart` のまま走っている**（実機の形）。
+    def test_a_daemon_started_by_restart_is_an_orphan
+      beat
+      fake_process(4650, ['bin/makoto_daemon.rb restart'])
+
+      assert_equal([4650], health.orphans)
+    end
+
+    # ⚠ インタプリタ越しが 1 要素にまとまっている形でも検知する。
+    def test_a_daemon_behind_an_interpreter_in_one_element_is_an_orphan
+      beat
+      fake_process(4650, ['ruby bin/makoto_daemon.rb start'])
 
       assert_equal([4650], health.orphans)
     end
@@ -374,6 +496,52 @@ module Makoto
 
       assert_equal(2, health.warnings.size)
       assert_equal(Health::WARNING, health.code)
+    end
+
+    # ⚠ `errors` は読み込んだファイルを検証するので、⚠⚠ **`config['/x'] = y` では
+    # 変わらない**（→ test/config.rb）。**差し替えて見る。**
+    def with_config_errors(found)
+      config.define_singleton_method(:errors) {found}
+      config.reload
+      return yield
+    ensure
+      config.singleton_class.remove_method(:errors)
+      config.reload
+    end
+
+    # 🔴 **#99 の本体。**⚠⚠ **`rake config:lint` は開発機で流すもの**で、⚠ **稼働ホスト
+    # にしか無い `config/local.yaml` は検証を一度も通っていなかった。**
+    #
+    # ⚠ **効くのは「起動はしたが、その設定を使う瞬間に落ちる」形** — ⚠⚠ **枠の中で
+    # 読む値が欠けていると `PostingJob` の rescue に飲まれ、「登録ジョブ 5 で健全」の
+    # まま 160 枠が沈黙する。**
+    def test_a_broken_config_is_an_error
+      beat
+
+      with_config_errors(['壊れています in schema abc']) do
+        assert_equal(1, health.errors.size)
+        assert_match(/\Aconfig is invalid \(1\): 壊れています\z/, health.errors.first)
+        assert_equal(Health::ERROR, health.code)
+      end
+    end
+
+    # ⚠ 通っていれば何も足さない（**平常時に赤くしない**）。
+    def test_a_valid_config_is_not_reported
+      beat
+
+      with_config_errors([]) do
+        assert_empty(health.errors)
+        assert_equal(Health::OK, health.code)
+      end
+    end
+
+    # ⚠⚠ **件数を出す。**⚠ 1 件目しか本文を載せないので、**まだあることが分かる形にする。**
+    def test_a_broken_config_reports_the_count
+      beat
+
+      with_config_errors(['1 つ目 in schema abc', '2 つ目 in schema abc']) do
+        assert_match(/\Aconfig is invalid \(2\): 1 つ目\z/, health.errors.first)
+      end
     end
   end
 end

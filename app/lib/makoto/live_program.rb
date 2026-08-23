@@ -27,10 +27,63 @@ module Makoto
     # 無ければ nil**（`PostingJob` が「投稿しない」と解釈する）。
     def call(time = nil)
       time ||= Time.now
-      entry = setlist(time)&.at(@timetable.index_at(time))
-      return nil unless entry
-      return mc_text(entry, time) if entry.mc?
-      return TrackPresenter.new(entry.track, prefix: (cover_prefix if entry.cover?)).to_s
+      list = setlist(time)
+      # ⚠ 枠の外・ライブ当日でなければ黙る（**平常日はここで返る**）。
+      return nil unless list
+      entry = list.at(@timetable.index_at(time))
+      return report_silence(time, 'no entry for the slot') unless entry
+      text = entry.mc? ? mc_text(entry, time) : track_text(entry)
+      return report_silence(time, 'no text for the slot') if text.blank?
+      return text
+    end
+
+    # 🔴 **ライブ当日に枠が黙ったら警告を残す**（#80 の黄 9）。
+    #
+    # ⚠⚠ **平常日の空回りと、ライブが壊れて何も出ないのが、ログ上で同じだった。**
+    # ⚠ **どちらも `no text` の 1 行**で、⚠⚠ **11/4 に 160 枠が全滅しても、平常日の
+    # ログと 1 文字も変わらない** — **人が見ても異常だと気付けない。**
+    #
+    # ⚠ **ここまで来ているということは、既に「ライブ当日で、枠の中」**（`setlist` が
+    # 両方を見てから返している）。⚠⚠ **その状態で本文が無いのは、原稿が無いのでは
+    # なく壊れている。**
+    #
+    # ⚠ **例外にはしない。**⚠⚠ **1 枠の異常で残りの 8 時間を落とさない**
+    # （→ docs/CLAUDE.md「投稿の欠落は詰めない」）。
+    def report_silence(time, message)
+      logger.warn(live: 'program', message: message, at: time.getutc.iso8601)
+      return nil
+    end
+
+    def track_text(entry)
+      return track_presenter(entry).to_s
+    end
+
+    # 曲 1 本ぶんの出力。⚠⚠ **下見（`makoto live setlist`）もここを通す**（#62 と同じ理由）
+    # — **「ライブでどう見えるか」の正本を 2 つに割らない。**
+    #
+    # ⚠ **ライブの都合はここが持つ**（→ `TrackPresenter` 冒頭の表）。
+    def track_presenter(entry)
+      return TrackPresenter.new(
+        entry.track,
+        prefix: (cover_prefix if entry.cover?),
+        # ⚠ 括弧書きを落とすのはライブだけ（#119）。日常の曲紹介（#16）では落とさない。
+        plain_name: true,
+        artist: show_artist?(entry),
+      )
+    end
+
+    # 名義を出すか（#121 / #155）。
+    #
+    # ⚠⚠ **ゲストコーナーは必ず出す** — **他の歌手の持ち歌なので名義が意味を持つ**
+    # （→ `CoverSelector`）。🔴 **本編は、自分の名義を含んでいたら隠す。**
+    #
+    # ⚠ **共演曲も隠す**（2026-08-22・オーナー判断で #121 の「全部自分のときだけ」から
+    # 変えた）。⚠⚠ **根拠は劇中設定** — **高橋さんとの曲なども、真琴は「カバーではなく
+    # 自分の歌」として歌っている**ので、**共演者の名義はその前提では情報を足さない。**
+    # 🔴 **結果、名義が出るのはカバーの数曲だけになる。**
+    def show_artist?(entry)
+      return true if entry.cover?
+      return !own_credit?(entry.track[:artist_name])
     end
 
     # ⚠⚠ **ライブ当日か。**告知や MC は「その日の原稿が無ければ出ない」で黙るが、
@@ -107,26 +160,117 @@ module Makoto
 
     private
 
-    # 台本を割る継ぎ目。⚠ **中間アンカーが引けなければ 1 本の直線に戻す**
+    # 名義に自分が含まれるか（#121 / #155）。
+    #
+    # ⚠ **一覧は設定に置く**（`/live/setlist/own_artists`）。⚠⚠ **コードに埋めない** —
+    # **名義の表記は供給元しだいで増える**（`キュアソード/剣崎真琴(CV:宮本佳那子)`）。
+    #
+    # 🔴 **括弧の中も見る**（2026-08-23・オーナー判断・#164）。⚠⚠ **`credit_text` を
+    # 通さない** — **通すと括弧が落ち、`グロッサムX2(CV:宮本佳那子)` や
+    # `キュア・レインボーズ(…宮本佳那子…)` が「自分を含まない名義」として出てしまう。**
+    #
+    # ⚠ **正規化だけを通す**（`CureApiService.normalize` ＝ NFKC ＋ 空白除去）ので、
+    # **`宮本 佳那子` と `宮本佳那子` は寄る。**
+    #
+    # ⚠⚠ **2026-08-20 の「役名義は名義を出す」（別作品の役名義で、隠すと「誰の曲か」が
+    # 消える）は取り下げた。**🔴 **理由は「これはバースデーライブに限った話」だから** —
+    # ⚠ **当日は `キュア・レインボーズ` の曲も「本人の持ち歌」というテイで通す**ので、
+    # **どの括弧の中に居ても、居るなら隠す。**⚠⚠ **日常の曲紹介（#16）はこの判定を
+    # 通らない**（→ `TrackPresenter` 冒頭の表）ので、あちらは名義を出したまま。
+    #
+    # 🔴 **2026-08-22 に「全部自分」から「含んでいたら」に変えた**（#155）。
+    # ⚠⚠ **PR #134 で「含む」から「全部自分」にしたのは、`五條真由美・宮本佳那子` が
+    # 1 組のまま来て共演者ごと消えるのを避けるためだった** — ⚠ **その形はいま
+    # 「隠してよい」と決まった**（劇中設定 → `show_artist?`）ので、**避ける理由が消えた。**
+    #
+    # 🔴 **名義を割らない**（#155）。⚠⚠ **区切り位置は「含むか」の答えを変えない** —
+    # **自分の名義に区切り文字は入っていない**ので、どこで割っても一致は保たれる。
+    # ⚠ **これで中黒の扱い**（`キュア・カルテット` は 1 組・`五條真由美・宮本佳那子` は
+    # 2 組、という数で決める曖昧な規則 → `CureApiService.credit_separator`）**を
+    # この判定から外せた。**⚠⚠ **割る必要があるのは「何人並んでいるか」を数える側
+    # だけ**（#65 の `credit_count`）。
+    #
+    # 🔴 **本人がメンバーのユニット名義もここに入る**（2026-08-23・**#177**）。
+    # ⚠⚠ **`キュア・カルテット` は名義に本人の名前を含まない**ので、
+    # **`own_artists` だけでは拾えなかった。**
+    #
+    # ⚠ **設定が無ければ隠さない**（消せば元の挙動に戻る → #77）。
+    # 🔴 **規則そのものは `OwnCredit`** — ⚠⚠ **本編・カバー母集合・表示の 3 箇所が
+    # 同じ判定を使う**（食い違うと「本人の曲を借り物として出す」形になる → #177）。
+    def own_credit?(value)
+      return OwnCredit.own?(value)
+    end
+
+    # 台本を割る継ぎ目。⚠ **継ぎ目が 1 つも引けなければ 1 本の直線に戻す**
     # （`Setlist` のアンカーと同じ判断 — 引けなければ黙って別のものを置かない）。
+    #
+    # ⚠⚠ **継ぎ目は 1 つとは限らない**（#117）。**蝶番（`後半。`）に加えて、
+    # ゲストコーナーの宣言が前半・後半に 1 つずつ**あるので、⚠ **最大 4 本の直線**になる。
     def segment(entry, total, scripts)
-      hinge = entry.mc_hinge.to_i
-      pivot = hinge_index(scripts).to_i
-      straight = [0, total - 1, 0, scripts.size - 1]
-      return straight unless hinge.positive? && pivot.positive?
-      return straight unless hinge < total && pivot < scripts.size
-      # ⚠⚠ **前半は継ぎ目の 1 本手前まで。**⚠ 継ぎ目を前半の終端にすると、
-      # **丸めで名指しの台本が蝶番の前に出て、蝶番でもう一度出る**
-      # （`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6` が 5 に丸まる。#76 の指摘）。
-      return [0, hinge - 1, 0, pivot - 1] if entry.ordinal < hinge
-      return [hinge, total - 1, pivot, scripts.size - 1]
+      points = anchors(entry, total, scripts)
+      return [0, total - 1, 0, scripts.size - 1] if points.empty?
+      # ⚠ **`entry.ordinal` を含む区間**。手前に継ぎ目が無ければ台本の頭から。
+      index = points.rindex {|ordinal, _| ordinal <= entry.ordinal}
+      from, script_from = index ? points[index] : [0, 0]
+      to, script_to = upto(points[(index || -1) + 1], total, scripts.size)
+      return [from, to, script_from, script_to]
+    end
+
+    # 区間の終端。⚠⚠ **次の継ぎ目の 1 本手前まで**（#76 の指摘）。
+    #
+    # ⚠ **継ぎ目そのものを終端にすると、丸めで名指しの台本が継ぎ目の前に出て、
+    # 継ぎ目でもう一度出る**（`mc_hinge = 13` / 継ぎ目 5 なら `12 × 5 ÷ 13 = 4.6`
+    # が 5 に丸まる）。⚠ 次が無ければ台本の終端。
+    def upto(point, total, size)
+      return [total - 1, size - 1] unless point
+      return [point.first - 1, point.last - 1]
+    end
+
+    # 台本を割る継ぎ目 `[MC の番号, 台本の位置]` を前から順に。⚠ **引けないものは捨てる。**
+    #
+    # ⚠⚠ **両端は継ぎ目ではない**（`0` と終端は区間の側が持つ）ので、**内側だけを見る。**
+    def anchors(entry, total, scripts)
+      found = [[entry.mc_hinge, hinge_index(scripts)]] + cover_anchors(entry, scripts)
+      inside = found.select do |ordinal, index|
+        inside?(ordinal, total) && inside?(index, scripts.size)
+      end
+      return increasing(inside.sort)
+    end
+
+    def inside?(value, size)
+      return false unless value.is_a?(Integer)
+      return value.positive? && value < size
+    end
+
+    # ⚠⚠ **前へ進まない継ぎ目は捨てる。**⚠ **残すと台本が巻き戻る**（同じ MC の番号に
+    # 2 つ来た日や、台本の並びと塊の並びが食い違った日）。**先に来たほうを残す。**
+    def increasing(points)
+      return points.each_with_object([]) do |point, kept|
+        last = kept.last
+        next if last && (point.first <= last.first || point.last <= last.last)
+        kept.push(point)
+      end
     end
 
     # ⚠ 蝶番の直後に置く台本（`/live/mc/hinge` の `slug`）。⚠ 無ければ nil。
     def hinge_index(scripts)
-      slug = optional_config('/live/mc/hinge').to_s
-      return nil if slug.empty?
-      return scripts.index {|script| script[:slug] == slug}
+      return script_index_of(scripts, optional_config('/live/mc/hinge'))
+    end
+
+    # ゲストコーナーの塊の直前に置く台本（`/live/mc/cover` の `slug`）。
+    #
+    # ⚠⚠ **並び順で塊と対応させる**（1 つ目が前半、2 つ目が後半）。⚠ **塊の数より
+    # slug が多ければ余りは引けない**ので、そのぶんは継ぎ目にならない。
+    def cover_anchors(entry, scripts)
+      ordinals = Array(entry.mc_covers)
+      return Array(optional_config('/live/mc/cover')).each_with_index.map do |slug, index|
+        [ordinals[index], script_index_of(scripts, slug)]
+      end
+    end
+
+    def script_index_of(scripts, slug)
+      return nil if slug.to_s.empty?
+      return scripts.index {|script| script[:slug] == slug.to_s}
     end
 
     # ⚠ 浮動小数を使わない（同じ日付なら同じ並び、が前提 → `Setlist`）。

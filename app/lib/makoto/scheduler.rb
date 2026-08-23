@@ -41,15 +41,30 @@ module Makoto
     # 1 本の例外で残りの枠を全部落とすのが最悪の壊れ方（→ docs/CLAUDE.md）。
     def tick(time = nil)
       time ||= Time.now
-      return @jobs.map do |job|
+      results = @jobs.map do |job|
         job.exec(time)
       rescue => e
         logger.error(scheduler: 'tick', post: job.name, error: e)
         next nil
       end
+      record_tick
+      return results
     end
 
     private
+
+    # ⚠⚠ **tick が回ったこと自体を痕跡に残す**（#80 の黄 7）。⚠ **ハートビートは別の
+    # rufus ジョブ**なので、**tick 側だけが詰まっても `at` は更新され続ける** —
+    # 「生きているが投稿していない」の検知が、まさにその状態で効かなかった。
+    #
+    # ⚠ **投稿が 1 本も出なくても記録する。**ここで見たいのは**枠を見に行けているか**
+    # であって、投稿の成否は別の痕跡が持つ（→ `Heartbeat` 冒頭の表）。
+    # ⚠⚠ **書けなくても tick は止めない**（痕跡は観測のためのもの）。
+    def record_tick
+      Heartbeat.record_tick
+    rescue => e
+      logger.error(scheduler: 'tick', error: e)
+    end
 
     def initialize
       @scheduler = Rufus::Scheduler.new
@@ -60,6 +75,10 @@ module Makoto
       interval = config['/scheduler/heartbeat/interval']
       @scheduler.every interval, first: :now do
         logger.info(scheduler: 'heartbeat', version: Package.version, jobs: jobs)
+        # 🔴 **日付を騙している間は鳴らし続ける**（#110）。⚠⚠ **リハーサルの
+        # つもりで無い常駐が偽の日付で動いていたら、それは事故。**⚠ **1 回きりの
+        # 起動ログでは、後から入った人が気づけない。**
+        logger.warn(time_travel: TimeTravel.describe) if TimeTravel.active?
         # ⚠ **監視はログではなくこの痕跡を見る**（→ `Heartbeat` / `Health`）。
         # 書けなくてもハートビートそのものは止めない（下の rescue の内側）。
         Heartbeat.touch(jobs: jobs)
@@ -81,8 +100,10 @@ module Makoto
       # 枠の頭 ＋ tolerance の内側で再起動したときに**その枠が落ちる**（→ #47）。
       # ⚠ 位置の計算そのものは正しいのに、**再起動直後にそれを呼ぶ機会が無い**という
       # 形で「落ちて戻ってきても位置がずれない」が効かなくなっていた。
-      # ⚠ 初回が伸びて `every` の 1 回目と重なっても、**冪等キーが枠の頭の時刻から
-      # 作られている**ので同じ枠は 1 通に畳まれる（→ `PostingJob#idempotency_key`）。
+      # 🔴 **初回が伸びて `every` の 1 回目と重なっても、同じ枠は 1 回しか処理されない**
+      # （→ `PostingJob#claim`）。⚠⚠ **以前はここを冪等キーに任せていたが、実機の
+      # Mastodon は 2 通目を畳まず 500 を返した**（#109・2026-08-18 実測）。
+      # ⚠ **畳んでくれることを当てにしない。**
       tick
       return @jobs.size
     end

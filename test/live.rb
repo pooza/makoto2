@@ -111,6 +111,58 @@ module Makoto
       assert_empty(times.filter_map {|time| live.program.call(time)})
     end
 
+    # 警告を拾う入れ物。⚠ **実サーバーにも syslog にも書かない。**
+    def with_recorder(program)
+      recorder = []
+      program.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| recorder.push(payload[:message].to_s)}
+        define_method(:info) {|payload| payload}
+        define_method(:debug) {|payload| payload}
+        def error(*)
+        end
+      end.new(nil))
+      yield
+      return recorder
+    end
+
+    # 🔴 **#80 の黄 9 の本体。**⚠⚠ **平常日の空回りと「ライブが壊れて何も出ない」が、
+    # ログ上でまったく同じだった**（どちらも `no text` の 1 行）。⚠ **11/4 に 160 枠が
+    # 全滅しても、平常日のログと 1 文字も変わらない。**
+    #
+    # ⚠ **ここまで来ているということは「ライブ当日で、枠の中」**なので、⚠⚠ **本文が
+    # 無いのは原稿が無いのではなく壊れている。**
+    def test_a_silent_slot_on_the_live_day_is_reported
+      program = live.program
+      time = mc_times(program.setlist(jst(11, 4, 13, 0))).first
+      recorder = with_recorder(program) do
+        assert_nil(program.call(time))
+      end
+
+      assert_include(recorder, 'no text for the slot')
+    end
+
+    # ⚠⚠ **平常日は黙る。**⚠ **枠は毎日空回りする設計**なので、ここで警告を出すと
+    # **8/15〜10/31 の 2 か月半が延々と黄色になる**（#78 で「本文が無い」を中立に
+    # 置いたのと同じ判断）。
+    def test_a_silent_slot_on_an_ordinary_day_is_not_reported
+      program = live.program
+      recorder = with_recorder(program) do
+        assert_nil(program.call(jst(6, 15, 15, 2)))
+      end
+
+      assert_empty(recorder)
+    end
+
+    # ⚠ 枠の外でも黙る（告知の時刻・ライブが終わったあと）。
+    def test_a_slot_outside_the_live_is_not_reported
+      program = live.program
+      recorder = with_recorder(program) do
+        assert_nil(program.call(jst(11, 4, 23, 0)))
+      end
+
+      assert_empty(recorder)
+    end
+
     # ⚠ 枠の外（12:00 の告知の時刻・20:00 以降）では曲を返さない。
     def test_program_is_silent_outside_the_slot
       assert_nil(live.program.call(jst(11, 4, 12, 0)))
@@ -246,6 +298,98 @@ module Makoto
       assert_empty(indexes.first(13).select {|index| index >= 5})
     end
 
+    # 🔴 **カバー宣言の台本は、ゲストコーナーの塊の直前の MC に来る**（#117）。
+    # ⚠⚠ **塊の位置は曲と MC を並べた配列の位置、台本の位置は「MC の何番目か」**で
+    # 決まるので、⚠ **繋がないと曲数が動くたびにずれる**（実測で 3 曲）。
+    def test_the_cover_script_lands_right_before_the_corner
+      program = live.program
+      config['/live/mc/cover'] = ['s7', 's20']
+      expected = [7, 20]
+      # ⚠ 枠数を変えても、宣言の MC には必ずその台本が来ること。
+      [[48, [14, 39]], [26, [8, 21]], [60, [18, 48]]].each do |slots, covers|
+        covers.each_with_index do |ordinal, index|
+          entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: slots,
+            mc_hinge: nil, mc_covers: covers)
+
+          assert_equal(expected[index], program.script_index(entry, fake_scripts(26)),
+            "#{slots} 枠 / 宣言 #{ordinal}")
+        end
+      end
+    end
+
+    # ⚠⚠ **継ぎ目は 3 つ同時に立つ**（前半の宣言・蝶番・後半の宣言）。
+    # ⚠ **どれも自分の MC にぴったり来て、並びは巻き戻らない。**
+    def test_three_anchors_all_land
+      program = live.program
+      config['/live/mc/hinge'] = 's13'
+      config['/live/mc/cover'] = ['s7', 's20']
+      scripts = fake_scripts(26)
+      indexes = Array.new(48) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 48,
+          mc_hinge: 24, mc_covers: [14, 39])
+        program.script_index(entry, scripts)
+      end
+
+      assert_equal([7, 13, 20], [indexes[14], indexes[24], indexes[39]])
+      # ⚠ **名指しの台本は自分の継ぎ目より前に出ない**（#76 と同じ規則）。
+      assert_equal([14, 24, 39], [indexes.index(7), indexes.index(13), indexes.index(20)])
+      assert_equal(indexes, indexes.sort)
+      assert_equal([0, 25], [indexes.first, indexes.last])
+    end
+
+    # ⚠ 引けない slug は継ぎ目にしない。**残りの継ぎ目は生きる。**
+    def test_a_missing_cover_script_keeps_the_other_anchors
+      program = live.program
+      config['/live/mc/hinge'] = 's13'
+      config['/live/mc/cover'] = ['存在しない slug', 's20']
+      entry = lambda do |ordinal|
+        Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 48,
+          mc_hinge: 24, mc_covers: [14, 39])
+      end
+
+      assert_equal(13, program.script_index(entry.call(24), fake_scripts(26)))
+      assert_equal(20, program.script_index(entry.call(39), fake_scripts(26)))
+    end
+
+    # ⚠⚠ **直前に MC が無い塊は `nil` で場所を空けてある**（Codex の指摘・PR #133）。
+    # 🔴 **2 つ目の塊が 1 つ目の宣言と対応してはいけない。**
+    def test_a_corner_without_an_mc_does_not_shift_the_declarations
+      program = live.program
+      config['/live/mc/cover'] = ['s7', 's20']
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 39, mc_total: 48, mc_covers: [nil, 39])
+
+      assert_equal(20, program.script_index(entry, fake_scripts(26)))
+    end
+
+    # ⚠⚠ **前へ進まない継ぎ目は捨てる。**⚠ **残すと台本が巻き戻る** — 台本の並びと
+    # 塊の並びが食い違った日（宣言の slug を入れ替えてしまった等）の保険。
+    def test_anchors_that_go_backwards_are_dropped
+      program = live.program
+      config['/live/mc/hinge'] = 's13'
+      # ⚠ 後半の宣言（MC 39）に、前半より前の台本（s3）を指してしまった状態。
+      config['/live/mc/cover'] = ['s7', 's3']
+      scripts = fake_scripts(26)
+      indexes = Array.new(48) do |ordinal|
+        entry = Setlist::Entry.new(kind: :mc, ordinal: ordinal, mc_total: 48,
+          mc_hinge: 24, mc_covers: [14, 39])
+        program.script_index(entry, scripts)
+      end
+
+      assert_equal(indexes, indexes.sort)
+      assert_equal([7, 13], [indexes[14], indexes[24]])
+    end
+
+    # ⚠ カバーの塊が無い日（`mc_covers` が空）は蝶番だけで割る。
+    def test_without_corners_only_the_hinge_splits
+      program = live.program
+      config['/live/mc/hinge'] = 's12'
+      config['/live/mc/cover'] = ['s7']
+      entry = Setlist::Entry.new(kind: :mc, ordinal: 13, mc_total: 26, mc_hinge: 13,
+        mc_covers: [])
+
+      assert_equal(12, program.script_index(entry, fake_scripts(25)))
+    end
+
     # ⚠ 台本の順序は蝶番をまたいでも巻き戻らない。
     def test_the_hinge_split_stays_monotonic
       program = live.program
@@ -257,6 +401,167 @@ module Makoto
 
       assert_equal(indexes, indexes.sort)
       assert_equal(12, indexes[13])
+    end
+
+    # ⚠ 名義だけを差し替えた 1 行。**投稿の見え方（#119 / #121）を見るのに使う。**
+    def track_row(artist, name: '曲名')
+      return {name: name, artist_name: artist, url: 'https://example.test/t/9'}
+    end
+
+    # 🔴 **ライブの本編では自分名義を出さない**（#121）。**歌っているのが自分であることが
+    # 自明**なので、名義がノイズになる。
+    def test_own_credit_is_hidden_in_the_program
+      entry = Setlist::Entry.new(kind: :song, track: track_row('宮本佳那子'))
+
+      assert_not_includes(live.program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ **合成名義でも隠す**（実データは `キュアソード/剣崎真琴(CV:宮本佳那子)`）。
+    def test_a_composite_own_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('キュアソード/剣崎真琴(CV:宮本佳那子)'))
+
+      assert_not_includes(live.program.track_text(entry), 'キュアソード')
+    end
+
+    # 🔴 **共演曲も隠す**（2026-08-22・オーナー判断・#155）。⚠⚠ **劇中設定では、
+    # 高橋さんとの曲なども「カバーではなく自分の歌」として歌っている**ので、
+    # ⚠ **共演者の名義はその前提では情報を足さない。**
+    def test_a_shared_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美&宮本佳那子'))
+      text = live.program.track_text(entry)
+
+      assert_not_includes(text, '五條真由美')
+      assert_not_includes(text, '宮本佳那子')
+    end
+
+    # 🔴 **中黒で並んだ共演名義も隠す。**
+    #
+    # ⚠⚠ **これは PR #134 で「隠さない」と決めた形そのもの**（実データの
+    # `リワインドメモリー`）。⚠ **当時の理由は「五條真由美ごと消えるから」**だったが、
+    # 🔴 **#155 でそれを「隠してよい」と決めたので、避ける理由が無くなった。**
+    #
+    # ⚠ **中黒を区切りとみなすかに関わらず同じ答えになる**（→ `own_credit?`）。
+    def test_a_middle_dot_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('五條真由美・宮本佳那子'))
+
+      assert_not_includes(live.program.track_text(entry), '五條真由美')
+    end
+
+    # ⚠ 区切りだけが残るのは自分の名義が並んでいるだけ（隠す）。
+    def test_own_names_in_a_row_are_still_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('キュアソード・剣崎真琴'))
+
+      assert_not_includes(live.program.track_text(entry), 'キュアソード')
+    end
+
+    # ⚠⚠ **姓名の間に空白がある表記も同じ**（#155）。⚠ **設定は「宮本 佳那子」、
+    # 曲データは「宮本佳那子」という揺れが実データにある**（→ `CureApiService.normalize`）。
+    def test_a_spaced_own_credit_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('高橋秀幸 & 宮本 佳那子'))
+      text = live.program.track_text(entry)
+
+      assert_not_includes(text, '高橋秀幸')
+      assert_not_includes(text, '佳那子')
+    end
+
+    # 🔴 **括弧の中も見る**（2026-08-23 のオーナー判断・#164）。⚠⚠ **別作品の役名義も
+    # 隠す** — 実データの `チョキンとLet's GO！`。
+    #
+    # ⚠ **2026-08-20 は「隠すと『誰の曲か』が消える」として出したままにしていた。**
+    # 🔴 **取り下げた理由は「これはバースデーライブに限った話」だから** — ⚠⚠ **当日は
+    # 本人の持ち歌というテイで通す。**
+    def test_a_role_credit_with_a_cv_note_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('グロッサムX2(CV:宮本佳那子)'))
+
+      assert_not_includes(live.program.track_text(entry), 'グロッサムX2')
+    end
+
+    # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `CureApiService#split_artist`）。
+    # ⚠ **山括弧でも同じ答えになること**（括弧の種類で判定が変わらない）。
+    def test_a_role_credit_with_an_angle_bracket_cv_note_is_hidden
+      entry = Setlist::Entry.new(kind: :song, track: track_row('花奈〈CV: 宮本 佳那子〉'))
+
+      assert_not_includes(live.program.track_text(entry), '花奈')
+    end
+
+    # 🔴 **ユニット名義の括弧の中に自分が居ても隠す**（#164 の本体）。
+    # ⚠⚠ **実データの `ありがとうがいっぱい`** — **ユニット名そのものには自分が
+    # 入っていないので、括弧を落とすと「自分を含まない名義」に見えていた。**
+    def test_a_unit_credit_listing_own_name_in_brackets_is_hidden
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('キュア・レインボーズ(五條真由美・工藤真由・宮本佳那子・池田彩)'))
+      text = live.program.track_text(entry)
+
+      assert_not_includes(text, 'キュア・レインボーズ')
+      assert_not_includes(text, '五條真由美')
+    end
+
+    # 🔴 **コーラスは本人の判定に使わない**（2026-08-23・オーナー・**#177**）。
+    #
+    # ⚠⚠ **#164 の「コーラス表記で並んでいても隠す」を取り下げた形。**⚠ **実データの
+    # `DANZEN!ふたりはプリキュア ~唯一無二の光たち~`**（本編・2 行）で、
+    # 🔴 **コーラスでの参加はその曲を本人の曲にしない**ので、**名義は出す。**
+    #
+    # ⚠ **`own_units`（#177）で本人の曲を増やす向きだけでなく、
+    # 減らす向きにも同じ規則が効く。**
+    def test_a_chorus_only_credit_is_shown
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('五條真由美(コーラス:うちやえゆか・宮本佳那子)'))
+
+      assert_includes(live.program.track_text(entry), '五條真由美')
+    end
+
+    # ⚠ **落とすのはコーラスの区画だけ** — **主名義が本人なら隠す。**
+    def test_a_credit_with_own_name_and_a_chorus_is_hidden
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('宮本佳那子/コーラス:ヤング・フレッシュ'))
+
+      assert_not_includes(live.program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ **自分を含まない名義は本編でも出す**（隠すのは自分が居るときだけ）。
+    def test_an_unrelated_credit_is_shown_in_the_program
+      entry = Setlist::Entry.new(kind: :song, track: track_row('高橋秀幸 & 内田順子'))
+
+      assert_includes(live.program.track_text(entry), '高橋秀幸')
+    end
+
+    # ⚠⚠ **ゲストコーナーは必ず出す** — **他の歌手の持ち歌なので名義が意味を持つ。**
+    def test_a_cover_credit_is_always_shown
+      entry = Setlist::Entry.new(kind: :cover, track: track_row('宮本佳那子'))
+
+      assert_includes(live.program.track_text(entry), '宮本佳那子')
+    end
+
+    # ⚠ **ライブでは曲名の括弧書きを落とす**（#119）。
+    def test_the_program_drops_brackets_from_the_name
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('宮本佳那子', name: 'パジャマジャ(光るパジャマCM曲)'))
+      text = live.program.track_text(entry)
+
+      assert_includes(text, '♪ パジャマジャ')
+      assert_not_includes(text, '光るパジャマ')
+    end
+
+    # ⚠⚠ **カバーの断りの後ろは 1 行アキ**（#122）。
+    def test_the_cover_prefix_is_followed_by_a_blank_line
+      entry = Setlist::Entry.new(kind: :cover, track: track_row('池田 彩', name: 'カバーの曲'))
+      lines = live.program.track_text(entry).lines.map(&:chomp)
+
+      assert_equal(config['/live/setlist/cover_prefix'], lines.first)
+      assert_equal('', lines[1])
+      assert_equal('♪ カバーの曲', lines[2])
+    end
+
+    # ⚠⚠ **下見は投稿と同じ口を通す**（#62）。⚠ **「ライブでどう見えるか」の正本を
+    # 下見の側に写さない。**
+    def test_the_preview_uses_the_same_presenter
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('宮本佳那子', name: 'スマイル!(テレビサイズ)'))
+      presenter = live.program.track_presenter(entry)
+
+      assert_equal('スマイル！', presenter.name)
+      assert_nil(presenter.credit)
     end
 
     # ⚠⚠ **下見（`makoto live setlist --mc`）は投稿と同じ口を通す**（#62）。
@@ -336,6 +641,29 @@ module Makoto
 
       assert_nil(source.call(jst(11, 4, 13, 0)))
       assert_nil(source.call(jst(6, 15, 13, 0)))
+    end
+
+    # 🔴 **#114 の `live-eve` ぶん。**⚠⚠ **`ScriptRotation` は `MessageSelector#call` を
+    # 通らない**（`list` を使う）ので、⚠ **`call` に警告を足しただけではここに穴が残る。**
+    def test_eve_reports_silence_when_the_script_is_missing
+      selector = live.selector('eve')
+      source = ScriptRotation.new(selector: selector, timetable: live.timetable('eve'))
+      recorder = with_recorder(selector) do
+        assert_nil(source.call(jst(11, 3, 13, 0)))
+      end
+
+      assert_include(recorder, 'no message for the reserved date')
+    end
+
+    # ⚠ 前日以外は黙る。⚠⚠ **枠は毎日ある**ので、ここで警告すると平常日が毎日黄色になる。
+    def test_eve_does_not_report_on_other_days
+      selector = live.selector('eve')
+      source = ScriptRotation.new(selector: selector, timetable: live.timetable('eve'))
+      recorder = with_recorder(selector) do
+        assert_nil(source.call(jst(6, 15, 13, 0)))
+      end
+
+      assert_empty(recorder)
     end
 
     # ⚠⚠ **台本の type が記念日に登録されていなければ作らせない。**登録が無いと

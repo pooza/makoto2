@@ -149,6 +149,67 @@ module Makoto
       assert_not_include(message.to_json, 'SECRET')
     end
 
+    # 実際に syslog へ渡る手前の値。⚠ **`create_message` を直に呼ぶだけでは
+    # 「その severity が出口を通っているか」を見られない**（#97 はまさにそこが穴だった）。
+    def emitted(severity, payload)
+      recorder = []
+      subject = Logger.new
+      subject.define_singleton_method(:add) do |_level, message = nil, progname = nil|
+        recorder.push(message || progname)
+        next true
+      end
+      subject.send(severity, payload)
+      return recorder.first.to_s
+    end
+
+    # ⚠ 出す水準は設定から出す（#80 の黄 9）。
+    def test_the_level_comes_from_the_setting
+      config['/logger/level'] = 'debug'
+
+      assert_equal(::Logger::Severity::DEBUG, Logger.new.level)
+    end
+
+    # ⚠⚠ **既定では `debug` を出さない。**⚠ **平常日に 171 行出ていた「本文が無い」を
+    # 黙らせるのがこの水準の役目**（→ `PostingJob`）。
+    def test_debug_is_silent_by_default
+      assert_operator(Logger.new.level, :>, ::Logger::Severity::DEBUG)
+      assert_operator(Logger.new.level, :<=, ::Logger::Severity::INFO)
+    end
+
+    # ⚠⚠ **読めない値でも落ちない。**⚠ **ログの出口が設定の不備で例外を上げると、
+    # その例外を書く先も無い。**⚠ **黙る方向へは倒さない。**
+    def test_a_broken_level_falls_back_to_info
+      config['/logger/level'] = 'いつか'
+
+      assert_equal(::Logger::Severity::INFO, Logger.new.level)
+    end
+
+    def test_the_level_falls_back_when_the_setting_is_gone
+      config.delete('/logger/level')
+
+      assert_equal(::Logger::Severity::INFO, Logger.new.level)
+    end
+
+    # 🔴 **#97 の本体。**⚠⚠ **上流が上書きしているのは `info` と `error` の 2 つだけ**
+    # だったので、⚠ **`warn` は `Syslog::Logger` の実装がそのまま走り、`drop_secrets` も
+    # `scrub` も効いていなかった**（実測で `token` が平文で出た）。
+    def test_every_severity_goes_through_the_exit
+      [:info, :error, :warn, :debug, :fatal].each do |severity|
+        output = emitted(severity, post: 'live', token: 'SECRET')
+
+        assert_not_include(output, 'SECRET', severity.to_s)
+        assert_include(output, '"post":"live"', severity.to_s)
+      end
+    end
+
+    # ⚠ **不正なバイト列の scrub も severity で漏らさない**（#79 の経路が `warn` に
+    # 残っていた）。
+    def test_every_severity_survives_invalid_bytes
+      [:info, :error, :warn, :debug, :fatal].each do |severity|
+        assert_nothing_raised(severity.to_s) {emitted(severity, post: broken, error: raised(broken))}
+      end
+    end
+
     # ⚠⚠ **呼び出し側 6 箇所を直す案にしなかった理由の担保。**
     # ⚠ **出口 1 つで受けているので、`PostingJob` の経路もそのまま通る。**
     def test_the_posting_path_survives

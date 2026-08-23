@@ -81,6 +81,63 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
+    # 🔴 モロヘイヤを経由するとき、`X-Mulukhiya` を送らないこと（#124）。
+    # ⚠⚠ ヘッダを付けたほうが「経由しない」（nginx の map が Mastodon 本体へ直に
+    # 流す）。⚠ 送っていることに 3 週間気付かなかったので、正テストで固定する。
+    def test_post_status_omits_mulukhiya_header
+      headers = nil
+      stub_request(:post, @url).to_return do |request|
+        headers = request.headers
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+      end
+      MastodonService.new.post_status('こんにちは')
+
+      assert_nil(headers['X-Mulukhiya'])
+    end
+
+    # ⚠⚠ 迂回する側も見る。片方だけ通っていても気付けず、もう片方は設定次第で
+    # 本番でしか踏まない（→ #30 の tomato-shrieker の 2.5 か月）。
+    def test_post_status_sends_mulukhiya_header_when_disabled
+      config['/mastodon/mulukhiya'] = false
+      headers = nil
+      stub_request(:post, @url).to_return do |request|
+        headers = request.headers
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+      end
+      MastodonService.new.post_status('こんにちは')
+
+      assert_equal(Package.full_name, headers['X-Mulukhiya'])
+    end
+
+    # ⚠⚠ トークンの検査は経路の設定に関わらず常に直（#124）。⚠ 「モロヘイヤが
+    # 落ちている」が「トークンが死んでいる」に化けると、当日いちばん困る。
+    def test_account_always_bypasses_mulukhiya
+      url = "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials"
+      headers = nil
+      stub_request(:get, url).to_return do |request|
+        headers = request.headers
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+      end
+      MastodonService.new.account
+
+      assert_equal(Package.full_name, headers['X-Mulukhiya'])
+    end
+
+    # ⚠⚠ 経路をログに残すこと（#124）。⚠ 経路の間違いは投稿の失敗として現れない
+    # ので、成功したログの側に出ていないと気付けない。
+    def test_post_status_logs_the_route
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}')
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_true(messages.first[:mulukhiya])
+    end
+
     # ⚠ 「テストが本物のサーバーを叩かない」こと自体を見る。WebMock.enable! を忘れると
     # stub も disable_net_connect! も無言で素通りし、実サーバーへ書き込む。
     def test_net_connect_is_blocked

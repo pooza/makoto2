@@ -130,11 +130,10 @@ module Makoto
 
     # ⚠⚠ **日付のまま渡す。**時刻を作るとホストの TZ で解釈され、`/scheduler/timezone`
     # に直したときに 1 日ずれる（日本の外で下見すると 11/4 が 11/5 になる）。
+    # ⚠⚠ **規則の正本は `ScriptImporter.parse_date`**（#96。`LiveCommand` と同じ穴が
+    # 2 箇所あった）。⚠ **空なら nil**（`MessageSelector` 側が今日に倒す）。
     def preview_date(value)
-      return nil if value.blank?
-      return Date.parse(value)
-    rescue Date::Error
-      raise Ginseng::ValidateError, "日付は YYYY-MM-DD で指定してください（'#{value}'）"
+      return ScriptImporter.parse_preview_date(value)
     end
 
     # ⚠ 季節指定を「通年」と表示しない。**季節の原稿は通年で回すものではない**ので、
