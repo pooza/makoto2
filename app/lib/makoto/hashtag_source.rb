@@ -48,7 +48,7 @@ module Makoto
     # `call` の「時刻から引き直す」経路は通れない** — **通すと並びを 2 回組むことに
     # なり、下見が防ごうとしている食い違いを下見自身が作る**（Codex の指摘・PR #160）。
     def tag(text)
-      return text if text.to_s.strip.empty?
+      return text if blank?(text)
       tags = create_tags(text)
       # ⚠⚠ **本文に既に入っていれば `TagContainer` が落とす。**⚠ **空になった
       # ときに改行だけ足さない**（タグの無い空行が最終行に残る）。
@@ -58,18 +58,64 @@ module Makoto
 
     private
 
+    # ⚠ **本文は重複の判定にだけ使う**（投稿するのは元の文字列）。
+    #
+    # ## 🔴 変換は上流へ返した（#171 / 2026-08-24）
+    #
+    # ⚠⚠ **`force_encoding(UTF_8).scrub` を掛けていた**（`TagContainer#text=` が
+    # NFKC を通すので、ASCII-8BIT を素で渡すと `Encoding::CompatibilityError`）。
+    # ⚠ **`Sequel` / SQLite は非 ASCII を ASCII-8BIT で返しうる。**
+    #
+    # 🔴 **あれは上流（`ginseng-fediverse#248`）が「採らない」と決めた形そのものだった**
+    # — ⚠⚠ **`force_encoding` はラベルを貼り替えるだけ**なので、**Shift_JIS の本文は
+    # 中身が壊れたまま UTF-8 を名乗り、`scrub` がそれを `?` に置き換える。**
+    # ⚠ **化けた文字列で重複を判定していた**（＝ **既に本文にあるタグを取りこぼす**）。
+    #
+    # ✅ **1.8.30 の `TagContainer.to_utf8` が入口で `encode` する**ので、⚠ **ASCII-8BIT
+    # も Shift_JIS も中身を保ったまま通る。**⚠⚠ **不正なバイト列だけが `ValidateError`。**
+    #
+    # 🔴 **タグを足す都合で投稿そのものを失わない**（元の判断はそのまま）ので、
+    # ⚠ **`ValidateError` は握ってタグ無しで返す。**⚠⚠ **黙らせない** —
+    # **本文が壊れていることに気付ける唯一の場所。**
     def create_tags(text)
       container = Ginseng::Fediverse::TagContainer.new
-      # ⚠ **本文は重複の判定にだけ使う**（投稿するのは元の文字列）。
-      #
-      # ⚠⚠ **`TagContainer#text=` は NFKC 正規化を通す**ので、⚠ **ASCII-8BIT の
-      # 文字列を渡すと `Encoding::CompatibilityError` になる**（実測）。⚠⚠ **Sequel /
-      # SQLite は非 ASCII を ASCII-8BIT で返しうる**（→ `Logger` / `Package#error_message`
-      # が同じ穴を塞いでいる）。⚠ **そうなると `PostingJob` の rescue に飲まれて
-      # その枠が落ちる** — **タグを足す都合で投稿そのものを失う**のは筋が違う。
-      container.text = text.to_s.dup.force_encoding(Encoding::UTF_8).scrub
+      container.text = utf8(text)
       container.push(@hashtag)
       return container.to_s
+    rescue Ginseng::ValidateError => e
+      logger.warn(hashtag: 'skipped', error: e)
+      return ''
+    end
+
+    # ⚠ **本文が空か。**🔴 **不正なバイト列でも落ちないこと。**
+    #
+    # ⚠⚠ **`String#strip` は不正なバイト列で `Encoding::CompatibilityError` を上げる**
+    # ので、**ここで素の `strip` を呼ぶと `PostingJob` の rescue に飲まれて枠が落ちる**
+    # — ⚠ **タグを足す都合で投稿そのものを失う**という、`create_tags` の rescue が
+    # 避けているのと同じ形が、**その手前に残っていた**（#171 で見つけた）。
+    #
+    # ⚠ **落ちたときは「空ではない」に倒す** — **本文はあるので、投稿はする。**
+    def blank?(text)
+      return text.to_s.strip.empty?
+    rescue ArgumentError, EncodingError
+      return false
+    end
+
+    # ⚠ **ASCII-8BIT のラベルだけを剥がす**（⚠⚠ **中身が妥当な UTF-8 のときだけ**）。
+    #
+    # 🔴 **暫定** — **上流の `TagContainer.to_utf8` は ASCII-8BIT を `encode` に掛ける**
+    # ので、⚠⚠ **中身が妥当な UTF-8 でも `UndefinedConversionError` → `ValidateError`
+    # になる**（実測・`pooza/ginseng-fediverse#265`）。⚠ **`Sequel` / SQLite が非 ASCII を
+    # ASCII-8BIT で返す形がまさにこれ**（#124 / #79）で、**当たるとタグが黙って消える。**
+    #
+    # ⚠⚠ **これは #248 が「採らない」と決めた `force_encoding` とは違う** —
+    # **妥当な UTF-8 であることを確かめてからラベルを直すだけ**で、🔴 **中身は 1 バイトも
+    # 変えないし、`scrub` もしない。**⚠ **上流が直ったら消す。**
+    def utf8(text)
+      text = text.to_s
+      return text unless text.encoding == Encoding::BINARY
+      relabeled = text.dup.force_encoding(Encoding::UTF_8)
+      return relabeled.valid_encoding? ? relabeled : text
     end
   end
 end
