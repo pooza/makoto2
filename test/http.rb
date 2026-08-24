@@ -1,10 +1,14 @@
 module Makoto
   # ⚠⚠ **`/http/timeout/seconds` が投稿・cure-api に効いていなかった**（#90 / #80 の黄 2）。
-  # ⚠ **`Ginseng::HTTP` が HTTParty に `timeout:` を渡すのは `upload` だけ**で、
+  # ⚠ **1.15.28 の `Ginseng::HTTP` が HTTParty に `timeout:` を渡すのは `upload` だけ**で、
   # `get` / `post` の実効は Net::HTTP 既定の 60 秒だった。
   #
   # ⚠⚠ **再送 3 回と合わせて 1 本の投稿が最悪 182 秒。****ライブの枠間隔 180 秒と
   # ほぼ同じ**で、tick のスレッドを占有する。
+  #
+  # 🔴 **塞いでいるのは上流になった**（#137・`ginseng-core` 1.19.0 / 上流 `#514`）。
+  # ⚠ **`Makoto::HTTP` の上書きは外した**ので、⚠⚠ **このテストが見ているのは
+  # 「上流が渡しているか」** — **追随で戻ったら、ここが落ちる。**
   class HTTPTest < TestCase
     URL = 'https://example.test/thing'.freeze
 
@@ -55,6 +59,54 @@ module Makoto
         HTTP.new.get(URL, timeout: 5)
 
         assert_equal(5, captured.first[:timeout])
+      end
+    end
+
+    # ⚠ **待った秒数を見る**（本当に眠らせない）。⚠⚠ **`repeat` の `sleep` は
+    # `Kernel#sleep`** なので、**そのインスタンスにだけ生やして横取りする。**
+    def with_captured_sleep(http)
+      slept = []
+      http.define_singleton_method(:sleep) {|seconds| slept.push(seconds)}
+      yield slept
+    end
+
+    # 🔴 **#100。**⚠⚠ **429 は「いつ再開してよいか」を相手が明示している唯一の
+    # ステータス。**⚠ **1.15.28 は `Retry-After` を見ずに固定 1 秒で 3 連打していた** —
+    # **規制されている最中に叩き直すので、規制を長引かせる方向に効く。**
+    #
+    # ✅ **上流（`pooza/ginseng-core#525`）が塞いだ。**⚠ **こちらは追随しただけ**なので、
+    # 🔴 **戻ったときにここが落ちる**（自分の箱には規則を持たない → #137 と同じ形）。
+    def test_a_429_honours_retry_after
+      stub_request(:get, URL).to_return(status: 429, headers: {'Retry-After' => '2'})
+      http = HTTP.new
+      with_captured_sleep(http) do |slept|
+        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+        assert_equal([2, 2], slept)
+      end
+    end
+
+    # ⚠ **ヘッダが無ければ従来どおり固定値**（`/http/retry/seconds`）。
+    def test_a_429_without_the_header_falls_back
+      stub_request(:get, URL).to_return(status: 429)
+      http = HTTP.new
+      with_captured_sleep(http) do |slept|
+        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+        assert_equal([1, 1], slept)
+      end
+    end
+
+    # 🔴 **長すぎる待ちは待たない**（上流 `#525`）。⚠⚠ **プロセスを何分も止めるのは
+    # 呼び出し側の期待を超える** — ⚠ **「次の機会に回す」判断は枠を持つ側のもの**
+    # （→ docs/CLAUDE.md「投稿の欠落は詰めない」）。
+    def test_a_long_retry_after_gives_up
+      stub_request(:get, URL).to_return(status: 429, headers: {'Retry-After' => '3600'})
+      http = HTTP.new
+      with_captured_sleep(http) do |slept|
+        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+        assert_equal([], slept)
       end
     end
 

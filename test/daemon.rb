@@ -111,29 +111,46 @@ module Makoto
     end
 
     # ⚠ signal の送り先を差し替える。⚠⚠ **本物の `EPERM` を作ると他人のプロセスへ
-    # signal を送ることになる**ので、継ぎ目（`MakotoDaemon#signal`）で止める。
-    def with_signal(daemon, &)
-      daemon.define_singleton_method(:signal, &)
+    # signal を送ることになる**ので、継ぎ目（上流の `Ginseng::Daemon#send_signal`）で
+    # 止める。⚠ **引数の順は上流に合わせて `(signal, pid)`。**
+    def with_send_signal(daemon, &)
+      daemon.define_singleton_method(:send_signal, &)
       return daemon
     end
 
-    # 🔴 **#111 の本体（1）。**⚠⚠ **`EPERM` は「居るが signal を送れない」＝生きている。**
-    # ⚠ 上流 1.15.28 の `Ginseng::Daemon#alive?` は `EPERM` も false に倒すので、
-    # 🔴 **他人の権限で走っている常駐が「死んでいる」と読まれ、二重に起動しうる。**
-    def test_a_permission_error_means_alive
-      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::EPERM}
+    # ⚠ 在否の答えそのものを差し替える。⚠⚠ **`EPERM` を本物で作れない**のは同じ理由。
+    def with_alive_state(state)
+      original = Process.method(:alive_state)
+      Process.define_singleton_method(:alive_state) {|_pid| state}
+      yield
+    ensure
+      Process.define_singleton_method(:alive_state, original)
+    end
 
-        assert_true(daemon.alive?)
+    # 🔴 **#111 の本体（1）。**⚠⚠ **`EPERM` は「居るが signal を送れない」。**
+    # ⚠ **1.15.28 の `alive?` は `EPERM` も false に倒していた**ので、🔴 **他人の権限で
+    # 走っている常駐が「死んでいる」と読まれ、二重に起動しうる。**
+    #
+    # ✅ **上流は `:unknown` という 3 つ目の答えにした**（`pooza/ginseng-core#510`）。
+    # ⚠⚠ **`alive?` は false のまま**（真偽 2 値の述語なのでそれでよい）だが、
+    # 🔴 **`run_start` / `run_restart` は `alive_state` を見るので二重起動しない。**
+    # ⚠ **身元の判定は `:alive` のときだけ効く**ので、ここは素通しになる。
+    def test_a_permission_error_is_unknown
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        with_alive_state(:unknown) do
+          assert_equal(:unknown, daemon.alive_state)
+          assert_false(daemon.alive?)
+        end
       end
     end
 
     # ⚠ 居ないものは死んでいる（塞いだせいで検知できなくならないこと）。
     def test_no_such_process_means_dead
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::ESRCH}
-
-        assert_false(daemon.alive?)
+        with_alive_state(:dead) do
+          assert_equal(:dead, daemon.alive_state)
+          assert_false(daemon.alive?)
+        end
       end
     end
 
@@ -142,7 +159,7 @@ module Makoto
     # ＝ 孤児が確定する。**⚠ **旧実装が孤児を 11 日分撒いた形。**
     def test_run_stop_keeps_the_pid_file_when_it_cannot_signal
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::EPERM}
+        with_send_signal(daemon) {|*| raise Errno::EPERM}
 
         assert_raise(SystemExit) {daemon.send(:run_stop)}
         assert_path_exist(daemon.pid_file)
@@ -153,7 +170,7 @@ module Makoto
     def test_run_stop_removes_the_pid_file_after_terminating
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
         sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
+        with_send_signal(daemon) {|value, target| sent.push([target, value])}
         daemon.send(:run_stop)
 
         assert_equal([[Process.pid, 'TERM']], sent)
@@ -169,7 +186,7 @@ module Makoto
         with_daemon(command: ['sleep', '300']) do |daemon|
           File.write(daemon.pid_file, body)
           sent = []
-          with_signal(daemon) {|target, value| sent.push([target, value])}
+          with_send_signal(daemon) {|value, target| sent.push([target, value])}
           daemon.send(:run_stop)
 
           assert_equal([], sent, "pid file: #{body.inspect}")
@@ -184,7 +201,7 @@ module Makoto
     def test_run_stop_does_not_signal_a_reused_pid
       with_daemon(command: ['sleep', '300']) do |daemon|
         sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
+        with_send_signal(daemon) {|value, target| sent.push([target, value])}
 
         assert_false(daemon.alive?)
         # ⚠ `alive?` の在否確認（signal 0）は数えない。**見たいのは TERM だけ。**
@@ -203,7 +220,7 @@ module Makoto
     def test_run_stop_refuses_when_proc_is_unavailable
       with_daemon(proc_dir: '/nonexistent') do |daemon|
         sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
+        with_send_signal(daemon) {|value, target| sent.push([target, value])}
 
         assert_raise(SystemExit) {daemon.send(:run_stop)}
         assert_equal([], sent)
@@ -216,7 +233,7 @@ module Makoto
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
         daemon.define_singleton_method(:argv) {|*| raise Errno::EACCES}
         sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
+        with_send_signal(daemon) {|value, target| sent.push([target, value])}
 
         assert_raise(SystemExit) {daemon.send(:run_stop)}
         assert_equal([], sent)
@@ -240,7 +257,7 @@ module Makoto
           omit('stat が拒まれない（root か)') unless stat_denied?(entry)
           with_daemon(proc_dir: proc_dir) do |daemon|
             sent = []
-            with_signal(daemon) {|target, value| sent.push([target, value])}
+            with_send_signal(daemon) {|value, target| sent.push([target, value])}
 
             assert_raise(SystemExit) {daemon.send(:run_stop)}
             assert_equal([], sent)
@@ -260,7 +277,7 @@ module Makoto
       # ⚠ `/proc` そのものは在り、その中に pid の項目だけが無い形を作る。
       Dir.mktmpdir do |proc_dir|
         with_daemon(proc_dir: proc_dir) do |daemon|
-          with_signal(daemon) {|*| raise Errno::ESRCH}
+          with_send_signal(daemon) {|*| raise Errno::ESRCH}
           daemon.send(:run_stop)
 
           assert_path_not_exist(daemon.pid_file)
@@ -272,7 +289,7 @@ module Makoto
     # 無言終了する**（#80 の黄 6 で踏んだ形）。
     def test_run_stop_removes_the_pid_file_when_the_process_is_gone
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::ESRCH}
+        with_send_signal(daemon) {|*| raise Errno::ESRCH}
         daemon.send(:run_stop)
 
         assert_path_not_exist(daemon.pid_file)

@@ -70,12 +70,38 @@ module Makoto
     end
 
     # ⚠⚠ **ASCII-8BIT の本文でも落ちない**（#124）。⚠ `TagContainer#text=` は NFKC を
-    # 通すので、素で渡すと `Encoding::CompatibilityError` になる。⚠⚠ **PostingJob の
-    # rescue に飲まれて枠が落ちる** ＝ **タグを足す都合で投稿そのものを失う。**
+    # 通すので、1.8.29 までは素で渡すと `Encoding::CompatibilityError` になった。
+    # ⚠⚠ **PostingJob の rescue に飲まれて枠が落ちる** ＝ **タグを足す都合で投稿
+    # そのものを失う。**🔴 **いまは上流が入口で `encode` する**（#171）。
     def test_survives_a_binary_body
       body = '本文'.dup.force_encoding(Encoding::ASCII_8BIT)
 
       assert_equal('#TAG', source(body).call.lines.last)
+    end
+
+    # 🔴 **本文が壊れていてもタグ付けだけを諦め、投稿は落とさない**（#171）。
+    #
+    # ⚠⚠ **1.8.30 から不正なバイト列は `Ginseng::ValidateError`** になった。
+    # ⚠ **`scrub` に戻して化けた文字列で判定するのではなく、握ってタグ無しで返す。**
+    def test_an_invalid_byte_sequence_keeps_the_body
+      body = "本文\xE3\x81"
+
+      assert_nothing_raised {source(body).call}
+      assert_equal(body, source(body).call)
+    end
+
+    # ⚠ **Shift_JIS の本文でも重複の判定が効くこと**（#171）。
+    #
+    # 🔴 **`force_encoding` していた頃は中身が壊れたまま UTF-8 を名乗り、`scrub` が
+    # それを `?` にしていた** — ⚠⚠ **既に本文にあるタグを取りこぼし、同じタグを
+    # もう 1 つ足していた。**✅ **上流が入口で `encode` するので中身が保たれる。**
+    #
+    # ⚠ **本文そのものは変換しない**（投稿するのは元の文字列）。
+    def test_a_shift_jis_body_keeps_its_tag_out
+      body = 'すでに #TAG がある本文'.encode('Windows-31J')
+
+      assert_equal(body, source(body).call)
+      assert_equal(Encoding::Windows_31J, source(body).call.encoding)
     end
 
     # ⚠ 枠の頭の時刻はそのまま渡す。

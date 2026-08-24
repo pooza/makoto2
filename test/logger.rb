@@ -46,11 +46,14 @@ module Makoto
 
     # ⚠⚠ **入れ子の中まで見る。**落ちるのは `error.message` だけとは限らない —
     # ⚠ **投稿の本文・URL・曲名**も同じ経路でログに載る。
+    #
+    # 🔴 **見るのは `create_entry`**（#101 で上流へ返した）。⚠⚠ **`create_message` は
+    # マスクするだけで scrub はしない** — **不正なバイト列を落とすのは出口の側。**
     def test_nested_values_are_scrubbed
-      message = logger.create_message(track: {name: broken, artists: [broken]})
+      entry = logger.create_entry(track: {name: broken, artists: [broken]})
 
-      assert_true(message[:track][:name].valid_encoding?)
-      assert_true(message[:track][:artists].first.valid_encoding?)
+      assert_true(entry.valid_encoding?)
+      assert_include(entry, '_encoding_error')
     end
 
     # ⚠⚠ **キーも見る**（#82 のレビュー指摘）。⚠ **値だけ直すと、壊れたキーを持つ
@@ -73,23 +76,34 @@ module Makoto
       assert_nothing_raised {logger.info(context: {'真琴'.encode('Windows-31J') => 'value'})}
     end
 
-    # ⚠ **キーの型を変えない。**⚠⚠ `String` にすると ginseng 側の `mask_fields`
-    # （キー名で資格情報を落とす）の見え方が変わる。
-    def test_key_types_are_preserved
-      message = logger.create_message(post: 'live', 'text' => broken)
+    # ⚠ **文字列のキーでもマスクが効くこと。**
+    #
+    # ⚠⚠ **以前は「キーの型を変えない」ことを担保していた**（こちらの `scrub` が
+    # `Symbol` を `Symbol` のまま返す、という意味）が、🔴 **上流は `symbolize_keys` で
+    # 揃えてからマスクする**ので、**型が残るかどうかは担保できないし、する必要も無い。**
+    # ⚠ **見たかったのは「キー名で資格情報が落ちること」そのもの。**
+    def test_string_keys_are_masked
+      message = logger.create_message('token' => 'SECRET', 'post' => 'live')
 
-      assert_include(message.keys, :post)
-      assert_include(message.keys, 'text')
+      assert_not_include(message.to_json, 'SECRET')
+      assert_equal('live', message[:post])
     end
 
-    # ⚠ **例外オブジェクトが素で残る場合がある** — `create_message` は内部で例外を
-    # 握ると**渡された Hash をそのまま返す**（バックトレースの無い例外など）。
-    # ⚠⚠ **その `to_json` は `to_s` を呼ぶので、ここで潰さないと同じ場所で落ちる。**
+    # ⚠ **`raise` していない例外**（バックトレースが無い）**でも Hash に潰れること。**
+    #
+    # 🔴 **1.15.28 では `error.backtrace.first` が `NoMethodError` になり、
+    # `create_message` の rescue が渡された Hash を素で返していた** — ⚠⚠ **例外
+    # オブジェクトが残るので `to_json` が `to_s` を呼び、同じ場所で落ちた。**
+    # ⚠ **上流は `&.` で塞いだ**ので、**例外オブジェクトはここまで来ない。**
+    #
+    # ⚠⚠ **例外のクラス名は上流の形では残らない**（`message` / `file` / `line` のみ）。
+    # ⚠ **`raise` した例外でも同じ**なので、この版で失われた情報ではない。
     def test_an_unraised_exception_is_flattened
       message = logger.create_message(error: Ginseng::GatewayError.new(broken))
 
       assert_nothing_raised {message.to_json}
-      assert_include(message[:error].to_s, 'Ginseng::GatewayError')
+      assert_include(message[:error][:message], 'wrong status line')
+      assert_equal(0, message[:error][:line])
     end
 
     # ⚠ **妥当な UTF-8 は 1 バイトも変えない。**安全網が本文を壊さないこと。
@@ -101,10 +115,9 @@ module Makoto
 
     # ⚠⚠ **資格情報のマスクを壊さない**（ginseng-core 側の `mask`）。
     #
-    # ⚠ **いま入っている ginseng-core（1.15.28）が落とせるのはキー名だけ**で、
-    # ⚠⚠ **値の文字列に埋まったトークン（`url: "...?access_token=xxx"`）は素通りする**
-    # （上流の新しい版には `mask_url` がある）。**MAKOTO は Bearer ヘッダで投げ、
-    # cure-api の URL にも秘密が無い**ので、いまは踏まない。
+    # ✅ **1.19.0 からは値の文字列に埋まったトークンも落ちる**（`mask_url` / 上流 `#493`）。
+    # ⚠ **MAKOTO は Bearer ヘッダで投げ、cure-api の URL にも秘密が無い**ので、
+    # **こちらが踏む形ではない**が、⚠⚠ **モロヘイヤ経由（#30）で経路が増えるときに効く。**
     def test_masking_still_works
       message = logger.create_message(post: 'live', token: 'SECRET', error: raised(broken))
 
@@ -112,13 +125,15 @@ module Makoto
       assert_equal('live', message[:post])
     end
 
-    # 🔴 **`Ginseng::Logger#create_message` は内部で例外を握ると、渡された Hash を
-    # マスクを通さずにそのまま返す。**⚠ **実際に踏むのは `backtrace` を持たない例外**
-    # （`raise` していない例外を `error:` に渡した形）。
+    # 🔴 **`create_message` が内部で例外を握っても秘密を出さないこと。**
     #
-    # ⚠⚠ **#79 の scrub はこれを悪化させた** — **修正前は syslog で落ちて「ログごと
-    # 消えて」いたものが、出力できるようになった結果、秘密がそのまま書かれる。**
-    # **「ログが消える」を「秘密が漏れる」に変えていた。**
+    # ⚠⚠ **1.15.28 は握ると渡された Hash を素で返していた** — **マスクが丸ごと外れ、
+    # #79 の scrub が「ログが消える」を「秘密が漏れる」に変えていた**（2026-08-15 実測）。
+    # ⚠ **こちらの `drop_secrets` はその保険だった。**
+    #
+    # ✅ **1.19.0 は fail closed**（上流 `#529`）— **通せなかったときは `_mask_error` と
+    # キー名だけを出して中身を出さない。**🔴 **保険を外した根拠がこのテスト**なので、
+    # ⚠⚠ **上流に返しても残す。**
     def test_secrets_are_dropped_even_when_the_superclass_mask_is_skipped
       [Ginseng::GatewayError.new('boom'), Ginseng::GatewayError.new(broken)].each do |error|
         message = logger.create_message(token: 'SECRET', post: 'live', error: error)
@@ -141,12 +156,17 @@ module Makoto
     end
 
     # ⚠⚠ **設定が無くてもマスクしない方向へ倒さない。**設定の不備で秘密が平文に
-    # 戻るほうが事故が大きい（→ `Logger::MASK_FIELDS`）。
-    def test_masking_falls_back_to_the_default_list
+    # 戻るほうが事故が大きい。
+    #
+    # ⚠ **倒し方が変わった**（#101）— **こちらは既定のキー名リストへ倒していた**が、
+    # 🔴 **上流は「マスクを通せなかった」として中身ごと出さない**（`_mask_error`）。
+    # ⚠⚠ **どちらも「平文に戻らない」は満たす**ので、**上流の形に乗る。**
+    def test_masking_fails_closed_without_the_setting
       config.delete('/logger/mask_fields')
       message = Logger.new.create_message(token: 'SECRET', error: Ginseng::GatewayError.new('boom'))
 
       assert_not_include(message.to_json, 'SECRET')
+      assert_true(message[:_mask_error])
     end
 
     # 実際に syslog へ渡る手前の値。⚠ **`create_message` を直に呼ぶだけでは
@@ -190,16 +210,37 @@ module Makoto
       assert_equal(::Logger::Severity::INFO, Logger.new.level)
     end
 
-    # 🔴 **#97 の本体。**⚠⚠ **上流が上書きしているのは `info` と `error` の 2 つだけ**
-    # だったので、⚠ **`warn` は `Syslog::Logger` の実装がそのまま走り、`drop_secrets` も
-    # `scrub` も効いていなかった**（実測で `token` が平文で出た）。
+    # 🔴 **#97 の本体。**⚠⚠ **1.15.28 が上書きしていたのは `info` と `error` の 2 つ
+    # だけ**だったので、⚠ **`warn` は `Syslog::Logger` の実装がそのまま走り、マスクも
+    # scrub も効いていなかった**（実測で `token` が平文で出た）。
+    #
+    # ⚠ **いまは上流（`#499`）が 5 つとも通す**ので、**こちらの上書きは #101 で外した。**
+    # 🔴 **外したことが分かるのはこのテスト**なので、⚠⚠ **上流に返しても残す。**
+    #
+    # ⚠ **水準で黙らせない**（`debug` は既定で出ない ＝ 別のテストの担保）。
     def test_every_severity_goes_through_the_exit
+      config['/logger/level'] = 'debug'
       [:info, :error, :warn, :debug, :fatal].each do |severity|
         output = emitted(severity, post: 'live', token: 'SECRET')
 
         assert_not_include(output, 'SECRET', severity.to_s)
         assert_include(output, '"post":"live"', severity.to_s)
       end
+    end
+
+    # ⚠⚠ **ブロック形式を殺さないこと**（上流 `#499`）。🔴 **こちらの上書きは
+    # `ArgumentError` にしていた** — ⚠ **外した理由の 1 つがこれ。**
+    #
+    # ⚠ **水準が無効ならブロックを評価しない**（遅延の意味が失われる）。
+    def test_the_block_form_survives
+      config['/logger/level'] = 'info'
+      called = false
+      subject = Logger.new
+      subject.define_singleton_method(:add) {|*| true}
+
+      assert_nothing_raised {subject.warn {'lazy'}}
+      assert_nothing_raised {subject.debug {called = true}}
+      assert_false(called)
     end
 
     # ⚠ **不正なバイト列の scrub も severity で漏らさない**（#79 の経路が `warn` に
