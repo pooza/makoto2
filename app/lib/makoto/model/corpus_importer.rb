@@ -6,6 +6,9 @@ module Makoto
   # 使い、`INSERT OR REPLACE` で上書きする。**取り込み元に無い行は消さない**ので、
   # 後から CLI で足した原稿を投入が消すことはない。
   #
+  # ⚠⚠ **例外は `SKIP_MESSAGE_TYPES`**（#60）。**落とすと決めた type だけは、既に
+  # 入っている行も投入のたびに消す**（下記）。
+  #
   # ⚠ **`account`（393 件）と `fairy`（62 件）は取り込まない。**前者は好感度モデルの
   # ためのアカウント情報で、モデルごと引き継がないと決めている。後者は妖精の語尾で、
   # MAKOTO 本人の口調ではないため 4 機能では使わない。必要になったら別途足す。
@@ -13,6 +16,26 @@ module Makoto
     include Package
 
     TABLES = ['form', 'series', 'quote', 'message'].freeze
+
+    # 🔴 **取り込まない `message.type`**（#60）。
+    #
+    # ⚠⚠ **`birthday` 23 件は用途をライブの台本が吸収した。**11/4 は 8 時間の
+    # バースデーライブ当日で、`live_open` / `live_mc` / `live_close` が枠を全部
+    # 埋める。⚠ **旧 `birthday` は進行を持たない静的な宣言**（「届くかな、わたしの
+    # 歌。」）なので、**8 時間のどこに置いても同じものになる。**
+    #
+    # ⚠ **実測では 23 件のうち 12 件が `morning` と本文が完全一致**（季節指定を持つ
+    # 4 件を含む）、**5 件がほぼ同一**で、⚠⚠ **固有なのは 6 件だけ。その 6 件は
+    # すべて「歌を語る」宣言**だった（→ docs/makoto-legacy.md「`birthday` 23 件は
+    # 落とした」。⚠ 数え直しは `tools/morning_profile.py`）。
+    #
+    # ⚠ **`template` 109 件 / `calling` 13 件はここに入れない。**あちらは原稿では
+    # ないが、キーワード学習（#18）の素材として残す判断（→ 同 docs）。
+    #
+    # 🔴 **正本は `MessageRepository::DROPPED_TYPES`。**⚠⚠ **書ける口も同じ定数で
+    # 塞いである** — **消す側だけを持つと「CLI で足せるのに次の投入で黙って消える」**
+    # という形になる（Codex の指摘・PR #207）。
+    SKIP_MESSAGE_TYPES = MessageRepository::DROPPED_TYPES
 
     # 旧 DB の `series.id` → cure-api の key。
     #
@@ -92,8 +115,21 @@ module Makoto
       end
     end
 
+    # 🔴 **落とすと決めた type は、既に入っている行も消す**（#60）。
+    #
+    # ⚠⚠ **投入は「取り込み元に無い行を消さない」のが原則**（後から CLI で足した
+    # 原稿を消さないため）だが、**この type だけは例外にする。**⚠ **消さないと、
+    # 既に稼働している箱の DB に 23 件が残り続ける** — 実際に `bydo` の DB には
+    # 入っていた（2026-08-27 実測）。**手で消して回る手順を増やさない。**
+    #
+    # ⚠ 季節の行は外部キーの `on_delete: :cascade` で落ちる。
+    def purge_messages
+      @db[:message].where(type: SKIP_MESSAGE_TYPES).delete
+    end
+
     def import_messages
-      rows('message').each do |row|
+      purge_messages
+      rows('message').reject {|row| SKIP_MESSAGE_TYPES.include?(row[:type])}.each do |row|
         upsert(:message, {
           id: row[:id],
           type: row[:type],

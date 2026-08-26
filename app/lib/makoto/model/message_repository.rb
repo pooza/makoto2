@@ -7,6 +7,14 @@ module Makoto
   # ⚠ **`type` は配列でも渡せる。**朝挨拶は `holiday` の原稿でも上書きされるので、
   # 引く側は「使ってよい type」をまとめて指定する（→ #12）。
   class MessageRepository
+    # 🔴 **落とすと決めた `type`**（#60）。⚠ いまは `birthday` の 1 つだけで、
+    # **用途をライブの台本が吸収した**（→ docs/makoto-legacy.md）。
+    #
+    # ⚠⚠ **書ける口を塞いでおくこと。**`CorpusImporter` は**投入のたびにこの type の
+    # 行を消す**ので、⚠ **足せてしまうと「足したのに次の投入で黙って消える」**という
+    # 形になる（Codex の指摘・PR #207）。**消す側と足せない側を同じ定数で揃える。**
+    DROPPED_TYPES = ['birthday'].freeze
+
     def initialize(db = Database.connection)
       @db = db
     end
@@ -56,6 +64,7 @@ module Makoto
     # ⚠ 旧 DB の id をそのまま主キーに使っているが、**新しい行は採番が続きから
     # 始まるので投入とぶつからない**（取り込みは取り込み元の id で上書きする）。
     def create(type:, body:, **options)
+      validate_type!(type)
       return @db.transaction do
         id = dataset.insert(
           type: type.to_s,
@@ -80,6 +89,7 @@ module Makoto
     #
     # @return [Symbol] `:created` / `:updated`
     def upsert(slug:, type:, body:, **options)
+      validate_type!(type)
       return @db.transaction do
         row = dataset[slug: slug.to_s]
         values = {
@@ -147,6 +157,12 @@ module Makoto
     end
 
     private
+
+    # ⚠ **落とした type では書かせない**（#60・上記 `DROPPED_TYPES`）。
+    def validate_type!(type)
+      return unless DROPPED_TYPES.include?(type.to_s)
+      raise Ginseng::ValidateError, "message: type '#{type}' は使わない（#60 で落とした）"
+    end
 
     # ⚠ 差し替えなので一度消してから入れ直す。**季節は原稿に従属する情報**で、
     # 単独では意味を持たないため、行ごとの差分を取る意味が無い。
