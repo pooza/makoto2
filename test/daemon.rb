@@ -215,6 +215,40 @@ module Makoto
       end
     end
 
+    # 🔴 **#199（v0.4.0 のリリース前レビューの黄）。**⚠⚠ **後継が既に自分の番号を
+    # 書いていたら pid ファイルを消さない。**
+    #
+    # ⚠ **成立の形**: pid ファイルが「生きているが常駐ではない番号」を指しており
+    # （常駐が後始末せずに死に、OS が pid を再利用した）、⚠⚠ **`run_stop` が
+    # `p = pid` を読んでから `stoppable?` が `remove_pid` に達するまでの間に
+    # 後継が pid ファイルを書く。**
+    #
+    # 🔴 **消すと後継は生きたままどの pid ファイルからも辿れなくなる ＝ 孤児が確定
+    # する。**⚠⚠ **次の `run_start` は `abort_if_running!` を素通りするので 2 本目が
+    # 立ち、8 時間の配信中ならそのまま二重投稿。**
+    def test_stoppable_keeps_the_pid_file_written_by_a_successor
+      with_daemon(command: ['sleep', '300']) do |daemon|
+        # ⚠ 再利用された古い番号（＝ 身元を確かめると常駐ではない）。
+        stale = daemon.pid
+        # ⚠⚠ **後継が自分の番号を書いた後**の状態を作る。
+        successor = Process.pid + 1
+        File.write(daemon.pid_file, successor.to_s)
+
+        assert_false(daemon.send(:stoppable?, stale))
+        assert_path_exist(daemon.pid_file)
+        assert_equal(successor, daemon.pid, '後継の番号がそのまま残ること')
+      end
+    end
+
+    # ⚠ **中身がまだその番号なら従来どおり消す**（#199 で消さなくなっていないこと）。
+    # ⚠⚠ **残すと `run_start` が「already running」で無言終了する**（#80 の黄 6）。
+    def test_stoppable_removes_the_pid_file_it_still_owns
+      with_daemon(command: ['sleep', '300']) do |daemon|
+        assert_false(daemon.send(:stoppable?, daemon.pid))
+        assert_path_not_exist(daemon.pid_file)
+      end
+    end
+
     # 🔴 **#162。**⚠⚠ **空・壊れた pid ファイルは `0` になり、`0` は truthy** なので
     # `unless (target = pid)` を素通りする。⚠ **そのまま送ると
     # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM。**

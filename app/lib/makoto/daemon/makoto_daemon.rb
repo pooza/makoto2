@@ -147,7 +147,13 @@ module Makoto
       return true if daemon_pid?(target, proc_dir: @proc_dir)
       # ⚠ **確かめて別物だったなら掃除してよい**（`ESRCH` の枝と同じ扱い）。⚠⚠ **残すと
       # `run_start` が「already running」で無言終了する**（#80 の黄 6 で踏んだ形）。
-      remove_pid
+      #
+      # 🔴 **ただし「まだその番号のときだけ」消す**（#199）。⚠⚠ **`expected` を渡さない
+      # と後継が書いた pid ファイルまで消す** — ⚠ **後継は生きたままどの pid ファイル
+      # からも辿れなくなり、孤児が確定する**（🔴 **次の `run_start` は
+      # `abort_if_running!` を素通りするので 2 本目が立つ**）。⚠ **`send_signal` の
+      # コメントが挙げている競り合いは、まさにこの引数が相手にしているもの。**
+      remove_pid(target)
       warn "PID file found, but PID #{target} is not #{app_name}."
       return false
     end
