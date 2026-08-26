@@ -215,17 +215,21 @@ def topic_report(rows):
 
 
 def pun_report(rows):
+  # ⚠⚠ **測った母集合に在る id だけで数える。**手で拾った id の表は固定なので、
+  # 取り込み元を絞って走らせると（fixture など）**分母だけが小さくなって
+  # 「800%」のような数字が出る**。docs へ写す数字なので、必ず交差を取る。
   ids = {r['id'] for r in rows}
-  types = Counter(kind for kind, _ in PUNS.values())
-  print(f'\n## ダジャレ（手で拾った {len(PUNS)} 件 / {len(rows)} 件中 '
-        f'{100 * len(PUNS) / len(rows):.1f}%）')
+  found = {i: v for i, v in PUNS.items() if i in ids}
+  types = Counter(kind for kind, _ in found.values())
+  print(f'\n## ダジャレ（手で拾った {len(found)} 件 / {len(rows)} 件中 '
+        f'{100 * len(found) / len(rows):.1f}%）')
   print('| 型 | 件数 |')
   print('| --- | --- |')
   for kind, count in types.most_common():
     print(f'| {kind} | {count} |')
   missing = [i for i in PUNS if i not in ids]
   if missing:
-    print(f'⚠ 取り込み元に無い id: {missing}')
+    print(f'⚠ この母集合に無い id が {len(missing)} 件（数えていない）: {missing}')
 
 
 def person_report(rows):

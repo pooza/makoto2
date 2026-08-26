@@ -31,7 +31,11 @@ module Makoto
     #
     # ⚠ **`template` 109 件 / `calling` 13 件はここに入れない。**あちらは原稿では
     # ないが、キーワード学習（#18）の素材として残す判断（→ 同 docs）。
-    SKIP_MESSAGE_TYPES = ['birthday'].freeze
+    #
+    # 🔴 **正本は `MessageRepository::DROPPED_TYPES`。**⚠⚠ **書ける口も同じ定数で
+    # 塞いである** — **消す側だけを持つと「CLI で足せるのに次の投入で黙って消える」**
+    # という形になる（Codex の指摘・PR #207）。
+    SKIP_MESSAGE_TYPES = MessageRepository::DROPPED_TYPES
 
     # 旧 DB の `series.id` → cure-api の key。
     #

@@ -52,6 +52,19 @@ module Makoto
       assert_equal([2001], @repository.undated(type: :morning).select_map(:id))
     end
 
+    # 🔴 **落とした type では書かせない**（#60）。⚠⚠ **投入がこの type の行を消す**ので、
+    # ⚠ **足せてしまうと「足したのに次の投入で黙って消える」**という形になる。
+    def test_dropped_types_cannot_be_written
+      assert_raise(Ginseng::ValidateError) do
+        @repository.create(type: 'birthday', body: '誕生日の原稿')
+      end
+      assert_raise(Ginseng::ValidateError) do
+        @repository.upsert(slug: 'birthday-1', type: 'birthday', body: '誕生日の原稿')
+      end
+      # ⚠ 落としていない type は従来どおり書けること（塞ぎすぎていない）。
+      assert_kind_of(Integer, @repository.create(type: 'morning', body: '朝の原稿'))
+    end
+
     # ⚠⚠ 年指定。旧データ 388 件はすべて NULL ＝ 毎年効くので、年を指定すると
     # 当たらないこと。台本（#13 / #14）はここに入る。
     def test_on_date_with_year

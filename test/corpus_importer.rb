@@ -27,7 +27,9 @@ module Makoto
     # 既に 23 件が入っている**ので、取り込まないだけでは残り続ける。
     def test_birthday_is_purged_from_an_existing_database
       db = corpus_db
-      id = MessageRepository.new(db).create(type: 'birthday', body: '古い誕生日の原稿')
+      # ⚠ **`MessageRepository#create` は `birthday` を拒む**ので、直に入れる
+      # （＝ #60 より前の投入で入った行を再現する）。
+      id = db[:message].insert(type: 'birthday', body: '古い誕生日の原稿')
 
       assert_equal('古い誕生日の原稿', db[:message][id: id][:body])
       CorpusImporter.new(corpus_fixture_dir, db: db).exec

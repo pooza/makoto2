@@ -107,7 +107,8 @@ python3 tools/pgdump_to_json.py var/corpus/makoto_2026-02-13.sql var/corpus
 
 | | 変更 |
 | --- | --- |
-| **取り込み** | `CorpusImporter::SKIP_MESSAGE_TYPES = ['birthday']`（⚠ **`account` / `fairy` を取り込まないのと同じ扱い**） |
+| **取り込み** | `CorpusImporter::SKIP_MESSAGE_TYPES`（⚠ **`account` / `fairy` を取り込まないのと同じ扱い**）。🔴 **正本は `MessageRepository::DROPPED_TYPES`** |
+| 🔴 **書ける口** | ⚠⚠ **`MessageRepository#create` / `#upsert` が `ValidateError` で弾く。**⚠ **消す側だけを持つと「`makoto message add --type birthday` で足せるのに、次の投入で黙って消える」**（Codex の指摘・PR #207）。⚠ `makoto message preview` の既定 type からも外した |
 | 🔴 **既に入っている行** | ⚠⚠ **投入のたびに消す**（`purge_messages`）。**取り込まないだけでは残る** — 🔴 **`bydo` の DB には 23 件が入っていた**（2026-08-27 実測）。⚠ **`makoto corpus import` を流せば消える**ので、手で消して回る手順を作らない |
 | **記念日の登録** | ⚠⚠ **`/message/anniversary` の `11-04` から `birthday` を外した** |
 | **許可リスト** | 朝挨拶（#17）は `holiday` / `morning` の 2 つ（⚠ **`birthday` を入れない**） |
