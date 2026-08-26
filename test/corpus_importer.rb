@@ -11,6 +11,30 @@ module Makoto
       assert_equal(5, counts[:message_season])
     end
 
+    # 🔴 **`birthday` は取り込まない**（#60）。⚠⚠ **用途をライブの台本が吸収した** —
+    # 11/4 は 8 時間のライブ当日で、⚠ 旧 `birthday` は進行を持たない静的な宣言。
+    # ⚠ **`morning` / `holiday` / `template` は従来どおり入る**（落としすぎない）。
+    def test_birthday_is_not_imported
+      db = empty_db
+      CorpusImporter.new(corpus_fixture_dir, db: db).exec
+
+      assert_empty(db[:message].where(type: 'birthday').all)
+      assert_equal(['holiday', 'live_open', 'morning', 'template'],
+        db[:message].select_map(:type).uniq.sort)
+    end
+
+    # 🔴 **既に入っている `birthday` も消えること**（#60）。⚠⚠ **稼働中の箱の DB には
+    # 既に 23 件が入っている**ので、取り込まないだけでは残り続ける。
+    def test_birthday_is_purged_from_an_existing_database
+      db = corpus_db
+      id = MessageRepository.new(db).create(type: 'birthday', body: '古い誕生日の原稿')
+
+      assert_equal('古い誕生日の原稿', db[:message][id: id][:body])
+      CorpusImporter.new(corpus_fixture_dir, db: db).exec
+
+      assert_nil(db[:message][id: id])
+    end
+
     # ⚠ 何度実行しても同じ結果になること。投入は運用操作で、途中で失敗したら
     # そのまま流し直す。行が増えたり二重になったりしては使えない。
     def test_import_is_idempotent

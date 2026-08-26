@@ -11,7 +11,7 @@ module Makoto
 
     def test_count_by_type
       assert_equal(
-        {'morning' => 2, 'holiday' => 1, 'birthday' => 2, 'template' => 1},
+        {'morning' => 2, 'holiday' => 1, 'live_open' => 2, 'template' => 1},
         @repository.count_by_type,
       )
     end
