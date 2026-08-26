@@ -110,30 +110,57 @@ module Makoto
       end
     end
 
-    # ⚠ signal の送り先を差し替える。⚠⚠ **本物の `EPERM` を作ると他人のプロセスへ
-    # signal を送ることになる**ので、継ぎ目（`MakotoDaemon#signal`）で止める。
-    def with_signal(daemon, &)
-      daemon.define_singleton_method(:signal, &)
-      return daemon
+    # ⚠ **`Process.kill` で止める。**⚠⚠ **本物の `EPERM` を作ると他人のプロセスへ
+    # signal を送ることになる。**
+    #
+    # 🔴 **`send_signal` は差し替えない**（#187）— ⚠⚠ **身元の判定はそこに置いてある**
+    # ので、**差し替えると見たい判定ごと消える。**
+    def with_captured_kill(error: nil)
+      sent = []
+      original = Process.method(:kill)
+      Process.define_singleton_method(:kill) do |signal, target|
+        raise error if error
+        sent.push([target, signal])
+        next 1
+      end
+      yield sent
+    ensure
+      Process.define_singleton_method(:kill, original)
     end
 
-    # 🔴 **#111 の本体（1）。**⚠⚠ **`EPERM` は「居るが signal を送れない」＝生きている。**
-    # ⚠ 上流 1.15.28 の `Ginseng::Daemon#alive?` は `EPERM` も false に倒すので、
-    # 🔴 **他人の権限で走っている常駐が「死んでいる」と読まれ、二重に起動しうる。**
-    def test_a_permission_error_means_alive
-      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::EPERM}
+    # ⚠ 在否の答えそのものを差し替える。⚠⚠ **`EPERM` を本物で作れない**のは同じ理由。
+    def with_alive_state(state)
+      original = Process.method(:alive_state)
+      Process.define_singleton_method(:alive_state) {|_pid| state}
+      yield
+    ensure
+      Process.define_singleton_method(:alive_state, original)
+    end
 
-        assert_true(daemon.alive?)
+    # 🔴 **#111 の本体（1）。**⚠⚠ **`EPERM` は「居るが signal を送れない」。**
+    # ⚠ **1.15.28 の `alive?` は `EPERM` も false に倒していた**ので、🔴 **他人の権限で
+    # 走っている常駐が「死んでいる」と読まれ、二重に起動しうる。**
+    #
+    # ✅ **上流は `:unknown` という 3 つ目の答えにした**（`pooza/ginseng-core#510`）。
+    # ⚠⚠ **`alive?` は false のまま**（真偽 2 値の述語なのでそれでよい）だが、
+    # 🔴 **`run_start` / `run_restart` は `alive_state` を見るので二重起動しない。**
+    # ⚠ **身元の判定は `:alive` のときだけ効く**ので、ここは素通しになる。
+    def test_a_permission_error_is_unknown
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        with_alive_state(:unknown) do
+          assert_equal(:unknown, daemon.alive_state)
+          assert_false(daemon.alive?)
+        end
       end
     end
 
     # ⚠ 居ないものは死んでいる（塞いだせいで検知できなくならないこと）。
     def test_no_such_process_means_dead
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::ESRCH}
-
-        assert_false(daemon.alive?)
+        with_alive_state(:dead) do
+          assert_equal(:dead, daemon.alive_state)
+          assert_false(daemon.alive?)
+        end
       end
     end
 
@@ -142,22 +169,49 @@ module Makoto
     # ＝ 孤児が確定する。**⚠ **旧実装が孤児を 11 日分撒いた形。**
     def test_run_stop_keeps_the_pid_file_when_it_cannot_signal
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::EPERM}
-
-        assert_raise(SystemExit) {daemon.send(:run_stop)}
-        assert_path_exist(daemon.pid_file)
+        with_captured_kill(error: Errno::EPERM) do
+          assert_raise(SystemExit) {daemon.send(:run_stop)}
+          assert_path_exist(daemon.pid_file)
+        end
       end
     end
 
     # ⚠ 送れたら消す（従来どおり）。**順序だけを入れ替えている。**
     def test_run_stop_removes_the_pid_file_after_terminating
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
-        daemon.send(:run_stop)
+        with_captured_kill do |sent|
+          daemon.send(:run_stop)
 
-        assert_equal([[Process.pid, 'TERM']], sent)
-        assert_path_not_exist(daemon.pid_file)
+          assert_equal([[Process.pid, 'TERM']], sent)
+          assert_path_not_exist(daemon.pid_file)
+        end
+      end
+    end
+
+    # 🔴 **#187（Codex の P1）。**⚠⚠ **確かめた pid と、実際に送る pid が
+    # 別物になりうる** — ⚠ **上流の `run_stop` は pid ファイルを読み直す**ので、
+    # **確かめてから送るまでの間に後継が新しい pid を書くと、身元を確かめていない
+    # 相手へ `TERM` が飛ぶ。**
+    #
+    # ⚠ **判定を「送る 1 点」に置いてあれば、読み直した番号のほうが判定を通る。**
+    def test_run_stop_signals_the_pid_it_checked
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        # ⚠⚠ **後継は別物**（`sleep 300`）。**身元の判定を通らない番号。**
+        successor = Process.pid + 1
+        entry = File.join(daemon.instance_variable_get(:@proc_dir), successor.to_s)
+        FileUtils.mkdir_p(entry)
+        File.write(File.join(entry, 'cmdline'), "#{['sleep', '300'].join("\0")}\0")
+        # ⚠ **1 回目は常駐の番号、2 回目からは後継の番号**（＝ pid ファイルを
+        # 読み直すたびに変わる形）。
+        reads = [Process.pid]
+        daemon.define_singleton_method(:pid) {reads.shift || successor}
+        with_captured_kill do |sent|
+          daemon.send(:run_stop)
+
+          # 🔴 **判定を通った番号にだけ送る。**⚠⚠ **手前で確かめて `super` に渡す形
+          # だと、ここが後継の番号になる**（＝ 身元を確かめていない相手へ TERM）。
+          assert_equal([[Process.pid, 'TERM']], sent)
+        end
       end
     end
 
@@ -168,12 +222,12 @@ module Makoto
       ['', "\n", 'abc', '0'].each do |body|
         with_daemon(command: ['sleep', '300']) do |daemon|
           File.write(daemon.pid_file, body)
-          sent = []
-          with_signal(daemon) {|target, value| sent.push([target, value])}
-          daemon.send(:run_stop)
+          with_captured_kill do |sent|
+            daemon.send(:run_stop)
 
-          assert_equal([], sent, "pid file: #{body.inspect}")
-          assert_path_not_exist(daemon.pid_file, "pid file: #{body.inspect}")
+            assert_equal([], sent, "pid file: #{body.inspect}")
+            assert_path_not_exist(daemon.pid_file, "pid file: #{body.inspect}")
+          end
         end
       end
     end
@@ -183,16 +237,15 @@ module Makoto
     # `bin/makoto_daemon.rb stop` を直に叩く経路が素通しだった。**
     def test_run_stop_does_not_signal_a_reused_pid
       with_daemon(command: ['sleep', '300']) do |daemon|
-        sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
+        with_captured_kill do |sent|
+          assert_false(daemon.alive?)
+          # ⚠ `alive?` の在否確認（signal 0）は数えない。**見たいのは TERM だけ。**
+          sent.clear
+          daemon.send(:run_stop)
 
-        assert_false(daemon.alive?)
-        # ⚠ `alive?` の在否確認（signal 0）は数えない。**見たいのは TERM だけ。**
-        sent.clear
-        daemon.send(:run_stop)
-
-        assert_equal([], sent)
-        assert_path_not_exist(daemon.pid_file)
+          assert_equal([], sent)
+          assert_path_not_exist(daemon.pid_file)
+        end
       end
     end
 
@@ -202,12 +255,11 @@ module Makoto
     # ⚠ **pid ファイルは残す**（`EPERM` の枝と同じ。消すと孤児が確定する）。
     def test_run_stop_refuses_when_proc_is_unavailable
       with_daemon(proc_dir: '/nonexistent') do |daemon|
-        sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
-
-        assert_raise(SystemExit) {daemon.send(:run_stop)}
-        assert_equal([], sent)
-        assert_path_exist(daemon.pid_file)
+        with_captured_kill do |sent|
+          assert_raise(SystemExit) {daemon.send(:run_stop)}
+          assert_equal([], sent)
+          assert_path_exist(daemon.pid_file)
+        end
       end
     end
 
@@ -215,12 +267,11 @@ module Makoto
     def test_run_stop_refuses_when_the_argv_cannot_be_read
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
         daemon.define_singleton_method(:argv) {|*| raise Errno::EACCES}
-        sent = []
-        with_signal(daemon) {|target, value| sent.push([target, value])}
-
-        assert_raise(SystemExit) {daemon.send(:run_stop)}
-        assert_equal([], sent)
-        assert_path_exist(daemon.pid_file)
+        with_captured_kill do |sent|
+          assert_raise(SystemExit) {daemon.send(:run_stop)}
+          assert_equal([], sent)
+          assert_path_exist(daemon.pid_file)
+        end
       end
     end
 
@@ -239,12 +290,11 @@ module Makoto
           # **そのときは判定できない**。
           omit('stat が拒まれない（root か)') unless stat_denied?(entry)
           with_daemon(proc_dir: proc_dir) do |daemon|
-            sent = []
-            with_signal(daemon) {|target, value| sent.push([target, value])}
-
-            assert_raise(SystemExit) {daemon.send(:run_stop)}
-            assert_equal([], sent)
-            assert_path_exist(daemon.pid_file)
+            with_captured_kill do |sent|
+              assert_raise(SystemExit) {daemon.send(:run_stop)}
+              assert_equal([], sent)
+              assert_path_exist(daemon.pid_file)
+            end
           end
         ensure
           # ⚠ 戻さないと `Dir.mktmpdir` の後始末が失敗する。
@@ -260,10 +310,11 @@ module Makoto
       # ⚠ `/proc` そのものは在り、その中に pid の項目だけが無い形を作る。
       Dir.mktmpdir do |proc_dir|
         with_daemon(proc_dir: proc_dir) do |daemon|
-          with_signal(daemon) {|*| raise Errno::ESRCH}
-          daemon.send(:run_stop)
+          with_captured_kill(error: Errno::ESRCH) do
+            daemon.send(:run_stop)
 
-          assert_path_not_exist(daemon.pid_file)
+            assert_path_not_exist(daemon.pid_file)
+          end
         end
       end
     end
@@ -272,10 +323,11 @@ module Makoto
     # 無言終了する**（#80 の黄 6 で踏んだ形）。
     def test_run_stop_removes_the_pid_file_when_the_process_is_gone
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        with_signal(daemon) {|*| raise Errno::ESRCH}
-        daemon.send(:run_stop)
+        with_captured_kill(error: Errno::ESRCH) do
+          daemon.send(:run_stop)
 
-        assert_path_not_exist(daemon.pid_file)
+          assert_path_not_exist(daemon.pid_file)
+        end
       end
     end
 

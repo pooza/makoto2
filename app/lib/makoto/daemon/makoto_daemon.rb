@@ -11,27 +11,32 @@ module Makoto
       @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
     end
 
-    # pid ファイルの常駐が生きているか。
+    # pid ファイルが指すプロセスの状態。⚠ **上流の `:alive` / `:dead` / `:unknown`
+    # に「身元」を足す**（#80 の黄 6）。
     #
-    # 🔴 **番号だけでなく身元も確かめる**（#80 の黄 6）。⚠⚠ **`Ginseng::Daemon#alive?`
-    # は `Process.kill(0, pid)` しか見ない**ので、⚠ **pid が再利用されると無関係な
-    # プロセスを常駐だと答える**（実測 — `sleep 300` の pid を pid ファイルに書くと
-    # `running (PID 354866)` と表示された）。
+    # 🔴 **番号だけでは足りない。**⚠⚠ **`Process.alive_state` は「その番号が在るか」
+    # しか見ない**ので、⚠ **pid が再利用されると無関係なプロセスを常駐だと答える**
+    # （実測 — `sleep 300` の pid を pid ファイルに書くと `running (PID 354866)`）。
     #
     # ⚠⚠ **倒れ方が静かなのが問題だった** — `run_start` が「already running」で
     # 終了し、⚠ **systemd の `Restart=always` が 5 秒ごとに叩き直す**ので、
     # 🔴 **ボットは一度も起動せず、理由もログに残らない**（warn は stderr →
     # `bin/makoto_daemon.rb` が `/dev/null` に落とす）。
     #
-    # ⚠ **`run_restart` も同じ穴を踏んでいた** — `run_stop if alive?` を通って
-    # ⚠⚠ **無関係なプロセスへ TERM を送る**形だった。
-    # 🔴 **`super` を通さない**（#111）。⚠⚠ **上流 1.15.28 の `Ginseng::Daemon#alive?`
-    # は `EPERM` も `false` に倒す**ので、⚠ **`super` を先に通すと、身元の判定へ
-    # 届く前に fail-open する。**
-    def alive?
-      return false unless (target = pid)
-      return false unless process_present?(target)
-      return daemon_pid?(target, proc_dir: @proc_dir)
+    # 🔴 **`alive?` ではなくここを上書きする**（#101 / 2026-08-24）。⚠⚠ **上流が
+    # 起動と停止の判断に使うのは `alive_state` のほう**（`abort_if_running!` /
+    # `run_restart` / `run_status`）で、⚠ **`alive?` は「真偽 2 値のまま残した
+    # 既存の呼び出し側のため」の薄い述語**にすぎない。**あちらを上書きしても
+    # `run_start` は守れない。**
+    #
+    # ⚠ **`:unknown`（`EPERM` ＝ 居るが触れない）はそのまま返す** — 🔴 **上流は
+    # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
+    # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
+    # `:unknown` という 3 つ目の答えとして上流に入った。**
+    def alive_state
+      state = super
+      return state unless state == :alive
+      return daemon_pid?(pid, proc_dir: @proc_dir) ? :alive : :dead
     end
 
     def command
@@ -98,58 +103,30 @@ module Makoto
 
     private
 
-    # ⚠⚠ **ここから 3 つは上流（`ginseng-core`）の穴を自分の箱で塞いだもの**
-    # （#111 ／ 上流は `pooza/ginseng-core#509` / `#510` で修正済み）。
-    # 🔴 **`bundle update ginseng-core` で追随したら、この 3 つを消す**（→ #101）。
-    # ⚠ **33 commits の追随ごと持ってくるのは 11/4 の前には危険**（`HTTP#repeat` の
-    # 再送対象・`Config#reload`・`format: uri` の厳格化が同梱される）ので、
-    # **ここだけ先に塞いでいる**（→ docs/CLAUDE.md「先に自分の箱を塞ぐ」）。
-
-    # その番号のプロセスが在るか。
+    # 🔴 **確かめた pid にだけ送る**（#162 / #169 / Codex の P1）。
     #
-    # 🔴 **`EPERM` は「居るが signal を送れない」＝生きている**（#111）。
-    # ⚠⚠ **上流はここを `false` に倒していた**ので、⚠ **他人の権限で走っている常駐が
-    # 「死んでいる」と読まれ、`run_start` が二重に起動しうる。**
-    def process_present?(target)
-      signal(target, 0)
-      return true
-    rescue Errno::ESRCH
-      return false
-    rescue Errno::EPERM
-      return true
-    end
-
-    # 🔴 **`TERM` を送ってから pid ファイルを消す**（#111）。
+    # ⚠⚠ **`TERM` を送ってから pid ファイルを消す・`EPERM` では消さない**という
+    # #111 の 2 点は、✅ **上流（`pooza/ginseng-core#509` / `#532`）に入った**ので
+    # **`run_stop` ごと上流に任せる**（⚠ **消すのは「中身がまだその pid のときだけ」**
+    # という後継との競り合いの手当ても向こうにある）。⚠ **こちらに残るのは
+    # 身元の判定だけ** — **上流は pid ファイルの番号をそのまま信じて送る。**
     #
-    # ⚠⚠ **上流は先に `remove_pid` してから `Process.kill('TERM')` を呼び、`EPERM` を
-    # 拾っていない** — 🔴 **pid ファイルだけ消えてプロセスは生き残る ＝ 孤児が確定する。**
-    # ⚠ **旧実装が孤児を 11 日分撒いた**（→ docs/CLAUDE.md「プロセスの寿命を設計に
-    # 含める」）ので、⚠⚠ **迷ったら孤児を作らないほうへ倒す。**
-    def run_stop
-      unless (target = pid)
-        warn 'PID file not found. Is the daemon started?'
-        exit 1
-      end
+    # 🔴 **判定は「送る 1 点」に置く。**⚠⚠ **`run_stop` を上書きして手前で確かめる形
+    # にすると、確かめた pid と実際に送る pid が別物になりうる** — ⚠ **上流の
+    # `run_stop` は pid ファイルを読み直す**ので、**確かめてから送るまでの間に
+    # 後継が新しい pid を書けば、身元を確かめていない相手へ `TERM` が飛ぶ。**
+    # ⚠⚠ **まさに `remove_pid(expected)`（上流 `#532`）が相手にしている競り合い。**
+    def send_signal(signal, target)
       return nil unless stoppable?(target)
-      signal(target, 'TERM')
-      remove_pid
-    rescue Errno::ESRCH
-      # ⚠ 居ないなら pid ファイルは掃除してよい。**残すと `run_start` が
-      # 「already running」で無言終了する。**
-      remove_pid
-      warn 'PID file found, but process was not running.'
-    rescue Errno::EPERM
-      # 🔴 **消さない。**⚠⚠ **消した瞬間に孤児が確定する**（次の起動が別プロセスを立て、
-      # 元のプロセスは誰も知らないまま投稿し続ける）。
-      warn "#{app_name} is running (PID #{target}) but could not be signalled. PID file kept."
-      exit 1
+      return super
     end
 
     # 🔴 **その pid へ `TERM` を送ってよいか**（#162 / #169）。
     #
-    # ⚠⚠ **`alive?` には #80 の黄 6（pid の再利用）と黄 3（`0`）を塞いだが、`run_stop`
-    # はその `alive?` を通らない** — ⚠ **`run_restart` は `run_stop if alive?` なので
-    # 守られていたが、`bin/makoto_daemon.rb stop` を直に叩く経路が素通しだった。**
+    # ⚠⚠ **`alive_state` には #80 の黄 6（pid の再利用）と黄 3（`0`）を塞いだが、
+    # `run_stop` はそこを通らない** — ⚠ **`run_restart` は `run_stop unless
+    # alive_state == :dead` なので身元を見た結果で呼ばれるが、`bin/makoto_daemon.rb
+    # stop` を直に叩く経路は素通しだった。**
     #
     # 🔴 **`pid` は `File.read(pid_file).to_i` なので、空も壊れた文字列も `0`。**
     # ⚠⚠ **`0` は truthy なので `run_stop` 冒頭の `unless` を抜け、
@@ -213,12 +190,6 @@ module Makoto
       return File.stat(entry).directory?
     rescue Errno::ENOENT
       return false
-    end
-
-    # ⚠ **`Process.kill` を直に呼ばずここを通す。**⚠⚠ **テストが差し替える継ぎ目**で、
-    # **これが無いと `EPERM` を作るのに他人のプロセスへ本物の signal を送ることになる。**
-    def signal(target, value)
-      return Process.kill(value, target)
     end
 
     # 設定を起動時に 1 回検証する（#99）。

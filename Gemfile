@@ -18,7 +18,11 @@ gem 'thor'
 gem 'timecop'
 
 group :development do
-  gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.0', require: false
+  # 依存の脆弱性スキャン（#104）。⚠ **外部の advisory DB を引く**ので、
+  # ⚠⚠ **`test.yml` には載せない** — **コードを 1 行も触っていないのに、DB が
+  # 更新された日に緑が赤へ変わる**（→ `.github/workflows/audit.yml`）。
+  gem 'bundler-audit', require: false
+  gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: false
   gem 'rubocop-sequel'
   gem 'test-unit'
   gem 'webmock'
