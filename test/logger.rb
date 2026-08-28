@@ -155,18 +155,50 @@ module Makoto
       assert_not_include(message.to_json, 'SECRET')
     end
 
+    # 🔴 **キーの大文字小文字を問わずマスクする**（#198 / v0.4.1）。
+    #
+    # ⚠⚠ **v0.4.0 の回帰だった** — **v0.3.0 までは `Makoto::Logger#secret?` が両側を
+    # 小文字にして突き合わせていた**が、🔴 **#101 でその上書きごと上流へ返したところ、
+    # 上流の `mask_field?` は完全一致で見ていた**（`config/application.yaml` の
+    # `mask_fields` は全部小文字なので、⚠ **`Authorization` はヘッダの綴りそのままで
+    # 素通りしていた**）。✅ **上流 `ginseng-core#584` を出して塞いだ。**
+    #
+    # ⚠ **`Authorization` を落とさない**（実際に踏むとしたらこれ）。
+    def test_masking_ignores_the_case_of_the_key
+      [:Token, :TOKEN, :Authorization].each do |key|
+        message = logger.create_message(probe: 'mask', key => 'SECRET')
+
+        assert_not_include(message.to_json, 'SECRET')
+      end
+    end
+
     # ⚠⚠ **設定が無くてもマスクしない方向へ倒さない。**設定の不備で秘密が平文に
     # 戻るほうが事故が大きい。
     #
-    # ⚠ **倒し方が変わった**（#101）— **こちらは既定のキー名リストへ倒していた**が、
-    # 🔴 **上流は「マスクを通せなかった」として中身ごと出さない**（`_mask_error`）。
-    # ⚠⚠ **どちらも「平文に戻らない」は満たす**ので、**上流の形に乗る。**
-    def test_masking_fails_closed_without_the_setting
+    # ⚠ **倒し方が 2 度変わった:**
+    #
+    # | | 倒し先 |
+    # | --- | --- |
+    # | v0.3.0 まで | ⚠ **こちらの既定のキー名リスト**（`Makoto::Logger#secret?`） |
+    # | v0.4.0（1.19.0） | ⚠ **上流が「マスクを通せなかった」として中身ごと出さない**（`_mask_error`） |
+    # | 🔴 **v0.4.1（1.23.0）** | **上流の既定 `MASK_FIELDS`**（`password` / `secret` / `token` の 3 件） |
+    #
+    # 🔴 **3 つ目はこちらの `ginseng-core#584` が足した倒し先。**⚠ **`mask_field?` だけが
+    # 「config が無ければ `ConfigError`」で、`mask_query_params` / `mask_url_paths` の
+    # 「マスクしない方向へは倒さない」と揃っていなかった**ので合わせたもの。
+    #
+    # ⚠⚠ **ただし既定が 3 件しかないので、保護は 1 段狭くなった** — 🔴 **設定を落とすと
+    # `access_token` / `authorization` / `api_key` は平文に戻る**（v0.4.0 は中身ごと
+    # 出さなかった）。⚠ **上流 `ginseng-core#586` / PR `#607`（既定を広げ、設定とは
+    # 合成する）で解ける** — **こちらに回避策は置かない**（→ docs/CLAUDE.md）。
+    #
+    # ⚠ **実運用では踏まない。**`config/application.yaml` が 7 件を自分で列挙しており、
+    # **落ちるのは設定そのものが壊れたとき**（`rake config:lint` が見る側）。
+    def test_masking_falls_back_to_the_defaults_without_the_setting
       config.delete('/logger/mask_fields')
       message = Logger.new.create_message(token: 'SECRET', error: Ginseng::GatewayError.new('boom'))
 
       assert_not_include(message.to_json, 'SECRET')
-      assert_true(message[:_mask_error])
     end
 
     # 実際に syslog へ渡る手前の値。⚠ **`create_message` を直に呼ぶだけでは

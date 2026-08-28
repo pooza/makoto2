@@ -74,12 +74,18 @@ module Makoto
     # ✅ **1.8.30 の `TagContainer.to_utf8` が入口で `encode` する**ので、⚠ **ASCII-8BIT
     # も Shift_JIS も中身を保ったまま通る。**⚠⚠ **不正なバイト列だけが `ValidateError`。**
     #
+    # ✅ **本文をそのまま渡す**（#193 / v0.4.1）— 🔴 **1.8.30 の `to_utf8` は中身が妥当な
+    # UTF-8 でも ASCII-8BIT を `UndefinedConversionError` にしていた**ので、⚠ **ラベルだけを
+    # 剥がす `utf8` を暫定で挟んでいた**（`pooza/ginseng-fediverse#265` → **#266**）。
+    # ✅ **1.8.31 で入口が直った**ので落とした。⚠⚠ **こちらに回避策を残さない**
+    # （→ docs/CLAUDE.md「`ginseng-*` との往復」）。
+    #
     # 🔴 **タグを足す都合で投稿そのものを失わない**（元の判断はそのまま）ので、
     # ⚠ **`ValidateError` は握ってタグ無しで返す。**⚠⚠ **黙らせない** —
     # **本文が壊れていることに気付ける唯一の場所。**
     def create_tags(text)
       container = Ginseng::Fediverse::TagContainer.new
-      container.text = utf8(text)
+      container.text = text
       container.push(@hashtag)
       return container.to_s
     rescue Ginseng::ValidateError => e
@@ -99,23 +105,6 @@ module Makoto
       return text.to_s.strip.empty?
     rescue ArgumentError, EncodingError
       return false
-    end
-
-    # ⚠ **ASCII-8BIT のラベルだけを剥がす**（⚠⚠ **中身が妥当な UTF-8 のときだけ**）。
-    #
-    # 🔴 **暫定** — **上流の `TagContainer.to_utf8` は ASCII-8BIT を `encode` に掛ける**
-    # ので、⚠⚠ **中身が妥当な UTF-8 でも `UndefinedConversionError` → `ValidateError`
-    # になる**（実測・`pooza/ginseng-fediverse#265`）。⚠ **`Sequel` / SQLite が非 ASCII を
-    # ASCII-8BIT で返す形がまさにこれ**（#124 / #79）で、**当たるとタグが黙って消える。**
-    #
-    # ⚠⚠ **これは #248 が「採らない」と決めた `force_encoding` とは違う** —
-    # **妥当な UTF-8 であることを確かめてからラベルを直すだけ**で、🔴 **中身は 1 バイトも
-    # 変えないし、`scrub` もしない。**⚠ **上流が直ったら消す。**
-    def utf8(text)
-      text = text.to_s
-      return text unless text.encoding == Encoding::BINARY
-      relabeled = text.dup.force_encoding(Encoding::UTF_8)
-      return relabeled.valid_encoding? ? relabeled : text
     end
   end
 end
