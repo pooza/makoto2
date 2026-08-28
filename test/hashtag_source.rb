@@ -90,6 +90,31 @@ module Makoto
       assert_equal(body, source(body).call)
     end
 
+    # 🔴 **ASCII-8BIT の本文でも重複の判定が効くこと**（#193 / v0.4.1）。
+    #
+    # ⚠⚠ **暫定の `utf8`（ラベルだけを剥がす）を落とした根拠がこのテスト。**
+    # ⚠ **1.8.30 の `to_utf8` は中身が妥当な UTF-8 でも ASCII-8BIT を弾いていた**
+    # （`pooza/ginseng-fediverse#266`）ので、🔴 **握って「タグ無し」に倒れていた。**
+    #
+    # ⚠⚠ **「既にあるタグを二重にしない」だけでは、壊れていても通ってしまう** —
+    # **握って何も足さなければ、本文はそのまま返るから。**🔴 **なので「別のタグが
+    # 既にある本文に、こちらのタグが 1 つ足される」を見る** — **握った側では
+    # 足されないので落ちる。**
+    def test_a_binary_body_keeps_its_own_tag_and_gains_ours
+      body = 'すでに #OTHER がある本文'.dup.force_encoding(Encoding::ASCII_8BIT)
+      result = source(body).call
+
+      assert_equal('#TAG', result.lines.last)
+      assert_include(result, '#OTHER')
+    end
+
+    # ⚠ **同じ本文にこちらのタグが既にあれば足さない**（#193）。
+    def test_a_binary_body_keeps_its_tag_out
+      body = 'すでに #TAG がある本文'.dup.force_encoding(Encoding::ASCII_8BIT)
+
+      assert_equal(body, source(body).call)
+    end
+
     # ⚠ **Shift_JIS の本文でも重複の判定が効くこと**（#171）。
     #
     # 🔴 **`force_encoding` していた頃は中身が壊れたまま UTF-8 を名乗り、`scrub` が
