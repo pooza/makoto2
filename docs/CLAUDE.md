@@ -1206,8 +1206,12 @@ bin/makoto corpus stat     # 件数を確認する
 
 - **デプロイは SSH 経由。ステージング → 本番の順**
 - 🔴 **本番（`rubicon`）の再起動・デプロイは日曜 08:30〜09:00 を避ける**（→ 上記「日曜 08:30〜09:00 は『実況の時間』」）。⚠ **`bydo` は投稿先が別の箱なので対象外**
-- 🔴 **`restart` を引くのは人だけではない**（2026-08-28 訂正・Codex の指摘）。⚠⚠ **`makoto2.service` は `Restart=always` / `RestartSec=5`** なので、**常駐が異常終了すれば systemd が 5 秒後に起こし直す** — ⚠ **その起動は drop-in を読み直す**（正本は chubo2 の `app/cookbooks/makoto2/templates/makoto2.service.erb`。こちら側の記述は [`makoto_daemon.rb`](../app/lib/makoto/daemon/makoto_daemon.rb) と [`heartbeat.rb`](../app/lib/makoto/heartbeat.rb) のコメント）。🔴 **したがって #174（リハーサルの drop-in の撤収漏れ）は、人が `restart` を叩かなくても発火する** — ⚠⚠ **落ちて上がるだけで、騙した時刻の 162 投稿が始まる。**
-- ⚠ **パッケージ由来の無人再起動は別の話で、そちらは入っていない**（2026-08-27 実測）。🔴 **`rubicon` / `bydo` には `unattended-upgrades` も `needrestart` も入っていない** — ⚠⚠ **LXC CT の Ubuntu テンプレートに含まれず、chubo のレシピも「パッケージを新規導入はしない」**（`apt-daily-upgrade.timer` は enabled だが、パッケージが無ければ何もしない）。⚠ **これは [`pooza/chubo2#204`](https://github.com/pooza/chubo2/issues/204) で見直しの対象**（ダイスキー本番が無人の一斉再起動で 53 分止まった件の積み残し）。🔴 **CT にも入れる判断になったら #174 の優先度はさらに上がる** — ⚠⚠ **いまの引き金は「常駐が異常終了したとき」だが、そのときは「更新のたび」が加わる**
+- 🔴 **`restart` を引くのは人だけではない**（2026-08-28 訂正・Codex の指摘 2 巡）。⚠⚠ **`makoto2.service` は `Restart=always` / `RestartSec=5`**（正本は chubo2 の `app/cookbooks/makoto2/templates/makoto2.service.erb`。こちら側の記述は [`makoto_daemon.rb`](../app/lib/makoto/daemon/makoto_daemon.rb) と [`heartbeat.rb`](../app/lib/makoto/heartbeat.rb) のコメント）。
+    - 🔴 **`systemctl stop` 以外の終わり方はすべて 5 秒後に起こし直される** — ⚠⚠ **異常終了だけではない。**`always` は**正常終了もシグナルでの停止もタイムアウトも**含む
+    - ⚠⚠ **その起動が使うのは、systemd が既に読み込んでいるユニット設定** — 🔴 **自動再起動はユニットファイルを読み直さない**（読み直すのは `daemon-reload`）。⚠ **drop-in のファイルを消しただけでは効かず、騙した時刻の環境変数はそのまま残る**
+    - 🔴 **したがって #174（リハーサルの drop-in の撤収漏れ）は、人が `restart` を叩かなくても発火する** — ⚠⚠ **落ちて上がるだけで、騙した時刻の 162 投稿が始まる**
+    - ⚠ **撤収の手順が「drop-in 削除 ＋ `daemon-reload` ＋ 再起動」なのはそのため**（→ 上記のリハーサル記録。⚠⚠ **`ls` で消えていても、`daemon-reload` を挟むまでは効いていない**）
+- ⚠ **パッケージ由来の無人再起動は別の話で、そちらは入っていない**（2026-08-27 実測）。🔴 **`rubicon` / `bydo` には `unattended-upgrades` も `needrestart` も入っていない** — ⚠⚠ **LXC CT の Ubuntu テンプレートに含まれず、chubo のレシピも「パッケージを新規導入はしない」**（`apt-daily-upgrade.timer` は enabled だが、パッケージが無ければ何もしない）。⚠ **これは [`pooza/chubo2#204`](https://github.com/pooza/chubo2/issues/204) で見直しの対象**（ダイスキー本番が無人の一斉再起動で 53 分止まった件の積み残し）。🔴 **CT にも入れる判断になったら #174 の優先度はさらに上がる** — ⚠⚠ **いまの引き金は「常駐が `systemctl stop` 以外で終わったとき」だが、そのときは「更新のたび」が加わる**
 - リモートの `develop` が diverge したら、merge-only を確認したうえで `reset --hard` で origin に揃えてよい
 - 稼働先の構成・SSH エイリアス・接続情報は [pooza/chubo2 `docs/infra-servers.md`](https://github.com/pooza/chubo2/blob/main/docs/infra-servers.md)、チューニングは [`docs/infra-tuning.md`](https://github.com/pooza/chubo2/blob/main/docs/infra-tuning.md) を正本とする（⚠ **2026-08-23 に [`infra-note.md`](https://github.com/pooza/chubo2/blob/main/docs/infra-note.md) が 8 ファイルへ分割され、あちらは索引になった**）
 
