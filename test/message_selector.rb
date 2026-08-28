@@ -1,7 +1,12 @@
 module Makoto
   class MessageSelectorTest < TestCase
-    # 朝挨拶（#17）が使う想定の許可リスト。
-    MORNING_TYPES = ['holiday', 'birthday', 'morning'].freeze
+    # 朝挨拶（#17）が使う想定の許可リスト。⚠ **`birthday` は入らない**（#60 で
+    # 取り込みごと落とした。用途はライブの台本が吸収している）。
+    MORNING_TYPES = ['holiday', 'morning'].freeze
+
+    # ⚠ 記念日（段 3）まで見る許可リスト。⚠⚠ **11/4 に登録されている type**
+    # （→ `/message/anniversary`）を足したもの。
+    ANNIVERSARY_TYPES = (MORNING_TYPES + ['live_open']).freeze
 
     def setup
       super
@@ -16,28 +21,28 @@ module Makoto
       return Time.new(year, month, day, 7, 0, 0, '+09:00')
     end
 
-    # ⚠⚠ #12 の完了条件。11/4 に birthday の原稿が選ばれること。
-    # ⚠ 旧データの birthday は month / day を持たないので、日付の正本は
+    # ⚠⚠ #12 の完了条件。11/4 に記念日の原稿が選ばれること。
+    # ⚠ 記念日の原稿は month / day を持たないので、日付の正本は
     # `/message/anniversary`。
-    def test_birthday_is_selected_on_the_anniversary
-      message = selector.find(jst(11, 4))
+    def test_the_anniversary_type_is_selected_on_the_day
+      message = selector(ANNIVERSARY_TYPES).find(jst(11, 4))
 
-      assert_equal('birthday', message[:type])
+      assert_equal('live_open', message[:type])
       assert_equal(2006, message[:id])
     end
 
-    # ⚠⚠ 記念日の type はその日以外では選ばれない。除かないと毎朝バースデーの
-    # 原稿が出る。
-    def test_birthday_is_not_selected_on_other_days
-      Array.new(20) {|i| selector.find(jst(5, i + 1))}.each do |message|
-        assert_not_equal('birthday', message[:type])
+    # ⚠⚠ 記念日の type はその日以外では選ばれない。除かないと毎朝ライブの
+    # 開始告知が出る。
+    def test_the_anniversary_type_is_not_selected_on_other_days
+      Array.new(20) {|i| selector(ANNIVERSARY_TYPES).find(jst(5, i + 1))}.each do |message|
+        assert_not_equal('live_open', message[:type])
       end
     end
 
-    # ⚠⚠ 季節指定を持つ birthday（実データに 4 件ある誤分類）は誕生日に使わない。
-    # 11/4 に紅葉や梨の話が出てしまう。
-    def test_seasoned_birthday_is_not_selected_on_the_anniversary
-      assert_not_equal(2004, selector.find(jst(11, 4))[:id])
+    # ⚠⚠ 段 3 は季節指定を持たない原稿だけを引く。⚠ 混ざると 11/4 に秋の原稿が
+    # 出る（旧データの `birthday` 23 件のうち 4 件が実際にその形だった）。
+    def test_a_seasoned_message_is_not_selected_on_the_anniversary
+      assert_not_equal(2004, selector(ANNIVERSARY_TYPES).find(jst(11, 4))[:id])
     end
 
     # 特定日（毎年）。元日は holiday の原稿で上書きする。
@@ -91,25 +96,25 @@ module Makoto
     end
 
     # ⚠ ホストの TZ ではなく /scheduler/timezone で日付を出すこと。UTC のホストで
-    # 11/4 の朝を渡しても誕生日と判定されること。
+    # 11/4 の朝を渡しても記念日と判定されること。
     def test_date_comes_from_the_configured_timezone
       # 2026-11-03 22:00 UTC ＝ JST では 11/4 の 07:00。
-      assert_equal('birthday', selector.find(Time.utc(2026, 11, 3, 22, 0))[:type])
+      assert_equal('live_open', selector(ANNIVERSARY_TYPES).find(Time.utc(2026, 11, 3, 22, 0))[:type])
       # ⚠ 11/4 15:00 UTC ＝ JST では 11/5。記念日から外れること。
-      assert_not_equal('birthday', selector.find(Time.utc(2026, 11, 4, 15, 0))[:type])
+      assert_not_equal('live_open', selector(ANNIVERSARY_TYPES).find(Time.utc(2026, 11, 4, 15, 0))[:type])
     end
 
     # ⚠⚠ 許可リストが記念日の type だけのとき、記念日以外の日は**何も返さない**こと。
     # ⚠ 段 4 / 5 に空の許可リストを渡すと「絞り込まない」と解釈され、無関係な type の
     # 原稿を出してしまう（→ #46 の Codex 指摘）。
     def test_anniversary_only_selector_returns_nil_on_other_days
-      assert_nil(selector(['birthday']).find(jst(5, 15)))
-      assert_equal('birthday', selector(['birthday']).find(jst(11, 4))[:type])
+      assert_nil(selector(['live_open']).find(jst(5, 15)))
+      assert_equal('live_open', selector(['live_open']).find(jst(11, 4))[:type])
     end
 
     # ⚠ 下見は日付をそのまま渡せること。時刻を作らせるとホストの TZ で 1 日ずれる。
     def test_accepts_a_date
-      assert_equal('birthday', selector.find(Date.new(2026, 11, 4))[:type])
+      assert_equal('live_open', selector(ANNIVERSARY_TYPES).find(Date.new(2026, 11, 4))[:type])
       assert_equal(2003, selector.find(Date.new(2026, 1, 1))[:id])
     end
 
@@ -121,7 +126,7 @@ module Makoto
         '11-01' => ['announcement'],
         '11-02' => ['announcement'],
         '11-03' => ['announcement', 'live_eve'],
-        '11-04' => ['birthday', 'live_open', 'live_mc', 'live_close'],
+        '11-04' => ['live_open', 'live_mc', 'live_close'],
       }
 
       assert_equal(expected, selector.anniversary_types)
@@ -129,22 +134,22 @@ module Makoto
 
     # ⚠ 設定に単数で書いても配列で返る（既存の書き方を壊さない）。
     def test_a_single_type_is_wrapped_in_an_array
-      config['/message/anniversary/11-04'] = 'birthday'
+      config['/message/anniversary/11-04'] = 'live_open'
 
-      assert_equal(['birthday'], selector.anniversary_types['11-04'])
+      assert_equal(['live_open'], selector.anniversary_types['11-04'])
     end
 
     # ⚠⚠ **許可リストに無い記念日の type は、その日でも選ばれない。**11/4 には誕生日と
     # ライブの台本が同居するので、⚠ **朝挨拶がライブの台本を横取りしない**ことが要る。
     def test_anniversary_types_on_respects_the_allow_list
-      assert_equal(['birthday'], selector(['birthday']).anniversary_types_on(Date.new(2026, 11, 4)))
+      assert_equal(['live_open'], selector(['live_open']).anniversary_types_on(Date.new(2026, 11, 4)))
       assert_equal(['live_mc'], selector(['live_mc']).anniversary_types_on(Date.new(2026, 11, 4)))
-      assert_empty(selector(['birthday']).anniversary_types_on(Date.new(2026, 5, 15)))
+      assert_empty(selector(['live_open']).anniversary_types_on(Date.new(2026, 5, 15)))
     end
 
     # ⚠ 記念日として予約された type の全体。呼び出し側の登録漏れ検査に使う。
     def test_reserved_types_are_flattened
-      assert_equal(['announcement', 'live_eve', 'birthday', 'live_open', 'live_mc', 'live_close'],
+      assert_equal(['announcement', 'live_eve', 'live_open', 'live_mc', 'live_close'],
         selector.reserved_types)
     end
 

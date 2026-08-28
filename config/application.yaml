@@ -266,12 +266,19 @@ package:
     - tkoishi@b-shock.co.jp
   license: MIT
   url: https://github.com/pooza/makoto2
-  version: 0.4.0
+  version: 0.4.1
 message:
   # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
   # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が
   # ここ。⚠ **ここに挙げた type は、その日以外では選ばれない**（毎朝バースデーの
   # 原稿が出ないようにするため）。
+  #
+  # 🔴 **`birthday` は 2026-08-27 に外した（#60）。**⚠⚠ **用途をライブの台本が
+  # 吸収している** — 11/4 は 8 時間のライブ当日で、`live_open` / `live_mc` /
+  # `live_close` が枠を全部埋める。⚠ **旧 `birthday` は進行を持たない静的な宣言**
+  # （「届くかな、わたしの歌。」）なので、8 時間のどこに置いても同じものになる。
+  # ⚠ **23 件のうち 12 件は `morning` と本文が完全一致・5 件がほぼ同一で、固有なのは
+  # 6 件だけ**だった（→ docs/makoto-legacy.md）。**取り込みの側でも落としてある。**
   #
   # ⚠ 11/4 は剣崎真琴と声優（宮本佳那子）の誕生日が重なる日（→ docs/CLAUDE.md）。
   #
@@ -292,7 +299,6 @@ message:
     # ⚠⚠ **open の type が登録されている日がライブの日**（→ LiveProgram#live_day?）。
     # 曲は原稿ではないので、これが無いと毎日 8 時間ぶんの曲が流れる。
     '11-04':
-      - birthday
       - live_open
       - live_mc
       - live_close

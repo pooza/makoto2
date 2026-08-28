@@ -6,13 +6,14 @@ module Makoto
 
     # 朝挨拶（#17）が使う既定の許可リスト。⚠ `template` / `calling` は全件が `%s` を
     # 含む穴埋めテンプレートなので入れない（そのまま投稿すると `%s` が出る）。
-    DEFAULT_TYPES = ['holiday', 'birthday', 'morning'].freeze
+    # ⚠ `birthday` は入らない（#60 で落とした。用途はライブの台本が吸収した）。
+    DEFAULT_TYPES = ['holiday', 'morning'].freeze
 
     def self.exit_on_failure?
       return true
     end
 
-    option :type, type: :string, required: true, desc: 'morning / holiday / birthday / 台本の type'
+    option :type, type: :string, required: true, desc: 'morning / holiday / 台本の type'
     option :date, type: :string, desc: '特定日。MM-DD（毎年）または YYYY-MM-DD（その年だけ）'
     option :season, type: :string, desc: '季節。月をカンマ区切りで（例: 9,10）'
     option :feature, type: :string, desc: '人手のメタ情報（任意）'
