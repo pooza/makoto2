@@ -6,8 +6,8 @@ gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', branch: 'main',
 gem 'rufus-scheduler'
 gem 'sequel'
 # rufus-scheduler の依存として入るが、Timetable が直接使うので明示する。
-gem 'tzinfo'
 gem 'sqlite3'
+gem 'tzinfo'
 # 監視の口（MonitorServer）を常駐の中で起こすためだけに使う（#84）。
 # ⚠ WebUI ではない。⚠⚠ 管理コンソールは作らないという決定は変えていない。
 gem 'puma'
