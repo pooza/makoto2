@@ -1,28 +1,28 @@
 GIT
   remote: https://github.com/pooza/ginseng-core.git
-  revision: 87cd033fb39faf35bb6202c2a3cd2559c6b677eb
+  revision: 64f591d120b773ee5339366c2c2355ced4fd5d9b
   branch: main
   specs:
-    ginseng-core (1.23.0)
-      activesupport (>= 7.0.7.1)
+    ginseng-core (1.23.3)
+      activesupport (>= 8.1.2.1)
       addressable (>= 2.9.0)
       cgi (>= 0.4.2)
       csv
       date (>= 3.2.1)
-      erb
+      erb (>= 6.0.4)
       etc
       facets
       fileutils (~> 1.7.0)
       find
       httparty (>= 0.24.0)
       json-schema
-      mail
+      mail (>= 2.5.5)
       multi_json
       net-protocol
       net-smtp
-      nokogiri (>= 1.18.9)
+      nokogiri (>= 1.19.4)
       optparse
-      rake (!= 13.4.0)
+      rake (>= 12.3.3, != 13.4.0)
       sanitize (>= 6.0.2)
       securerandom
       set
@@ -30,7 +30,7 @@ GIT
       time (>= 0.2.2)
       yajl-ruby (>= 1.4.3)
       zeitwerk (>= 2.4.0)
-      zlib
+      zlib (>= 3.2.3)
 
 GIT
   remote: https://github.com/pooza/ginseng-fediverse.git
@@ -281,7 +281,7 @@ CHECKSUMS
   fileutils (1.7.3) sha256=57271e854b694a87755d76f836f5c57b2c9538ebbaf4b2154bb66addf15eb5da
   find (0.2.0) sha256=9aabac9dbbea3fdd23781f79a2fd626166e57dab349aaec449400811b40c371b
   fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
-  ginseng-core (1.23.0)
+  ginseng-core (1.23.3)
   ginseng-fediverse (1.8.31)
   ginseng-style (1.1.4)
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1

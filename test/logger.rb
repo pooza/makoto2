@@ -175,30 +175,53 @@ module Makoto
     # ⚠⚠ **設定が無くてもマスクしない方向へ倒さない。**設定の不備で秘密が平文に
     # 戻るほうが事故が大きい。
     #
-    # ⚠ **倒し方が 2 度変わった:**
+    # ⚠ **倒し方が 3 度変わった:**
     #
     # | | 倒し先 |
     # | --- | --- |
     # | v0.3.0 まで | ⚠ **こちらの既定のキー名リスト**（`Makoto::Logger#secret?`） |
     # | v0.4.0（1.19.0） | ⚠ **上流が「マスクを通せなかった」として中身ごと出さない**（`_mask_error`） |
-    # | 🔴 **v0.4.1（1.23.0）** | **上流の既定 `MASK_FIELDS`**（`password` / `secret` / `token` の 3 件） |
+    # | v0.4.1（1.23.0） | ⚠⚠ **上流の既定 `MASK_FIELDS`**（`password` / `secret` / `token` の 3 件だけ） |
+    # | 🔴 **いま（1.23.1〜）** | **広げた既定 9 件**（`access_token` / `api_key` / `apikey` / `authorization` / `client_secret` / `password` / `refresh_token` / `secret` / `token`） |
     #
     # 🔴 **3 つ目はこちらの `ginseng-core#584` が足した倒し先。**⚠ **`mask_field?` だけが
     # 「config が無ければ `ConfigError`」で、`mask_query_params` / `mask_url_paths` の
-    # 「マスクしない方向へは倒さない」と揃っていなかった**ので合わせたもの。
+    # 「マスクしない方向へは倒さない」と揃っていなかった**ので合わせたもの。⚠⚠ **ただし
+    # 既定が 3 件しかなく、保護は 1 段狭くなった**（#213）。
     #
-    # ⚠⚠ **ただし既定が 3 件しかないので、保護は 1 段狭くなった** — 🔴 **設定を落とすと
-    # `access_token` / `authorization` / `api_key` は平文に戻る**（v0.4.0 は中身ごと
-    # 出さなかった）。⚠ **上流 `ginseng-core#586` / PR `#607`（既定を広げ、設定とは
-    # 合成する）で解ける** — **こちらに回避策は置かない**（→ docs/CLAUDE.md）。
+    # ✅ **上流 `ginseng-core#607` が既定を広げて塞いだ**（#586・v1.23.1）。⚠ **こちらに
+    # 回避策は置かない**という判断どおり、**引くだけで戻った**（→ docs/CLAUDE.md）。
     #
-    # ⚠ **実運用では踏まない。**`config/application.yaml` が 7 件を自分で列挙しており、
-    # **落ちるのは設定そのものが壊れたとき**（`rake config:lint` が見る側）。
+    # ⚠ **`code` だけは戻らない** — 🔴 **上流は `code` / `i` / `key` を意図して既定から
+    # 外している**（**クエリのパラメータ名としては資格情報だが、Hash のキーとしては
+    # ステータスコードなどが普通に入る**）。⚠⚠ **こちらの `config/application.yaml` は
+    # 列挙しているので、設定が生きている限り落ちる**（下の合成のテスト）。
+    #
+    # ⚠ **実運用では踏まない。落ちるのは設定そのものが壊れたとき**（`rake config:lint`
+    # が見る側）。
     def test_masking_falls_back_to_the_defaults_without_the_setting
       config.delete('/logger/mask_fields')
-      message = Logger.new.create_message(token: 'SECRET', error: Ginseng::GatewayError.new('boom'))
+      logger = Logger.new
+      [:token, :access_token, :authorization, :api_key].each do |key|
+        message = logger.create_message(key => 'SECRET', error: Ginseng::GatewayError.new('boom'))
 
-      assert_not_include(message.to_json, 'SECRET')
+        assert_not_include(message.to_json, 'SECRET')
+      end
+    end
+
+    # 🔴 **設定は既定を置き換えるのではなく合成する**（上流 `ginseng-core#607`）。
+    #
+    # ⚠⚠ **`client_secret` / `refresh_token` は `config/application.yaml` の 7 件に
+    # 入っていない** — **置き換えなら平文で残る**ところ。⚠ **合成なので、こちらの
+    # 設定を 1 行も変えずに落ちる。**
+    #
+    # ⚠ **`code` は逆向きの確認**（上流の既定に無く、こちらの設定にだけある）。
+    def test_the_setting_is_merged_into_the_defaults
+      [:client_secret, :refresh_token, :code].each do |key|
+        message = logger.create_message(key => 'SECRET')
+
+        assert_not_include(message.to_json, 'SECRET')
+      end
     end
 
     # 実際に syslog へ渡る手前の値。⚠ **`create_message` を直に呼ぶだけでは
