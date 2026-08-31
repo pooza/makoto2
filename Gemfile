@@ -22,7 +22,7 @@ group :development do
   # ⚠⚠ **`test.yml` には載せない** — **コードを 1 行も触っていないのに、DB が
   # 更新された日に緑が赤へ変わる**（→ `.github/workflows/audit.yml`）。
   gem 'bundler-audit', require: false
-  gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.11', require: false
+  gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.12', require: false
   gem 'rubocop-sequel'
   gem 'test-unit'
   gem 'webmock'
