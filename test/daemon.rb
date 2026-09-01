@@ -518,8 +518,8 @@ module Makoto
 
       @daemon.register_jobs
 
-      # 予告（#14）1 本 ＋ ライブ（#13）4 本。
-      assert_equal(5, Scheduler.instance.send(:jobs))
+      # 予告（#14）1 本 ＋ 朝挨拶（#17）1 本 ＋ ライブ（#13）4 本。
+      assert_equal(6, Scheduler.instance.send(:jobs))
     ensure
       Scheduler.instance.clear
     end
