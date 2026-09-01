@@ -154,6 +154,68 @@ module Makoto
       return nil
     end
 
+    # 🔴 **周回ごとに並びが変わること**（#223）。⚠⚠ **順送りのままだと「周期で同じ順番」**
+    # になる（オーナー: それはイヤ）。
+    def test_the_order_changes_every_cycle
+      6.times {|i| add("日替わりの原稿 #{i}")}
+      source = morning.source
+      size = undated_size
+      first = (0...size).map {|i| source.find(cycle_head(size) + i)[:id]}
+      second = (0...size).map {|i| source.find(cycle_head(size) + size + i)[:id]}
+
+      assert_not_equal(first, second)
+      assert_equal(first.sort, second.sort)
+    end
+
+    def undated_size
+      return morning.selector.undated_list(Date.new(2026, 9, 1)).size
+    end
+
+    # ⚠ **周の頭の日付。**⚠⚠ **周は暦に貼り付いていない**（`ユリウス通日 % 本数`）ので、
+    # **適当な日から数えると 2 つの周をまたいでしまう。**
+    def cycle_head(size)
+      return Date.jd(((Date.new(2026, 9, 1).jd / size) + 1) * size)
+    end
+
+    # ⚠ **1 周で全件が 1 回ずつ出ること**（組み替えても漏れを作らない）。
+    def test_one_cycle_covers_every_message
+      6.times {|i| add("日替わりの原稿 #{i}")}
+      source = morning.source
+      size = undated_size
+      ids = (0...size).map {|i| source.find(cycle_head(size) + i)[:id]}
+
+      assert_equal(size, ids.uniq.size)
+    end
+
+    # 🔴 **同じ原稿が戻るまで、本数の半分を下回らないこと**（#223）。⚠⚠ **完全に組み替えると
+    # 周の境目で最短 2 日まで落ちる**ので、**前半・後半を保ったまま中だけ組み替える。**
+    def test_the_gap_never_falls_below_half_the_pool
+      9.times {|i| add("日替わりの原稿 #{i}")}
+      source = morning.source
+      size = undated_size
+      seen = {}
+      gaps = []
+      (0...(size * 4)).each do |offset|
+        date = Date.new(2026, 9, 1) + offset
+        record = source.find(date)
+        gaps.push(offset - seen[record[:id]]) if seen[record[:id]]
+        seen[record[:id]] = offset
+      end
+
+      assert_operator(gaps.min, :>=, size / 2)
+    end
+
+    # 🔴 **季節は年ごとに違う日に出ること**（#223）。⚠⚠ **組み替える前は毎年まったく
+    # 同じ日に同じ原稿**だった（実データで 183 / 183 日一致）。
+    def test_the_seasonal_order_changes_every_year
+      6.times {|i| @repository.create(type: 'morning', body: "6 月の原稿 #{i}", seasons: [6])}
+      source = morning.source
+      first = (1..30).map {|day| source.find(jst(6, day, year: 2026))[:id]}
+      second = (1..30).map {|day| source.find(jst(6, day, year: 2027))[:id]}
+
+      assert_not_equal(first, second)
+    end
+
     # ⚠⚠ **状態を持たない。**⚠ **落ちて戻ってきても、下見をやり直しても同じ日は
     # 同じ原稿**（→ docs/CLAUDE.md「進行位置は状態ではなく計算で出す」）。
     def test_the_same_day_gives_the_same_message
@@ -206,7 +268,8 @@ module Makoto
       seed_a_shared_season_without_undated
 
       # ⚠ 逃がさないので、月またぎの重複はそのまま（通年 1 件では避けようがない）。
-      assert_equal('10 月と 11 月の原稿', morning.source.find(jst(11, 1))[:body])
+      assert_equal('10 月と 11 月の原稿',
+        morning.source.find(jst(11, 1, year: COLLIDING_YEAR))[:body])
     end
 
     # 10 月の最後の日を季節の日にし、その 1 件だけ 11 月にも属させる。⚠ 通年は
@@ -265,11 +328,16 @@ module Makoto
     # 🔴 **月をまたいで同じ季節の原稿が 2 日続かない**（Codex の P2）。⚠⚠ **季節の原稿は
     # 複数の月を持てる**（`{"season": [6,7,8]}`）ので、⚠ **6 月の最後の 1 件と 7 月の
     # 最初の 1 件が同じ原稿になりうる。**
+    # ⚠ **2070 年を使う。**🔴 **並びは年ごとに組み替わる**（#223）ので、⚠⚠ **月末と
+    # 翌月頭が同じ原稿に当たる年は限られる** — **この配分では 2070 年と 2113 年**
+    # （実測で探した。⚠ **当たらない年で試すと、逃がしを消しても通ってしまう**）。
+    COLLIDING_YEAR = 2070
+
     def test_a_shared_seasonal_message_does_not_span_the_boundary
       seed_a_shared_season
       source = morning.source
-      bodies = (29..31).map {|day| source.call(jst(10, day))} +
-        (1..3).map {|day| source.call(jst(11, day))}
+      bodies = (29..31).map {|day| source.call(jst(10, day, year: COLLIDING_YEAR))} +
+        (1..3).map {|day| source.call(jst(11, day, year: COLLIDING_YEAR))}
 
       assert_equal([], bodies.each_cons(2).select {|a, b| a == b})
     end
