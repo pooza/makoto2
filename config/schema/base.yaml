@@ -244,6 +244,11 @@ properties:
   message:
     type: object
     properties:
+      # ⚠ 正本が makoto-scripts へ移った type（#224）。省略可（移送前は空）。
+      scripted_types:
+        type: array
+        items:
+          type: string
       # 記念日。⚠ キーは `MM-DD`、値はその日に使う原稿の type。
       # ⚠⚠ ここに挙げた type は、その日以外では選ばれない。
       # ⚠ 1 日に複数の type を持てる（11/4 は誕生日とライブの台本が同居する → #13）。
