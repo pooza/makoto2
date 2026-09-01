@@ -108,7 +108,19 @@ module Makoto
       chosen = seasonal(date)
       return [rotate(@selector.undated_list(date), date), false] unless chosen
       return [chosen, false] unless avoid_previous && repeats?(chosen, date)
-      return [rotate(@selector.undated_list(date), date) || chosen, false]
+      return [escape(chosen, date), false]
+    end
+
+    # 前日と同じになる季節の原稿の逃がし先。
+    #
+    # 🔴 **通年が 2 件未満なら逃がさない**（Codex の P2）。⚠⚠ **1 件しか無いと、逃がした
+    # 先が翌日の通年の順送りと同じになる** — ⚠ **連日の重複が 1 日ずれるだけで消えない。**
+    # ⚠⚠ **母集合が 2 件未満のときは、そもそも連日で違う原稿を出せない**（原稿を足す
+    # 側の話 → docs/makoto-legacy.md「5 月を埋める」）。
+    def escape(chosen, date)
+      records = @selector.undated_list(date)
+      return chosen if records.size < 2
+      return rotate(records, date)
     end
 
     # ⚠ **前日と同じ原稿か。**⚠⚠ **遡るのは 1 日だけ**（前日は逃がす前で見る）。

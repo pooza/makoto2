@@ -198,6 +198,26 @@ module Makoto
       assert_equal(1, bodies.count {|body| body.include?('七夕の原稿')})
     end
 
+    # 🔴 **通年が 2 件未満なら逃がさない**（Codex の P2）。⚠⚠ **逃がした先が翌日の
+    # 順送りと同じになる**ので、⚠ **連日の重複が 1 日ずれるだけで消えない。**
+    # ⚠⚠ **母集合が 2 件未満のときは、そもそも連日で違う原稿を出せない**（原稿を足す
+    # 側の話）。
+    def test_the_escape_is_skipped_when_the_undated_pool_is_too_small
+      seed_a_shared_season_without_undated
+
+      # ⚠ 逃がさないので、月またぎの重複はそのまま（通年 1 件では避けようがない）。
+      assert_equal('10 月と 11 月の原稿', morning.source.find(jst(11, 1))[:body])
+    end
+
+    # 10 月の最後の日を季節の日にし、その 1 件だけ 11 月にも属させる。⚠ 通年は
+    # フィクスチャの 1 件だけ（＝ 逃がし先が作れない）。
+    def seed_a_shared_season_without_undated
+      15.times {|i| @repository.create(type: 'morning', body: "10 月の原稿 #{i}", seasons: [10])}
+      @repository.create(type: 'morning', body: '10 月と 11 月の原稿', seasons: [10, 11])
+      3.times {|i| @repository.create(type: 'morning', body: "11 月の原稿 #{i}", seasons: [11])}
+      return nil
+    end
+
     # ⚠⚠ **原稿が 1 件も無ければ投稿しない。**⚠ 枠は毎日あるので、ここが nil を
     # 返さないと例外か空投稿になる。
     def test_silent_without_any_message

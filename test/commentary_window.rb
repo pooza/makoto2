@@ -65,6 +65,15 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {window.cover?(sunday(8, 45))}
     end
 
+    # 🔴 **範囲の外の曜日で fail-open にしない**（Codex の P2）。⚠⚠ **`7` だと `cover?`
+    # が何にも当たらず、検査そのものが黙って無効になる。**⚠ **schema は報告するが、
+    # `validate_config` は記録して起動を続ける**（#99）ので、ここで落とす。
+    def test_rejects_a_weekday_out_of_range
+      config['/commentary/weekday'] = 7
+
+      assert_raise(Ginseng::ConfigError) {window.cover?(sunday(8, 45))}
+    end
+
     def test_rejects_a_bad_clock
       config['/commentary/start'] = '8時半'
 

@@ -19,8 +19,17 @@ module Makoto
     # 1 日ぶんの分。⚠ 時計の比較を分に均すためだけに使う。
     MINUTES_OF_DAY = 1440
 
+    # ⚠ **曜日。0 が日曜**（`Time#wday` と同じ）。
+    #
+    # 🔴 **範囲の外なら落とす**（Codex の P2）。⚠⚠ **`7` のような値だと `cover?` が
+    # 何にも当たらなくなり、検査そのものが黙って無効になる。**⚠ **schema は誤りを
+    # 報告するが、`MakotoDaemon#validate_config` は記録して起動を続ける**（#99）ので、
+    # **ここで落とさないと fail-open になる。**
     def weekday
-      return config["#{PREFIX}/weekday"].to_i
+      value = config["#{PREFIX}/weekday"].to_i
+      return value if value.between?(0, 6)
+      raise Ginseng::ConfigError,
+        "commentary: weekday must be 0..6 (got '#{config["#{PREFIX}/weekday"]}')"
     end
 
     def timezone
