@@ -100,7 +100,87 @@ module Makoto
       exit 1
     end
 
+    option :type, type: :string, required: true, desc: '書き出す type をカンマ区切りで'
+    option :out, type: :string, required: true, desc: '書き出すファイル（YAML）'
+    option :prefix, type: :string, desc: 'slug の接頭辞（既定は type）'
+    option :exclude, type: :string, desc: '書き出さない id をカンマ区切りで'
+    option :force, type: :boolean, default: false, desc: '既にあるファイルを上書きする'
+    desc 'export', '原稿を取り込みの形式（YAML）で書き出す'
+    def export
+      # 🔴 **本文をこのリポジトリに出さない**（public。→ docs/CLAUDE.md の情報の記載先）。
+      # ⚠⚠ **標準出力にも出さない** — **書き出し先はファイルだけ**にして、
+      # ⚠ **原稿がログや貼り付けに紛れ込む経路を作らない。**
+      path = options[:out]
+      if File.exist?(path) && !options[:force]
+        warn "#{path} は既にあります（上書きするなら --force）"
+        exit 1
+      end
+      records = export_records(options[:type].split(','), exclude_ids(options[:exclude]))
+      File.write(path, export_header(records) + records.to_yaml)
+      puts "#{records.size} 件を #{path} へ書き出しました"
+    rescue Ginseng::ValidateError => e
+      warn error_message(e)
+      exit 1
+    end
+
     private
+
+    # ⚠ **`slug` を持つ行はその `slug` を保つ**（⚠⚠ **付け直すと取り込みで二重になる**）。
+    # ⚠ **持たない行には `接頭辞-通し番号` を振る。**番号は id 順で安定させる。
+    def export_records(types, excluded)
+      rows = types.flat_map {|type| repository.by_type(type.strip).order(:id).all}
+      rows = rows.reject {|row| excluded.include?(row[:id])}
+      prefix = options[:prefix]
+      rows.map.with_index(1) do |row, index|
+        export_record(row, prefix || row[:type], index)
+      end
+    end
+
+    # ⚠ テストが差し替えるためだけに 1 つに寄せてある（→ `MorningCommand#morning`）。
+    def repository
+      @repository ||= MessageRepository.new
+      return @repository
+    end
+
+    def export_record(row, prefix, index)
+      record = {
+        'slug' => row[:slug] || ('%{prefix}-%<index>04d' % {prefix: prefix, index: index}),
+        'type' => row[:type],
+      }
+      record['date'] = export_date(row) if row[:month]
+      seasons = repository.seasons(row[:id])
+      record['season'] = seasons unless seasons.empty?
+      record['feature'] = row[:feature] if row[:feature]
+      record['body'] = row[:body]
+      return record
+    end
+
+    # ⚠ **`MM-DD`（毎年）と `YYYY-MM-DD`（その年だけ）**（→ `ScriptImporter.parse_date`）。
+    def export_date(row)
+      return '%{year}%<month>02d-%<day>02d' % {year: row[:year] ? "#{row[:year]}-" : '',
+        month: row[:month],
+        day: row[:day]}
+    end
+
+    def exclude_ids(value)
+      return [] if value.blank?
+      return value.split(',').map {|id| Integer(id.strip)}
+    rescue ArgumentError
+      raise Ginseng::ValidateError, "除く id は数字で指定してください（'#{value}'）"
+    end
+
+    # ⚠ **どこから出したファイルかを書き残す。**⚠⚠ **取り込み元が分からない原稿は、
+    # 直してよいのか捨ててよいのかも分からない。**
+    def export_header(records)
+      types = records.map {|record| record['type']}.tally.map {|type, size| "#{type} #{size}"}
+      return <<~HEADER
+        # #{Package.full_name} の `makoto message export` が書き出したもの。
+        # 内訳: #{types.join(' / ')}
+        #
+        # ⚠ 取り込みは `makoto message import`（`slug` が upsert の鍵）。
+        # ⚠⚠ 消すときは行を消して `--prune` を付ける（slug を持つ行だけが消える）。
+      HEADER
+    end
 
     # ⚠ **書き込む前に見る口。**`--prune` は行を消すので、本番でいきなり流させない。
     def preview_import(importer, path)

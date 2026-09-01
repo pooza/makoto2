@@ -372,6 +372,33 @@ map $http_x_mulukhiya $mulukhiya_backend {
 - ⚠ **タグは MAKOTO が付けない。**⚠⚠ **旧アカウントの朝挨拶に 10 年付いていた `#precure_fun` はモロヘイヤが付けたもの**（→ 上記「投稿はモロヘイヤを経由する」）。**ライブの `HashtagSource` は通さない**
 - ⚠ **常駐の登録は 5 本 → 6 本になった**（`jobs` は起動時に決まる定数 → 上記「登録された本数は出た本数ではない」）
 
+### 朝挨拶の原稿の正本は `makoto-scripts`（2026-09-01 決定・#224）
+
+🔴 **`morning` / `holiday` の正本を [pooza/makoto-scripts](https://github.com/pooza/makoto-scripts) へ移した**（ライブの台本と同じ置き場・#50）。⚠⚠ **原稿を少しずつ増やしていくため**（→ #225）で、⚠ **旧 DB のダンプが正本のままだと、足しても落ちない状態が続く。**
+
+**穴は 2 つあった:**
+
+- ⚠⚠ **`makoto message import --prune` は `slug` を持つ行しか消さない** — 🔴 **旧ダンプ由来の 237 本は `slug` 無し**なので、**新しい原稿を入れても併存する**
+- 🔴 **`makoto corpus import` は旧ダンプの `morning` を毎回入れ直す** — ⚠ **消しても次の投入で戻る**（#212 と同じ「消す側と入れ直す側が揃っていない」形）
+
+**直した形:**
+
+- **`makoto message export --type=morning,holiday --out=PATH`** で取り込みの形式（YAML）に書き出す。⚠ **`slug` は id 順の通し番号**（`morning-0001`）で、⚠⚠ **既に `slug` を持つ行はその `slug` を保つ**（付け直すと取り込みで二重になる）。🔴 **書き出し先はファイルだけ** — **本文を public のこのリポジトリや標準出力に出す経路を作らない**
+- **`/message/scripted_types`**（既定 `morning` / `holiday`）に書いた type は、🔴 **`makoto corpus import` が旧ダンプから取り込まず、`slug` を持たない行を消す。**⚠ **`slug` を持つ行には触らない**（移送済みの原稿と、あとから足した原稿がそこに居る）
+- ⚠⚠ **`MessageRepository::DROPPED_TYPES` に足してはいけない。**🔴 **あちらは「書ける口も塞ぐ」定数**（`birthday` 用）なので、**足すと `makoto message import` まで塞がって、移した先から入れられなくなる**
+
+🔴 **手順は「書き出す → 取り込む → `corpus import`」の順。**⚠⚠ **`/message/scripted_types` を先に効かせると、書き出す前に原稿が消える。**
+
+```sh
+bin/makoto message export --type=morning,holiday --out=../makoto-scripts/morning.yaml --exclude=<古びた id>
+bin/makoto message import ../makoto-scripts/morning.yaml
+bin/makoto corpus import   # ⚠ ここで旧ダンプ由来（slug 無し）が落ちる
+```
+
+⚠ **実測（2026-09-01・手元の DB）**: **237 → 227 本**（🔴 **#60 で「捨ててよい」と決めた古びた 10 件は書き出さないことで落ちる**）。**通年 155 → 147 / 季節 82 → 80。**⚠⚠ **落とした 10 件のうち 1 件（ポンデライオン）はダジャレの 1 つでもあった** — **ダジャレは 15 件に 1 件という比率なので、#225 で書き足すときに補う。**
+
+⚠ **テストのフィクスチャは「移送前」の形を作る**（`TestCase#corpus_db` が `/message/scripted_types` を空にする）。🔴 **移送後の形は `CorpusImporterTest` が別に見る** — **両方の形を残さないと、移送の途中の箱で何が起きるか分からなくなる。**
+
 ### ライブの並びは抽選ではなく整列（2026-08-13 決定・#13）
 
 **バースデーライブ（`Makoto::Live`）は枠を 4 つ持つ。**開始告知で始まり、8 時間の進行を挟んで、終了告知で終わる。⚠ **前日（11/3）の増量は別の枠**（→ 上記「枠は 1 日 1 本」）。

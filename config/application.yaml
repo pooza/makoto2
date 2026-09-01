@@ -322,6 +322,18 @@ message:
   # ⚠⚠ **1 日に複数の type を書ける**（#13）。11/3 は予告と前日増量、11/4 は誕生日と
   # ライブの台本が同居する。⚠ **1 日 1 type だと後から来たほうが登録できず、
   # 日付を持たない原稿が段 5 に漏れて毎日出る。**
+  # 🔴 正本が pooza/makoto-scripts へ移った type（#224）。⚠⚠ ここに書いた type は
+  # `makoto corpus import` が旧ダンプから取り込まず、旧ダンプ由来の行（slug 無し）を
+  # 消す。⚠ slug を持つ行（ファイル由来）には触らない。
+  #
+  # ⚠⚠ DROPPED_TYPES（`makoto message add` ごと塞ぐ定数）とは別物。こちらは
+  # 「入れる場所が変わった」だけで、原稿そのものは足せる。
+  #
+  # 🔴 移送より先にここへ書かない。順番は「書き出す → 取り込む → corpus import」
+  # （→ docs/CLAUDE.md「朝挨拶の原稿の正本」）。
+  scripted_types:
+    - morning
+    - holiday
   anniversary:
     # ⚠ 引用符を外さない。`11-04` は YAML が数値・日付と取り違えうる書き方。
     #
