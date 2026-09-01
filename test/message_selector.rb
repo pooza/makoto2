@@ -237,5 +237,27 @@ module Makoto
 
       assert_empty(messages)
     end
+
+    # 🔴 **通年で回してよい原稿すべて**（段 4 ＋ 段 5）。⚠ **朝挨拶の順送りが「段の中に
+    # 1 件しか無い」で止まらないようにするための口**（#17・Codex の P1）。
+    def test_rotating_list_merges_the_season_and_the_undated
+      records = selector.rotating_list(jst(6, 15))
+
+      assert_equal([2001, 2002], records.map {|record| record[:id]}.sort)
+    end
+
+    # ⚠ 季節の原稿が無い月は無指定だけ。
+    def test_rotating_list_without_a_seasonal_message
+      records = selector.rotating_list(jst(9, 15))
+
+      assert_equal([2001], records.map {|record| record[:id]})
+    end
+
+    # ⚠⚠ **記念日に予約された type は通年では回さない**（→ `rotating_types`）。
+    def test_rotating_list_excludes_the_reserved_types
+      records = selector(['live_open']).rotating_list(jst(9, 15))
+
+      assert_equal([], records)
+    end
   end
 end

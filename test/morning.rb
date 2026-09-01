@@ -93,6 +93,32 @@ module Makoto
       assert_equal(4, bodies.uniq.size)
     end
 
+    # 🔴 **段の中に 1 件しか無いと、順送りでも毎日同じ原稿になる**（Codex の P1）。
+    # ⚠⚠ **実データの 5 月は季節の原稿が 1 件**（→ docs/makoto-legacy.md）なので、
+    # ⚠ **広げないと 5 月は 31 日とも同じ挨拶**になる。
+    def test_a_single_seasonal_message_does_not_repeat
+      # フィクスチャの 6〜8 月は季節の原稿が 1 件だけ。
+      bodies = (1..8).map {|day| morning.source.call(jst(6, day))}
+
+      assert_equal([], bodies.each_cons(2).select {|a, b| a == b})
+      assert_operator(bodies.uniq.size, :>, 1)
+    end
+
+    # ⚠ **広げても季節の原稿は出る**（母集合に混ぜるだけで、落とすわけではない）。
+    def test_the_seasonal_message_is_still_used
+      bodies = (1..8).map {|day| morning.source.call(jst(6, day))}
+
+      assert_true(bodies.any? {|body| body.include?('テスト用の原稿（夏の朝挨拶）')})
+    end
+
+    # ⚠⚠ **日付が特定された原稿は広げない。**🔴 **その日はその原稿が出るのが上書きの
+    # 意味**（#12）。⚠ 元日は毎年同じ原稿でよい。
+    def test_the_dated_message_is_not_widened
+      bodies = [2026, 2027].map {|year| morning.source.call(jst(1, 1, year: year))}
+
+      assert_equal(['テスト用の原稿（元日）'] * 2, bodies)
+    end
+
     # ⚠⚠ **状態を持たない。**⚠ **落ちて戻ってきても、下見をやり直しても同じ日は
     # 同じ原稿**（→ docs/CLAUDE.md「進行位置は状態ではなく計算で出す」）。
     def test_the_same_day_gives_the_same_message

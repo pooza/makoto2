@@ -55,12 +55,29 @@ module Makoto
     # その日の原稿。⚠ **`Date` をそのまま渡せる**（下見が時刻を作るとホストの TZ で
     # 1 日ずれる → `MessageSelector#find`）。
     def find(time = nil)
-      records = @selector.list(time || Time.now)
+      records = candidates(time || Time.now)
       return nil if records.empty?
       return records[index(time) % records.size]
     end
 
     private
+
+    # 🔴 **段の中に 1 件しか無いときだけ、通年の母集合まで広げる**（Codex の P1）。
+    #
+    # ⚠⚠ **1 件の段を順送りしても毎日同じ原稿になる** — ⚠ **実データの 5 月は季節の
+    # 原稿が 1 件**（→ [makoto-legacy.md](../../../docs/makoto-legacy.md)）なので、
+    # **そのままだと 5 月は 31 日とも同じ挨拶。**🔴 **完了条件が実データで破れる形。**
+    #
+    # ⚠ **広げるのは通年で回す段（季節・無指定）だけ。**⚠⚠ **日付が特定された原稿と
+    # 記念日は広げない** — **その日はその原稿が出るのが上書きの意味**（#12）。
+    # 🔴 **判定は「引けた 1 件が通年の母集合に居るか」**（type ではなく実体で見る）。
+    def candidates(time)
+      records = @selector.list(time)
+      return records unless records.size == 1
+      wider = @selector.rotating_list(time)
+      return records unless wider.any? {|record| record[:id] == records.first[:id]}
+      return wider
+    end
 
     # ⚠ **日付の規則は `MessageSelector` が正本**（`/scheduler/timezone` で出す）。
     # ⚠⚠ **ここで `Date.today` を使わない** — **UTC のホストでは日付が 1 日ずれる。**
