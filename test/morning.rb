@@ -179,6 +179,25 @@ module Makoto
       assert_equal('七夕の原稿', morning.source.call(jst(7, 7)))
     end
 
+    # 🔴 **日替わりの type にも日付は付けられる**（`makoto message add --type=morning
+    # --date=...`）。⚠⚠ **その日は原稿が挨拶を自分で持つ側**なので、⚠ **type だけで
+    # 判断すると挨拶が二重になる**（Codex の P2）。
+    def test_a_dated_message_of_the_daily_type_keeps_its_own_greeting
+      @repository.create(type: 'morning', body: 'おはようございます！特別な日です', month: 3, day: 3)
+
+      assert_equal('おはようございます！特別な日です', morning.source.call(jst(3, 3)))
+    end
+
+    # 🔴 **日付を持つ原稿は季節の母集合に入れない**（Codex の P2）。⚠⚠ **日付と季節は
+    # 同居できる**ので、⚠ **入れると「その日に出す原稿」が月内の別の日にも出る。**
+    def test_a_dated_message_never_fills_another_day_of_the_month
+      3.times {|i| add("日替わりの原稿 #{i}")}
+      @repository.create(type: 'holiday', body: '七夕の原稿', month: 7, day: 7, seasons: [7])
+      bodies = (1..31).map {|day| morning.source.call(jst(7, day))}
+
+      assert_equal(1, bodies.count {|body| body.include?('七夕の原稿')})
+    end
+
     # ⚠⚠ **原稿が 1 件も無ければ投稿しない。**⚠ 枠は毎日あるので、ここが nil を
     # 返さないと例外か空投稿になる。
     def test_silent_without_any_message

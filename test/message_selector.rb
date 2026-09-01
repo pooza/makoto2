@@ -246,6 +246,20 @@ module Makoto
       assert_equal([], selector.season_list(jst(9, 15)))
     end
 
+    # 🔴 **日付を持つ原稿は季節の母集合に入れない**（#17・Codex の P2）。⚠⚠ **日付と
+    # 季節は同居できる**ので、⚠ **入れると「その日に出す原稿」が月内の別の日にも出る。**
+    def test_season_list_excludes_the_dated_messages
+      id = @repository.create(type: 'morning', body: '七夕の原稿', month: 7, day: 7, seasons: [7])
+
+      assert_not_include(selector.season_list(jst(7, 15)).map {|record| record[:id]}, id)
+    end
+
+    # 🔴 **日付で勝つ段**（1 / 2 / 3）。⚠ 段の勝ち負けを実体から推測させないための口。
+    def test_dated_list_returns_the_winning_dated_tier
+      assert_equal([2003], selector.dated_list(jst(1, 1)).map {|record| record[:id]})
+      assert_equal([], selector.dated_list(jst(9, 15)))
+    end
+
     # ⚠⚠ **この母集合は月替わりでも変わらない**（順送りが月替わりで破れない理由）。
     def test_undated_list_does_not_change_by_the_month
       ids = [jst(6, 15), jst(9, 15), jst(12, 31)].map do |time|

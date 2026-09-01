@@ -108,7 +108,11 @@ module Makoto
       types = rotating_types
       return [] if types.empty?
       date = date_of(time || Time.now)
-      return sort_records(@repository.in_season(date.month, type: types).all)
+      records = @repository.in_season(date.month, type: types).all
+      # 🔴 **日付を持つ原稿は季節の母集合に入れない**（#17・Codex の P2）。⚠⚠ **日付と
+      # 季節は同居できる**ので、⚠ **入れると「その日に出す原稿」が月内の別の日にも出る**
+      # （**上書きのつもりで書いた原稿が、前日に先出しされる**形になる）。
+      return sort_records(records.reject {|record| record[:month] || record[:year]})
     end
 
     # 🔴 **日付も季節も持たない原稿**（段 5）。⚠ **通年で回してよい type だけ。**

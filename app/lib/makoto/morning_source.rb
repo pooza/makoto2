@@ -63,22 +63,32 @@ module Makoto
     # ⚠ **原稿が 1 件も無ければ nil**（＝その日は投稿しない）。
     def call(time = nil)
       time ||= Time.now
-      record = find(time)
+      record, dated = choose(time)
       # ⚠ **`list` は `MessageSelector#call` を通らない**ので、⚠⚠ **予約された日に
       # 引けなかったときの警告はここから呼ぶ**（→ `ScriptRotation` と同じ・#114）。
       return @selector.report_silence(time) unless record
-      return [greeting_for(record), record[:body]].compact.join("\n")
+      return [greeting_for(record, dated), record[:body]].compact.join("\n")
     end
 
     # その日の原稿。⚠ **`Date` をそのまま渡せる**（下見が時刻を作るとホストの TZ で
     # 1 日ずれる → `MessageSelector#find`）。
     def find(time = nil)
+      return choose(time).first
+    end
+
+    private
+
+    # その日の原稿と、**日付で勝った段かどうか**。
+    #
+    # 🔴 **「日付で勝ったか」を持ち回る**（#17・Codex の P2）。⚠⚠ **定型挨拶を付けるか
+    # どうかは type だけでは決まらない** — ⚠ **日替わりの type にも日付を付けられる**
+    # （`makoto message add --type=morning --date=...`）ので、**type だけで見ると挨拶が
+    # 二重になる。**
+    def choose(time)
       # ⚠ **日付の規則は `MessageSelector` が正本**（`/scheduler/timezone` で出す）。
       # ⚠⚠ **ここで `Date.today` を使わない** — **UTC のホストでは日付が 1 日ずれる。**
       return pick(@selector.date_of(time || Time.now), avoid_previous: true)
     end
-
-    private
 
     # その日の原稿。
     #
@@ -92,19 +102,18 @@ module Makoto
     # 1 つ進む。**
     def pick(date, avoid_previous:)
       # ⚠ **日付が特定された原稿・記念日が勝った日は、その段の中で順に送る。**
-      # 🔴 **どちらの段で勝ったかは段に聞く**（実体の照合で推測しない → Codex の P2。
-      # **日付を持つ原稿が季節も持っていると、季節の母集合にも現れる**）。
+      # 🔴 **どちらの段で勝ったかは段に聞く**（実体の照合で推測しない → Codex の P2）。
       dated = @selector.dated_list(date)
-      return rotate(dated, date) if dated.any?
+      return [rotate(dated, date), true] if dated.any?
       chosen = seasonal(date)
-      return rotate(@selector.undated_list(date), date) unless chosen
-      return chosen unless avoid_previous && repeats?(chosen, date)
-      return rotate(@selector.undated_list(date), date) || chosen
+      return [rotate(@selector.undated_list(date), date), false] unless chosen
+      return [chosen, false] unless avoid_previous && repeats?(chosen, date)
+      return [rotate(@selector.undated_list(date), date) || chosen, false]
     end
 
     # ⚠ **前日と同じ原稿か。**⚠⚠ **遡るのは 1 日だけ**（前日は逃がす前で見る）。
     def repeats?(record, date)
-      previous = pick(date - 1, avoid_previous: false)
+      previous = pick(date - 1, avoid_previous: false).first
       return false unless previous
       return previous[:id] == record[:id]
     end
@@ -134,8 +143,11 @@ module Makoto
       return records[date.jd % records.size]
     end
 
-    def greeting_for(record)
+    # ⚠ **定型挨拶を付けるか。**🔴 **日付で勝った原稿には付けない**（**挨拶は原稿が
+    # 自分で持つ**）。⚠⚠ **type だけで見ない** — **日替わりの type にも日付は付けられる。**
+    def greeting_for(record, dated)
       return nil if @greeting.blank?
+      return nil if dated
       return nil unless @greeted_types.include?(record[:type].to_s)
       return @greeting
     end
