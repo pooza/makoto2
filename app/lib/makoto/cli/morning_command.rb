@@ -31,18 +31,50 @@ module Makoto
       exit 1
     end
 
-    desc 'slot', '枠と、使ってよい原稿の type を表示する'
+    desc 'slot', '枠・原稿の本数・一周の長さを表示する'
     def slot
       job = morning.job
       puts "#{job.name}: #{job.timetable}"
       puts "原稿の type: #{morning.types.join(', ')}（定型挨拶が付くのは #{morning.type}）"
       puts "実況の窓: #{CommentaryWindow.new}"
+      dump_cycle
+      dump_seasons
     rescue Ginseng::ConfigError => e
       warn error_message(e)
+      exit 1
+    rescue Sequel::DatabaseError => e
+      warn "読めませんでした。先に `rake migration:run` を実行してください: #{error_message(e)}"
       exit 1
     end
 
     private
+
+    # 🔴 **一周の長さ ＝ 通年の原稿の本数**（#223 / #225）。⚠⚠ **同じ挨拶が戻るまでの
+    # 間隔は、その半分を下回らない**（前半・後半を保ったまま組み替えるため）。
+    # ⚠ **「少しずつ増やす」の進捗がここに出る**（目標は一周 365 日超）。
+    def dump_cycle
+      size = morning.selector.undated_list(today).size
+      if size.zero?
+        puts '通年の原稿: 0 本（⚠ 日替わりの原稿がありません）'
+        return nil
+      end
+      puts "通年の原稿: #{size} 本（一周 #{size} 日・同じ原稿が戻るのは最短 #{size / 2} 日）"
+      return nil
+    end
+
+    # ⚠ **月別の件数。**🔴 **穴がそのまま見える**（実データは 5 月が 1 本）。
+    def dump_seasons
+      counts = (1..12).map do |month|
+        morning.selector.season_list(Date.new(today.year, month, 1)).size
+      end
+      puts "季節の原稿: #{counts.sum} 本（延べ）"
+      puts counts.map.with_index(1) {|size, month| "#{month}月#{size}"}.join(' ')
+      return nil
+    end
+
+    def today
+      return MessageSelector.new([morning.type]).date_of(Time.now)
+    end
 
     # ⚠ テストが差し替えるためだけに 1 つに寄せてある（→ `LiveCommand#setlist`）。
     def morning
