@@ -82,6 +82,23 @@ module Makoto
       return records.order(Sequel.asc(:slug, nulls: :last), Sequel[:message][:id]).all
     end
 
+    # 🔴 **日付で勝つ段の原稿**（段 1 / 2 / 3）。⚠ **無ければ空配列。**
+    #
+    # ⚠⚠ **「その日の原稿があるか」を、実体の照合ではなく段そのもので答える口**
+    # （#17・Codex の P2）。🔴 **日付を持つ原稿が季節も持っていると、`season_list` に
+    # も現れる** — ⚠ **どちらの段で勝ったかを実体から推測すると、日付の上書きを
+    # 季節と読み違える**（`ScriptImporter` は日付と季節の同居を通す）。
+    def dated_list(time = nil)
+      date = date_of(time || Time.now)
+      dated_steps(date).each do |step|
+        records = step.call
+        next unless records
+        next unless records.first
+        return sort_records(records.all)
+      end
+      return []
+    end
+
     # 🔴 **その月の季節の原稿**（段 4）。⚠ **通年で回してよい type だけ**（記念日に予約
     # された type は入らない）。⚠ **無ければ空配列。**
     #
@@ -157,7 +174,7 @@ module Makoto
     # 11/4 に始まる（→ `Timetable`）。⚠ `Date` はそのまま（変換すると逆にずれる）。
     #
     # ⚠⚠ **public なのは、原稿を引く側が同じ規則で「その日」を出すため**
-    # （→ `MorningSource#index`）。**呼ぶ側に `Date.today` を書かせない。**
+    # （→ `MorningSource`）。**呼ぶ側に `Date.today` を書かせない。**
     def date_of(value)
       return value if value.is_a?(Date) && !value.is_a?(DateTime)
       zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
@@ -184,12 +201,18 @@ module Makoto
     # 呼び出し側が、記念日以外の日に無関係な原稿を出す）。
     def steps(date)
       rotating = rotating_types
+      return dated_steps(date) + [
+        -> {rotating.empty? ? nil : @repository.in_season(date.month, type: rotating)},
+        -> {rotating.empty? ? nil : @repository.undated(type: rotating)},
+      ]
+    end
+
+    # 日付で勝つ段（1 / 2 / 3）。⚠ **`dated_list` と `steps` で 2 つに割らない。**
+    def dated_steps(date)
       return [
         -> {@repository.on_date(date.month, date.day, type: @types, year: date.year)},
         -> {@repository.on_date(date.month, date.day, type: @types)},
         -> {anniversary(date)},
-        -> {rotating.empty? ? nil : @repository.in_season(date.month, type: rotating)},
-        -> {rotating.empty? ? nil : @repository.undated(type: rotating)},
       ]
     end
 

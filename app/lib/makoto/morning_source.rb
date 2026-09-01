@@ -91,10 +91,11 @@ module Makoto
     # 通年なので、翌日とぶつからない** — **翌日が季節なら母集合が違い、通年なら位置が
     # 1 つ進む。**
     def pick(date, avoid_previous:)
-      records = @selector.list(date)
-      return nil if records.empty?
       # ⚠ **日付が特定された原稿・記念日が勝った日は、その段の中で順に送る。**
-      return rotate(records, date) unless rotating?(records, date)
+      # 🔴 **どちらの段で勝ったかは段に聞く**（実体の照合で推測しない → Codex の P2。
+      # **日付を持つ原稿が季節も持っていると、季節の母集合にも現れる**）。
+      dated = @selector.dated_list(date)
+      return rotate(dated, date) if dated.any?
       chosen = seasonal(date)
       return rotate(@selector.undated_list(date), date) unless chosen
       return chosen unless avoid_previous && repeats?(chosen, date)
@@ -126,13 +127,6 @@ module Makoto
       index = ((date.day - 1) * size) / days
       return nil if date.day > 1 && (((date.day - 2) * size) / days) == index
       return index
-    end
-
-    # ⚠ **通年で回す段が勝った日か**（＝ 季節・無指定）。🔴 **type ではなく実体で見る**
-    # （記念日の type は通年の母集合に入らない → `MessageSelector#rotating_types`）。
-    def rotating?(records, date)
-      ids = (@selector.season_list(date) + @selector.undated_list(date)).map {|record| record[:id]}
-      return ids.include?(records.first[:id])
     end
 
     def rotate(records, date)

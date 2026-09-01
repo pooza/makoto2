@@ -169,6 +169,16 @@ module Makoto
       assert_equal(morning.source.call(jst(9, 3)), morning.source.call(Date.new(2026, 9, 3)))
     end
 
+    # 🔴 **日付を持つ原稿が季節も持っていても、その日は日付の側が勝つ**（Codex の P2）。
+    # ⚠⚠ **`ScriptImporter` は日付と季節の同居を通す**ので、⚠ **どちらの段で勝ったかを
+    # 実体の照合で推測すると、上書きを季節と読み違える。**
+    def test_a_dated_message_with_seasons_still_wins_on_its_date
+      @repository.create(type: 'holiday', body: '七夕の原稿', month: 7, day: 7, seasons: [7])
+      3.times {|i| add("日替わりの原稿 #{i}")}
+
+      assert_equal('七夕の原稿', morning.source.call(jst(7, 7)))
+    end
+
     # ⚠⚠ **原稿が 1 件も無ければ投稿しない。**⚠ 枠は毎日あるので、ここが nil を
     # 返さないと例外か空投稿になる。
     def test_silent_without_any_message
