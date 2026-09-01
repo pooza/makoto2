@@ -71,6 +71,21 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {window.cover?(sunday(8, 45))}
     end
 
+    # 🔴 **夏時間の切り替え日だけを見ると検査が素通りする**（Codex の P2）。
+    # ⚠⚠ **切り替え日には「存在しない時刻」がある**ので、⚠ **枠の時刻が切り替わりの
+    # 瞬間へ寄せられて窓から外れる**（→ `Timetable#instant`）。⚠ **2 週ぶん見る。**
+    #
+    # ⚠ `America/New_York` の 2027-03-14 が春の切り替え（02:00 → 03:00）。
+    def test_conflict_looks_past_a_dst_transition
+      config['/scheduler/timezone'] = 'America/New_York'
+      config['/commentary/start'] = '02:30'
+      config['/commentary/finish'] = '03:00'
+
+      Timecop.freeze(Time.utc(2027, 3, 9, 12, 0)) do
+        assert_true(window.conflict?(timetable('02:45', '02:46')))
+      end
+    end
+
     def test_to_s
       assert_equal('Sunday 08:30-09:00 (Asia/Tokyo)', window.to_s)
     end

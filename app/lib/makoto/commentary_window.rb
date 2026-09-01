@@ -38,9 +38,18 @@ module Makoto
     end
 
     # その枠が窓に落ちるか。⚠⚠ **枠は日付を区別しない**ので、⚠ **該当する曜日を
-    # 1 日ぶん作って当てれば足りる**（→ `Timetable#times`）。
+    # 作って当てる**（→ `Timetable#times`）。
+    #
+    # 🔴 **見るのは 2 週ぶん**（Codex の P2）。⚠⚠ **夏時間の切り替え日には「存在しない
+    # 時刻」がある**ので、⚠ **切り替え日だけを見ると、枠の時刻が切り替わりの瞬間へ
+    # 寄せられて窓から外れ、検査が黙って素通りする**（`Timetable#instant`）。
+    # ⚠ **切り替えが 2 週続くことは無い**ので、2 つ見れば必ず普通の週が入る。
+    # ⚠⚠ **`Asia/Tokyo` に夏時間は無いが、タイムゾーンの正本を設定に持つ以上ここで守る**
+    # （`Timetable` と同じ判断）。
     def conflict?(timetable)
-      return timetable.times(sample_date).any? {|time| cover?(time)}
+      return sample_dates.any? do |date|
+        timetable.times(date).any? {|time| cover?(time)}
+      end
     end
 
     def to_s
@@ -54,10 +63,11 @@ module Makoto
 
     private
 
-    # 直近の該当曜日。⚠ **今日がその曜日なら今日**（過去の日付を作らない）。
-    def sample_date
+    # 直近の該当曜日と、その翌週。⚠ **今日がその曜日なら今日**（過去の日付を作らない）。
+    def sample_dates
       today = timezone.utc_to_local(Time.now.getutc).to_date
-      return today + ((weekday - today.wday) % 7)
+      first = today + ((weekday - today.wday) % 7)
+      return [first, first + 7]
     end
 
     def start_minutes
