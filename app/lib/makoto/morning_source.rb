@@ -75,15 +75,38 @@ module Makoto
     def find(time = nil)
       # ⚠ **日付の規則は `MessageSelector` が正本**（`/scheduler/timezone` で出す）。
       # ⚠⚠ **ここで `Date.today` を使わない** — **UTC のホストでは日付が 1 日ずれる。**
-      date = @selector.date_of(time || Time.now)
+      return pick(@selector.date_of(time || Time.now), avoid_previous: true)
+    end
+
+    private
+
+    # その日の原稿。
+    #
+    # 🔴 **季節の原稿は複数の月を持てる**（`{"season": [6,7,8]}`）ので、⚠⚠ **月末の
+    # 最後の 1 件と翌月の最初の 1 件が同じ原稿になりうる**（Codex の P2）。⚠ **その日
+    # だけ通年へ逃がす。**
+    #
+    # ⚠⚠ **前日は「逃がす前」の選択で見る**（`avoid_previous: false`）。⚠ **前日の
+    # 実際の出力まで追うと、ずれが翌日以降へ伝播する**（→ 上の節）。🔴 **逃がした先は
+    # 通年なので、翌日とぶつからない** — **翌日が季節なら母集合が違い、通年なら位置が
+    # 1 つ進む。**
+    def pick(date, avoid_previous:)
       records = @selector.list(date)
       return nil if records.empty?
       # ⚠ **日付が特定された原稿・記念日が勝った日は、その段の中で順に送る。**
       return rotate(records, date) unless rotating?(records, date)
-      return seasonal(date) || rotate(@selector.undated_list(date), date)
+      chosen = seasonal(date)
+      return rotate(@selector.undated_list(date), date) unless chosen
+      return chosen unless avoid_previous && repeats?(chosen, date)
+      return rotate(@selector.undated_list(date), date) || chosen
     end
 
-    private
+    # ⚠ **前日と同じ原稿か。**⚠⚠ **遡るのは 1 日だけ**（前日は逃がす前で見る）。
+    def repeats?(record, date)
+      previous = pick(date - 1, avoid_previous: false)
+      return false unless previous
+      return previous[:id] == record[:id]
+    end
 
     # その日が「季節の原稿の日」なら、その原稿。⚠ **違えば nil。**
     #

@@ -207,18 +207,33 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {morning.job}
     end
 
-    # 🔴 **日曜 08:30〜09:00 の実況の窓に枠を置かない**（#172）。⚠⚠ **人が話している
-    # ところへ定型文を差し込むのは上書き。**
-    def test_rejects_a_slot_in_the_commentary_window
-      config['/morning/timetable/start'] = '08:45'
-      config['/morning/timetable/finish'] = '08:46'
-
-      assert_raise(Ginseng::ConfigError) {morning.job}
-    end
-
-    # ⚠ 既定の 07:00 は窓の外（＝そのまま起動できる）。
+    # ⚠ 既定の 07:00 は窓の外（＝そのまま起動できる）。🔴 **窓の検査そのものは
+    # `Scheduler#register`**（自分から出す投稿すべてに掛ける → test/scheduler.rb）。
     def test_the_default_slot_is_accepted
       assert_equal(Morning::NAME, morning.job.name)
+    end
+
+    # 🔴 **月をまたいで同じ季節の原稿が 2 日続かない**（Codex の P2）。⚠⚠ **季節の原稿は
+    # 複数の月を持てる**（`{"season": [6,7,8]}`）ので、⚠ **6 月の最後の 1 件と 7 月の
+    # 最初の 1 件が同じ原稿になりうる。**
+    def test_a_shared_seasonal_message_does_not_span_the_boundary
+      seed_a_shared_season
+      source = morning.source
+      bodies = (29..31).map {|day| source.call(jst(10, day))} +
+        (1..3).map {|day| source.call(jst(11, day))}
+
+      assert_equal([], bodies.each_cons(2).select {|a, b| a == b})
+    end
+
+    # 10 月の最後の日を季節の日にし（16 件 > 31 日の半分）、その 1 件だけ 11 月にも
+    # 属させる。⚠ 並びは id 順なので、10 月では最後・11 月では最初になる
+    # （⚠⚠ **逃がしが無いと 10/31 と 11/1 が同じ原稿になる**）。
+    def seed_a_shared_season
+      3.times {|i| add("日替わりの原稿 #{i}")}
+      15.times {|i| @repository.create(type: 'morning', body: "10 月の原稿 #{i}", seasons: [10])}
+      @repository.create(type: 'morning', body: '10 月と 11 月の原稿', seasons: [10, 11])
+      3.times {|i| @repository.create(type: 'morning', body: "11 月の原稿 #{i}", seasons: [11])}
+      return nil
     end
   end
 end

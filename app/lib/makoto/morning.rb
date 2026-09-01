@@ -13,7 +13,8 @@ module Makoto
   # ので、**枠の側は日付を知らない**（→ `Announcement` と同じ形）。
   #
   # 🔴 **07:00 は旧アカウントの実測。**⚠ **予告の 10:00 とも、日曜の実況の窓
-  # （08:30〜09:00）とも重ならない**（→ `CommentaryWindow`）。
+  # （08:30〜09:00）とも重ならない** — ⚠⚠ **窓の検査は `Scheduler#register`**
+  # （**自分から出す投稿すべてに掛ける** → `CommentaryWindow`）。
   class Morning
     include Package
 
@@ -79,7 +80,6 @@ module Makoto
 
     def validate
       validate_type
-      validate_window
       return nil
     end
 
@@ -94,15 +94,6 @@ module Makoto
       return unless selector.reserved_types.include?(type)
       raise Ginseng::ConfigError,
         "morning: type '#{type}' must not be registered in /message/anniversary"
-    end
-
-    # 🔴 **日曜 08:30〜09:00 の実況の窓に枠を置かない**（#172）。⚠⚠ **人が話している
-    # ところへ定型文を差し込むのは上書き**（→ `CommentaryWindow`）。
-    def validate_window
-      window = CommentaryWindow.new
-      return unless window.conflict?(timetable)
-      raise Ginseng::ConfigError,
-        "morning: timetable (#{timetable}) must avoid the commentary window (#{window})"
     end
   end
 end
