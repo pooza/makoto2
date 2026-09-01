@@ -216,6 +216,29 @@ module Makoto
       assert_not_equal(first, second)
     end
 
+    # 🔴 **箱をまたいでも同じ並びになること**（#223・Codex の P2）。⚠⚠ **`id` は DB ごとの
+    # 採番**なので、**`bydo` と `rubicon` で同じ原稿が別の番号になる** — ⚠ **`id` で並べると
+    # ステージングの下見が本番を言い当てられない。**🔴 **鍵は `slug`。**
+    def test_the_order_does_not_depend_on_the_database_ids
+      dbs = Array.new(2) {Database.migrate(Database.connect('sqlite:/'))}
+      repositories = dbs.map {|db| MessageRepository.new(db)}
+      # ⚠ 片方だけ先に別の行を入れて、id をずらす。
+      repositories.last.create(type: 'test_note', body: 'id をずらすための行')
+      ['morning-a', 'morning-b', 'morning-c', 'morning-d'].each do |slug|
+        repositories.each {|repository| repository.upsert(slug: slug, type: 'morning', body: slug)}
+      end
+      dates = (0...8).map {|offset| Date.new(2026, 9, 1) + offset}
+      orders = repositories.map do |repository|
+        dates.map {|date| morning(repository).source.find(date)[:slug]}
+      end
+
+      # ⚠ 組み替わっていること（`slug` の順のままなら鍵が効いていない）。
+      assert_not_equal(orders.first, orders.first.sort)
+      assert_equal(orders.first, orders.last)
+    ensure
+      dbs&.each(&:disconnect)
+    end
+
     # ⚠⚠ **状態を持たない。**⚠ **落ちて戻ってきても、下見をやり直しても同じ日は
     # 同じ原稿**（→ docs/CLAUDE.md「進行位置は状態ではなく計算で出す」）。
     def test_the_same_day_gives_the_same_message
