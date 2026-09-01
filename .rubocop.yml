@@ -28,7 +28,7 @@ AllCops:
     - '**/Gemfile'
     - '**/Rakefile'
     - '**/config.ru'
-    - bin/makoto     # ここから下が MAKOTO 固有
+    - bin/makoto # ここから下が MAKOTO 固有
   TargetRubyVersion: 3.4
 Sequel:
   Exclude:
