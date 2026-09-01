@@ -238,26 +238,27 @@ module Makoto
       assert_empty(messages)
     end
 
-    # 🔴 **通年で回してよい原稿すべて**（段 4 ＋ 段 5）。⚠ **朝挨拶の順送りが「段の中に
-    # 1 件しか無い」で止まらないようにするための口**（#17・Codex の P1）。
-    def test_rotating_list_merges_the_season_and_the_undated
-      records = selector.rotating_list(jst(6, 15))
-
-      assert_equal([2001, 2002], records.map {|record| record[:id]}.sort)
+    # 🔴 **段の勝ち負けとは別に母集合そのものを取る口**（#17・Codex の P1 / P2）。
+    # ⚠ 朝挨拶は**通年（段 5）を動かない母集合として順送りし、季節（段 4）を月の中へ
+    # 散らす**ので、⚠⚠ **段が勝ったかどうかとは無関係に両方を見る。**
+    def test_season_list_returns_the_seasonal_messages_of_the_month
+      assert_equal([2002], selector.season_list(jst(6, 15)).map {|record| record[:id]})
+      assert_equal([], selector.season_list(jst(9, 15)))
     end
 
-    # ⚠ 季節の原稿が無い月は無指定だけ。
-    def test_rotating_list_without_a_seasonal_message
-      records = selector.rotating_list(jst(9, 15))
+    # ⚠⚠ **この母集合は月替わりでも変わらない**（順送りが月替わりで破れない理由）。
+    def test_undated_list_does_not_change_by_the_month
+      ids = [jst(6, 15), jst(9, 15), jst(12, 31)].map do |time|
+        selector.undated_list(time).map {|record| record[:id]}
+      end
 
-      assert_equal([2001], records.map {|record| record[:id]})
+      assert_equal([[2001]] * 3, ids)
     end
 
     # ⚠⚠ **記念日に予約された type は通年では回さない**（→ `rotating_types`）。
-    def test_rotating_list_excludes_the_reserved_types
-      records = selector(['live_open']).rotating_list(jst(9, 15))
-
-      assert_equal([], records)
+    def test_the_rotating_lists_exclude_the_reserved_types
+      assert_equal([], selector(['live_open']).season_list(jst(9, 15)))
+      assert_equal([], selector(['live_open']).undated_list(jst(9, 15)))
     end
   end
 end

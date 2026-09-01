@@ -82,25 +82,27 @@ module Makoto
       return records.order(Sequel.asc(:slug, nulls: :last), Sequel[:message][:id]).all
     end
 
-    # 🔴 **通年で回してよい原稿すべて**（**段 4 ＋ 段 5 を 1 つにしたもの**）。⚠ **無ければ空配列。**
+    # 🔴 **その月の季節の原稿**（段 4）。⚠ **通年で回してよい type だけ**（記念日に予約
+    # された type は入らない）。⚠ **無ければ空配列。**
     #
-    # ⚠⚠ **段の中に 1 件しか無いと、日替わりの順送りが毎日同じ原稿を返す**（#17 の完了条件
-    # 「連日で同じ挨拶が続かない」が破れる。Codex の P1）。🔴 **実データの 5 月は季節の
-    # 原稿が 1 件しかない**（→ [makoto-legacy.md](../../../docs/makoto-legacy.md)）ので、
-    # ⚠ **そのままだと 5 月は 31 日とも同じ挨拶になる。**
-    #
-    # ⚠ **段の順そのものは変えない**（#12 の「具体的なものが勝つ」）。**広げるかどうかは
-    # 呼ぶ側の判断**で、⚠⚠ **日付が特定された原稿（段 1 / 2）と記念日（段 3）は広げない**
-    # （→ `MorningSource#candidates`）。
-    #
-    # ⚠ **並びは `list` と同じ**（`slug` → `id`）。**順送りの位置が安定する。**
-    def rotating_list(time = nil)
-      date = date_of(time || Time.now)
+    # ⚠⚠ **段の勝ち負けとは別に、母集合そのものを取りたい呼び出し側のための口**
+    # （→ `MorningSource`）。🔴 **段の順そのものは変えていない**（#12）。
+    def season_list(time = nil)
       types = rotating_types
       return [] if types.empty?
-      records = @repository.in_season(date.month, type: types).all
-      records += @repository.undated(type: types).all
-      return records.sort_by {|record| [record[:slug] ? 0 : 1, record[:slug].to_s, record[:id]]}
+      date = date_of(time || Time.now)
+      return sort_records(@repository.in_season(date.month, type: types).all)
+    end
+
+    # 🔴 **日付も季節も持たない原稿**（段 5）。⚠ **通年で回してよい type だけ。**
+    #
+    # ⚠⚠ **この母集合は月替わりでも変わらない。**⚠ **日替わりの順送りが月替わりで
+    # 破れないのはこのため**（→ `MorningSource`・Codex の P2）。
+    def undated_list(time = nil)
+      types = rotating_types
+      return [] if types.empty?
+      # ⚠ 日付は使わないが、呼ぶ側の書き方を `season_list` と揃えるために受ける。
+      return sort_records(@repository.undated(type: types).all)
     end
 
     # その日に使える記念日の type。⚠ 許可リストに無いものは外す。設定に無い日なら空。
@@ -200,6 +202,11 @@ module Makoto
     # 記念日として予約された type を除いた、通年で回してよい type。
     def rotating_types
       return @types - reserved_types
+    end
+
+    # ⚠ **並びは `list` と同じ**（`slug` → `id`）。**順送りの位置が安定する。**
+    def sort_records(records)
+      return records.sort_by {|record| [record[:slug] ? 0 : 1, record[:slug].to_s, record[:id]]}
     end
 
     def pick(records)

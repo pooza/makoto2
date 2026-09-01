@@ -93,10 +93,11 @@ module Makoto
       assert_equal(4, bodies.uniq.size)
     end
 
-    # 🔴 **段の中に 1 件しか無いと、順送りでも毎日同じ原稿になる**（Codex の P1）。
-    # ⚠⚠ **実データの 5 月は季節の原稿が 1 件**（→ docs/makoto-legacy.md）なので、
-    # ⚠ **広げないと 5 月は 31 日とも同じ挨拶**になる。
+    # 🔴 **季節の原稿が 1 件しかない月でも、毎日それにならない**（Codex の P1）。
+    # ⚠⚠ **実データの 5 月がこの形**（1 件・→ docs/makoto-legacy.md）で、⚠ **段 4 が
+    # 毎日勝つ形だと 31 日とも同じ挨拶**になる。🔴 **季節は月の中に散らす。**
     def test_a_single_seasonal_message_does_not_repeat
+      3.times {|i| add("日替わりの原稿 #{i}")}
       # フィクスチャの 6〜8 月は季節の原稿が 1 件だけ。
       bodies = (1..8).map {|day| morning.source.call(jst(6, day))}
 
@@ -104,19 +105,53 @@ module Makoto
       assert_operator(bodies.uniq.size, :>, 1)
     end
 
-    # ⚠ **広げても季節の原稿は出る**（母集合に混ぜるだけで、落とすわけではない）。
-    def test_the_seasonal_message_is_still_used
-      bodies = (1..8).map {|day| morning.source.call(jst(6, day))}
+    # ⚠ **散らしても季節の原稿は出る**（⚠⚠ **1 件なら月に 1 日**）。
+    def test_the_seasonal_message_is_used_once_a_month
+      3.times {|i| add("日替わりの原稿 #{i}")}
+      bodies = (1..30).map {|day| morning.source.call(jst(6, day))}
 
-      assert_true(bodies.any? {|body| body.include?('テスト用の原稿（夏の朝挨拶）')})
+      assert_equal(1, bodies.count {|body| body.include?('テスト用の原稿（夏の朝挨拶）')})
     end
 
-    # ⚠⚠ **日付が特定された原稿は広げない。**🔴 **その日はその原稿が出るのが上書きの
-    # 意味**（#12）。⚠ 元日は毎年同じ原稿でよい。
-    def test_the_dated_message_is_not_widened
+    # ⚠⚠ **日付が特定された原稿は散らしの対象にしない。**🔴 **その日はその原稿が出るのが
+    # 上書きの意味**（#12）。⚠ 元日は毎年同じ原稿でよい。
+    def test_the_dated_message_is_not_rotated_away
       bodies = [2026, 2027].map {|year| morning.source.call(jst(1, 1, year: year))}
 
       assert_equal(['テスト用の原稿（元日）'] * 2, bodies)
+    end
+
+    # 🔴 **母集合が入れ替わる日（月替わり）でも続かないこと**（Codex の P2）。
+    # ⚠⚠ **日ごとに違う大きさの配列を独立に割る**ので、⚠ **前日と同じ位置に落ちうる。**
+    #
+    # ⚠ **季節の原稿を月ごとに違う件数で置いて、1 年ぶん通す**（月替わりが 12 回入る）。
+    def test_no_repeat_across_the_month_boundaries
+      seed_a_year
+      source = morning.source
+      bodies = (0...365).map {|offset| source.call(Date.new(2026, 1, 1) + offset)}
+
+      assert_equal([], bodies.each_cons(2).select {|a, b| a == b})
+    end
+
+    # 月ごとの季節の原稿の件数。🔴 **この並びは、ずらしを入れないと 11/30 → 12/1 で
+    # 同じ原稿が 2 日続く**（探索で見つけた形）。⚠⚠ **11 月は 1 件なので通年まで
+    # 広がり（5 件）、12 月は季節が無いので通年だけ（4 件）** — ⚠ **大きさの違う配列を
+    # 独立に割った結果、同じ原稿に落ちる。**
+    SEASONS = {
+      1 => 2, 2 => 2, 3 => 1, 4 => 4, 5 => 1, 6 => 1,
+      7 => 0, 8 => 4, 9 => 4, 10 => 1, 11 => 1, 12 => 0
+    }.freeze
+
+    # 通年 4 件 ＋ 月ごとの季節。⚠ 実データの偏り（5 月がほぼ空）を小さく写したもの。
+    # ⚠⚠ **通年を先に作る**（`rotating_list` の並びは `slug` → `id` ＝ 作った順）。
+    def seed_a_year
+      4.times {|i| @repository.create(type: 'morning', body: "通年の原稿 #{i}")}
+      SEASONS.each do |month, size|
+        size.times do |i|
+          @repository.create(type: 'morning', body: "#{month} 月の原稿 #{i}", seasons: [month])
+        end
+      end
+      return nil
     end
 
     # ⚠⚠ **状態を持たない。**⚠ **落ちて戻ってきても、下見をやり直しても同じ日は
