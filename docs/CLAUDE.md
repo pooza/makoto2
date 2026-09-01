@@ -386,6 +386,9 @@ map $http_x_mulukhiya $mulukhiya_backend {
 - **`makoto message export --type=morning,holiday --out=PATH`** で取り込みの形式（YAML）に書き出す。⚠ **`slug` は id 順の通し番号**（`morning-0001`）で、⚠⚠ **既に `slug` を持つ行はその `slug` を保つ**（付け直すと取り込みで二重になる）。🔴 **書き出し先はファイルだけ** — **本文を public のこのリポジトリや標準出力に出す経路を作らない**
 - **`/message/scripted_types`**（既定 `morning` / `holiday`）に書いた type は、🔴 **`makoto corpus import` が旧ダンプから取り込まず、`slug` を持たない行を消す。**⚠ **`slug` を持つ行には触らない**（移送済みの原稿と、あとから足した原稿がそこに居る）
 - ⚠⚠ **`MessageRepository::DROPPED_TYPES` に足してはいけない。**🔴 **あちらは「書ける口も塞ぐ」定数**（`birthday` 用）なので、**足すと `makoto message import` まで塞がって、移した先から入れられなくなる**
+- 🔴 **ただし `makoto message add` の側は塞ぐ**（Codex の P1）。⚠⚠ **直接足すと `slug` を持たない行ができ、次の `corpus import` が「旧ダンプ由来」と見なして黙って消す** — ⚠ **消す側と足せる側を同じ設定で揃える**（`birthday` で同じことをした → PR #207）。**`upsert`（取り込み）は必ず `slug` を持つので塞がない**
+- 🔴 **`--prune` は「そのファイルに出てくる `type`」だけを消す**（Codex の P1）。⚠⚠ **絞らないと、`morning.yaml` を `--prune` で取り込んだだけでライブの台本 61 本が消える。**⚠ **1 つの `type` は 1 つのファイルに収めること** — **分けると、片方を `--prune` で入れたときにもう片方が消える**
+- ⚠ **書き出す `slug` は既にある `slug` と衝突させない**（Codex の P2）。⚠⚠ **持っている行の `slug` を保つので、通し番号が同じ値を作りうる** — **同じ `slug` が 2 つあるファイルは取り込みが弾く**
 
 🔴 **手順は「書き出す → 取り込む → `corpus import`」の順。**⚠⚠ **`/message/scripted_types` を先に効かせると、書き出す前に原稿が消える。**
 

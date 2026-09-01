@@ -130,9 +130,26 @@ module Makoto
     def export_records(types, excluded)
       rows = types.flat_map {|type| repository.by_type(type.strip).order(:id).all}
       rows = rows.reject {|row| excluded.include?(row[:id])}
-      prefix = options[:prefix]
-      rows.map.with_index(1) do |row, index|
-        export_record(row, prefix || row[:type], index)
+      # 🔴 **既にある `slug` と衝突させない**（#224・Codex の P2）。⚠⚠ **持っている行の
+      # `slug` を保つ**ので、⚠ **通し番号がその `slug` と同じ値を作りうる** —
+      # **同じ `slug` が 2 つあるファイルは取り込みが弾く**（`ScriptImporter#read`）。
+      taken = repository.by_slug.select_map(:slug).to_set
+      counter = 0
+      rows.map do |row|
+        slug = row[:slug]
+        slug, counter = next_slug(options[:prefix] || row[:type], taken, counter) unless slug
+        export_record(row, slug)
+      end
+    end
+
+    # 空いている通し番号の `slug`。⚠ **番号は id 順に振る**（並びが安定する）。
+    def next_slug(prefix, taken, counter)
+      loop do
+        counter += 1
+        slug = '%{prefix}-%<counter>04d' % {prefix: prefix, counter: counter}
+        next if taken.include?(slug)
+        taken.add(slug)
+        return [slug, counter]
       end
     end
 
@@ -142,9 +159,9 @@ module Makoto
       return @repository
     end
 
-    def export_record(row, prefix, index)
+    def export_record(row, slug)
       record = {
-        'slug' => row[:slug] || ('%{prefix}-%<index>04d' % {prefix: prefix, index: index}),
+        'slug' => slug,
         'type' => row[:type],
       }
       record['date'] = export_date(row) if row[:month]
@@ -178,7 +195,10 @@ module Makoto
         # 内訳: #{types.join(' / ')}
         #
         # ⚠ 取り込みは `makoto message import`（`slug` が upsert の鍵）。
-        # ⚠⚠ 消すときは行を消して `--prune` を付ける（slug を持つ行だけが消える）。
+        # ⚠⚠ 消すときは行を消して `--prune` を付ける。消えるのは、このファイルに
+        #   出てくる type の、slug を持つ行だけ。
+        # 🔴 したがって、この type の原稿を別のファイルにも分けて置かないこと
+        #   （片方を --prune で取り込むと、もう片方が消える）。
       HEADER
     end
 

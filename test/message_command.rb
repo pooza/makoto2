@@ -78,6 +78,23 @@ module Makoto
       assert_include(export.map {|r| r['slug']}, 'morning-taken')
     end
 
+    # 🔴 **既にある `slug` と衝突しない**（#224・Codex の P2）。⚠⚠ **持っている行の
+    # `slug` を保つので、通し番号がその `slug` と同じ値を作りうる** — ⚠ **同じ `slug` が
+    # 2 つあるファイルは取り込みが弾く。**
+    def test_export_does_not_collide_with_a_kept_slug
+      corpus_db[:message].insert(slug: 'morning-0001', type: 'morning', body: '既に台本由来')
+      records = export
+
+      assert_equal(records.map {|r| r['slug']}.uniq, records.map {|r| r['slug']})
+      # ⚠ 取り込み直せること（重複があるとここで落ちる）。
+      db = Database.migrate(Database.connect('sqlite:/'))
+      ScriptImporter.new(repository: MessageRepository.new(db)).import(path)
+
+      assert_equal(records.size, db[:message].count)
+    ensure
+      db&.disconnect
+    end
+
     # ⚠ **落とすと決めた原稿は書き出さない**（#60 の古びた 10 件がこの経路で落ちる）。
     def test_export_excludes_the_given_ids
       records = export(exclude: '2001')
