@@ -53,6 +53,9 @@ module Makoto
     desc 'message SUBCOMMAND', '原稿の追加・確認・下見'
     subcommand 'message', MessageCommand
 
+    desc 'morning SUBCOMMAND', '朝挨拶の下見（#17）'
+    subcommand 'morning', MorningCommand
+
     desc 'live SUBCOMMAND', 'バースデーライブの並び・枠の下見'
     subcommand 'live', LiveCommand
 

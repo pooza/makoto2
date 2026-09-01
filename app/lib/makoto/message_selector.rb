@@ -129,6 +129,18 @@ module Makoto
       return nil
     end
 
+    # 🔴 **日付の規則の正本**（#183 の「同じ規則が 3 箇所で揃っていない」を増やさない）。
+    # ⚠ **ホストの TZ ではなく `/scheduler/timezone` で日付を出す。**ライブは JST の
+    # 11/4 に始まる（→ `Timetable`）。⚠ `Date` はそのまま（変換すると逆にずれる）。
+    #
+    # ⚠⚠ **public なのは、原稿を引く側が同じ規則で「その日」を出すため**
+    # （→ `MorningSource#index`）。**呼ぶ側に `Date.today` を書かせない。**
+    def date_of(value)
+      return value if value.is_a?(Date) && !value.is_a?(DateTime)
+      zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
+      return zone.utc_to_local(value.getutc).to_date
+    end
+
     private
 
     # 段の上から順に見て、最初に当たった段を返す。⚠ **同じ段の中は乱択**
@@ -172,14 +184,6 @@ module Makoto
     def pick(records)
       ids = records.select_map(Sequel[:message][:id])
       return records.first(Sequel[:message][:id] => ids[@random.rand(ids.size)])
-    end
-
-    # ⚠ ホストの TZ ではなく `/scheduler/timezone` で日付を出す。ライブは JST の
-    # 11/4 に始まる（→ `Timetable`）。⚠ `Date` はそのまま（変換すると逆にずれる）。
-    def date_of(value)
-      return value if value.is_a?(Date) && !value.is_a?(DateTime)
-      zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
-      return zone.utc_to_local(value.getutc).to_date
     end
   end
 end

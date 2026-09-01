@@ -36,6 +36,23 @@ properties:
   # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
   announcement:
     $ref: '#/definitions/scripted_slot'
+  # 日曜の実況の窓（#172）。⚠ 欠けると「自分から出す投稿」の枠を検査できない。
+  # ⚠⚠ 検査できないことは、窓に差し込んでしまうまで分からない。
+  commentary:
+    type: object
+    properties:
+      weekday:
+        type: integer
+        minimum: 0
+        maximum: 6
+      start:
+        type: string
+      finish:
+        type: string
+    required:
+      - weekday
+      - start
+      - finish
   corpus:
     type: object
     properties:
@@ -246,6 +263,26 @@ properties:
   # 監視の口（#84）。⚠⚠ 3 つとも required にする — optional_config で既定値に
   # 逃がすと、⚠ 設定を消しただけで監視の口が静かに閉じる（#77 の裏返し。
   # /scheduler/posting/failure_limit と同じ判断）。
+  # 朝挨拶（#17）。⚠ 欠けると PostingJob が作れず、毎朝 1 本も出ない。
+  # ⚠⚠ type は /message/anniversary に登録しないこと（登録すると通年の段から外れる）。
+  morning:
+    type: object
+    properties:
+      type:
+        type: string
+      # ⚠ 日付が特定された日に上書きする type。挨拶は原稿が自分で持つ。
+      dated_types:
+        type: array
+        items:
+          type: string
+      # ⚠ 定型挨拶。空なら付けない（省略可）。
+      greeting:
+        type: string
+      timetable:
+        $ref: '#/definitions/timetable'
+    required:
+      - type
+      - timetable
   monitor:
     type: object
     properties:
@@ -361,6 +398,7 @@ properties:
       - weight
 required:
   - announcement
+  - commentary
   - corpus
   - cure_api
   - environment
@@ -372,6 +410,7 @@ required:
   - mastodon
   - message
   - monitor
+  - morning
   - package
   - scheduler
   - sqlite3
