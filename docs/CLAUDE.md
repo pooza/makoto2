@@ -585,9 +585,13 @@ bydo の DB からの書き出し 243 件 ＝ 正本 233 件 ＋ 古びた 10 �
 ```sh
 git push origin <Aのマージ元SHA>:refs/heads/<消したbase>   # base を一時的に戻す
 gh pr reopen <B>
-gh api -X PATCH repos/<owner>/<repo>/pulls/<B> -f base=main  # ⚠ gh pr edit --base は Projects classic の GraphQL エラーで通らない
+gh api -X PATCH repos/<owner>/<repo>/pulls/<B> -f base=<Aが向いていたbase>
 git push origin --delete <消したbase>                       # 一時ブランチを片付ける
 ```
+
+🔴 **付け替え先は「A が向いていた base」であって `main` ではない**（Codex の P2）。⚠⚠ **`-f base=...` は静的な文字列をそのまま送るだけで、PR から推測はしない** — ⚠ **makoto2 で `main` と書くと、上の「`--base develop` を必ず指定する」で防いでいる事故そのもの**（未リリースの `develop` の変更が黙って `main` に乗る）を、復旧手順の側から起こす。**makoto2 なら `develop`、`makoto-scripts` なら `main`。**
+
+⚠ **`gh pr edit --base` は Projects classic の GraphQL エラーで通らない**ので `gh api -X PATCH` を使う。
 
 ⚠⚠ **base を付け替えたら、B は A のマージコミットの上に rebase しないと衝突する**（**A に後から積んだ修正コミットがあるとそこで当たる**）。🔴 **そもそも stacked にしないほうが安い** — **どうしても順序が要るなら、A をマージしてから B を作る。**
 
