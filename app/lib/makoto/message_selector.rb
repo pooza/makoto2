@@ -17,6 +17,10 @@ module Makoto
   # ⚠⚠ **記念日の type は、その日以外では選ばれない。**除かないと、日付を持たない
   # 原稿が段 5 に混ざって**毎日出る**（🔴 旧 `birthday` 19 件で実際にそうなる形だった）。
   #
+  # 🔴 **落とした type（`MessageRepository::DROPPED_TYPES`）は許可リストに入れさせない**
+  # （#212・→ `validate_dropped_types!`）。⚠⚠ **予約から外すと段 4 / 5 に落ちる**ので、
+  # ⚠ **歯止めを許可リスト 1 枚にしない。**
+  #
   # ⚠ **`type` の許可リストは呼ぶ側が決める。**朝挨拶（#17）は
   # `%w[holiday morning]`、ライブ（#13）は台本の type だけ、という形。
   # ⚠ 許可リストに無い type は、日付が一致しても選ばれない（ライブの台本を朝挨拶が
@@ -36,6 +40,7 @@ module Makoto
     def initialize(types, repository: nil, random: Random.new)
       @types = Array(types).map(&:to_s)
       raise Ginseng::ConfigError, 'message: no type given' if @types.empty?
+      validate_dropped_types!
       @repository = repository || MessageRepository.new
       @random = random
     end
@@ -224,6 +229,27 @@ module Makoto
       types = anniversary_types_on(date)
       return nil if types.empty?
       return @repository.undated(type: types)
+    end
+
+    # 🔴 **落とした type は許可リストに入れさせない**（#212）。
+    #
+    # ⚠⚠ **記念日の予約から外した瞬間、その type は段 4 / 5 の候補になる**
+    # （`rotating_types = @types - reserved_types`）。⚠ **#60 で `birthday` を落とした
+    # とき、消す側（`CorpusImporter#purge_messages`）と守る側（`/message/anniversary`）が
+    # 同じ版で揃わず、🔴 **歯止めが許可リスト 1 枚だけになっていた** — ⚠⚠ **許可リストに
+    # 足した日に、日付を持たない行が毎日出る。**
+    #
+    # 🔴 **黙って外さずに落とす。**⚠⚠ **外すと「入れたのに出ない」になり、次に読む人が
+    # 理由を追えない** — **検査そのものが黙って無効になる形**（→ docs/CLAUDE.md）。
+    # ⚠ **書ける口（`MessageRepository#validate_type!`）が例外を投げるのと対称。**
+    #
+    # ⚠ **正本は `MessageRepository::DROPPED_TYPES`。**⚠⚠ **規則を写さず参照する**
+    # （同じ規則が複数箇所に散ると揃わなくなる → #183）。
+    def validate_dropped_types!
+      dropped = @types & MessageRepository::DROPPED_TYPES
+      return if dropped.empty?
+      raise Ginseng::ConfigError,
+        "message: type '#{dropped.join(', ')}' は使わない（#60 で落とした）"
     end
 
     # 記念日として予約された type を除いた、通年で回してよい type。

@@ -95,7 +95,10 @@ module Makoto
       end
       puts "[#{message[:id]}] #{message[:type]} #{format_date(message)}"
       puts message[:body]
-    rescue Ginseng::ValidateError => e
+    # ⚠ **`ConfigError` も拾う**（#212）。🔴 **`--types` は人の入力だが、`MessageSelector`
+    # は許可リストが設定から来る場合と区別できない**ので `ConfigError` を投げる。
+    # ⚠⚠ **拾わないと下見がバックトレースで落ちる**（**空の `--types=` でも同じだった**）。
+    rescue Ginseng::ValidateError, Ginseng::ConfigError => e
       warn error_message(e)
       exit 1
     end

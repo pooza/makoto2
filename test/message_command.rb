@@ -38,6 +38,21 @@ module Makoto
       return YAML.safe_load_file(path, permitted_classes: [Date])
     end
 
+    # ⚠ **`preview` は落ちるときに `warn` して `exit 1` する。**画面のほうを見たいので、
+    # 終了そのものは捨てる。
+    def capture_warning
+      original = $stderr
+      $stderr = StringIO.new
+      begin
+        yield
+      rescue SystemExit
+        nil
+      end
+      return $stderr.string
+    ensure
+      $stderr = original
+    end
+
     # 🔴 **取り込みの形式で出る**（`slug` / `type` / `body`）。⚠ **`slug` は id 順の通し番号。**
     def test_export_writes_the_import_format
       records = export
@@ -103,6 +118,21 @@ module Makoto
     end
 
     # ⚠⚠ **既にあるファイルを黙って上書きしない。**
+    # 🔴 **落とした type を `--types` に渡したら、1 行で落ちる**（#212）。
+    #
+    # ⚠⚠ **`MessageSelector` が投げるのは `ConfigError`**（`ValidateError` ではない）。
+    # ⚠ **拾い漏らすと下見がバックトレースを吐く** — **空の `--types=` でも同じだった。**
+    def test_preview_rejects_a_dropped_type
+      MessageRepository::DROPPED_TYPES.each do |type|
+        assert_include(capture_warning {command(types: type).preview}, type)
+      end
+    end
+
+    # ⚠ **type を 1 つも渡さない場合も同じ経路**（`ConfigError`）。
+    def test_preview_rejects_an_empty_type_list
+      assert_include(capture_warning {command(types: '').preview}, 'no type given')
+    end
+
     def test_export_refuses_to_overwrite
       File.write(path, '先にあるもの')
 

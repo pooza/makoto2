@@ -274,5 +274,20 @@ module Makoto
       assert_equal([], selector(['live_open']).season_list(jst(9, 15)))
       assert_equal([], selector(['live_open']).undated_list(jst(9, 15)))
     end
+
+    # 🔴 **落とした type は許可リストに入れさせない**（#212）。⚠⚠ **黙って外すのでは
+    # なく落とす** — **「入れたのに出ない」だと理由が追えない。**
+    def test_a_dropped_type_is_rejected
+      MessageRepository::DROPPED_TYPES.each do |type|
+        assert_raise(Ginseng::ConfigError) {selector([type])}
+        assert_raise(Ginseng::ConfigError) {selector(MORNING_TYPES + [type])}
+      end
+    end
+
+    # ⚠ **落とした type が 1 つも入っていなければ通る**（上の検査が広すぎないこと）。
+    def test_the_allowed_types_are_untouched
+      assert_equal(MORNING_TYPES, selector.types)
+      assert_equal(['live_open'], selector(['live_open']).types)
+    end
   end
 end
