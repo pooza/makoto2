@@ -1483,17 +1483,26 @@ bin/makoto corpus stat     # 件数を確認する
 
    🔴 **`.git/HEAD` の mtime も使えない**（Codex の P2・3 巡目）。⚠⚠ **`bydo` / `rubicon` はブランチを追うチェックアウト**なので、**`.git/HEAD` の中身は `ref: refs/heads/develop` のまま動かない** — ⚠ **早送りの `pull` は `refs/heads/develop` を書き替えるだけで、`.git/HEAD` に触らない。**🔴 **使うのは reflog**（`git reflog` は HEAD が動いたときだけ書かれる）。
 
+   🔴 **reflog の先頭は取らない。SHA が実際に変わった最新の行を取る**（Codex の P2・4 巡目）。⚠⚠ **同じリビジョンでレシピを当て直しても `checkout: moving from develop to develop` が積まれる**ので、⚠ **先頭を見ると「置き換えたばかり」に見え、動いている常駐を古いと誤診する。**
+
    ```sh
-   ssh bydo 'sudo -u deploy -i bash -lc "cd ~/repos/makoto2 && git reflog --date=iso -n 1"; \
-     systemctl show makoto2 -p ActiveEnterTimestamp'
+   # ⚠ ssh 越しの二重クォートを避けるため、スクリプトは標準入力から渡す
+   ssh bydo 'sudo -u deploy -i bash -s' <<'SH'
+   cd ~/repos/makoto2
+   git reflog --date=iso -n 30 --format='%gd|%H|%gs' \
+     | awk -F'|' 'NR>1 { if ($2 != prev) { print prevline; exit } } { prev=$2; prevline=$0 }'
+   SH
+   ssh bydo 'systemctl show makoto2 -p ActiveEnterTimestamp'
    # 🔴 reflog のほうが新しい ＝ 動いているのは置いてあるものより古い
    ```
 
-   ⚠ **実測（`bydo`）はこう出た** — 🔴 **`chubo` のデプロイは `Reset to origin/develop` ＋ `checkout` なので reflog に 2 行ずつ残る:**
+   ⚠ **実測（`bydo`・2026-09-04）** — 🔴 **`chubo` のデプロイは `Reset` ＋ 同じブランチへの `checkout` を踏むので、1 回の適用で 2 行残る:**
 
    ```
-   02dbd34 HEAD@{2026-09-03 18:13:46 +0900}: checkout: moving from develop to develop
-   ea5e464 HEAD@{2026-09-03 17:21:09 +0900}: branch: Reset to origin/develop
+   02dbd34 HEAD@{2026-09-03 18:13:46}: checkout: moving from develop to develop  ← ⚠ SHA が動いていない
+   02dbd34 HEAD@{2026-09-03 18:13:46}: branch: Reset to origin/develop           ← 🔴 ここが実際の移動
+   ea5e464 HEAD@{2026-09-03 17:21:09}: checkout: moving from develop to develop
+   ea5e464 HEAD@{2026-09-03 17:21:09}: branch: Reset to origin/develop
                        ActiveEnterTimestamp = 17:21:54  ← 常駐はこちらで起きたきり
    ```
 
