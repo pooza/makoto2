@@ -1788,8 +1788,12 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
     🔴 **催促の前に状態を取り直す**（2026-09-04 に踏んだ）。⚠⚠ **同期の走査と、それに基づいて外へ何かを書く時点は同じではない** — ⚠ **走査は数十分かかることがあり、その間に相手は動く。**🔴 **「open だと分かっている」ではなく「いま open か」を見る。**
 
     ```sh
-    gh pr view 624 --repo pooza/ginseng-core --json state,mergedAt --jq '.state'
+    # ⚠ 催促する相手そのものを引く（リポジトリも番号も置き換える）
+    gh pr view "$n" --repo "pooza/$r" --json state,mergedAt --jq '"\(.state) \(.mergedAt // "-")"'
+    gh issue view "$n" --repo "pooza/$r" --json state,closedAt --jq '"\(.state) \(.closedAt // "-")"'
     ```
+
+    ⚠⚠ **番号を焼き込まない**（Codex の P2）。🔴 **`gh pr view` の位置引数はその PR だけを指す**ので、**別の件を催促するときに `MERGED` と出て、催促する相手を見ないまま歯止めが外れる。**⚠ **Issue を催促することもある**ので、**`gh issue view` の形も並べておく。**
 
     ⚠ **上流には訂正を入れた。**⚠⚠ **`ginseng-*` はマージしない**（2026-09-04・オーナー）— 🔴 **専任のエージェントがある以上、こちらは催促までで止める。**⚠ **cure-api とは分界が違う**（→ 手順 9.・**あちらは makoto2 のセッションで面倒を見る**）。
 
