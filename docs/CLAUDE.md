@@ -1489,8 +1489,10 @@ bin/makoto corpus stat     # 件数を確認する
    # ⚠ ssh 越しの二重クォートを避けるため、スクリプトは標準入力から渡す
    ssh bydo 'sudo -u deploy -i bash -s' <<'SH'
    cd ~/repos/makoto2
-   git reflog --date=iso -n 30 --format='%gd|%H|%gs' \
-     | awk -F'|' 'NR>1 { if ($2 != prev) { print prevline; exit } } { prev=$2; prevline=$0 }'
+   git reflog --date=iso --format='%gd|%H|%gs' \
+     | awk -F'|' 'NR>1 && $2 != prev { print prevline; found=1; exit }
+                  { prev=$2; prevline=$0 }
+                  END { if (!found) print "⚠ SHA が変わった行が reflog に無い（判定できない）" }'
    SH
    ssh bydo 'systemctl show makoto2 -p ActiveEnterTimestamp'
    # 🔴 reflog のほうが新しい ＝ 動いているのは置いてあるものより古い
@@ -1507,6 +1509,8 @@ bin/makoto corpus stat     # 件数を確認する
    ```
 
    ⚠⚠ **17:21 の適用は再起動まで行ったが、18:13 の適用は作業木だけ進めて常駐を起こし直していない。**
+
+   🔴 **本数で切らない**（Codex の P2・5 巡目）。⚠⚠ **`-n 30` を付けていたが、1 回の適用で SHA の動かない行が 2 行積まれる**ので、⚠ **同じリビジョンで 15 回当て直すと窓の外へ押し出され、パイプが黙って何も出さない。**🔴 **黙った結果を「ずれていない」と読むと、古い常駐を見逃す** — **上限を外し、見つからなければそう言わせる**（`END` の行）。⚠ **reflog は既定 90 日で期限切れになる**ので、**全部歩いても大きくならない。**
 
    ⚠ **これでも間に合わせ**（🔴 **reflog は「置き換えた時刻」であって「常駐が読み込んだ SHA」ではない**）。⚠⚠ **確実な形は「起動時に読み込んだ SHA を常駐自身がログに出す」** — ⚠ **いまの heartbeat は `version` しか持たない**（→ **#242**）。
 
