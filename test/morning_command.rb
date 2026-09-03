@@ -82,6 +82,23 @@ module Makoto
       assert_include(output, CommentaryWindow.new.to_s)
     end
 
+    # 🔴 **一周の長さ ＝ 通年の原稿の本数**（#223 / #225）。⚠⚠ **「少しずつ増やす」の
+    # 進捗がここに出る**（目標は一周 365 日超）。
+    def test_slot_prints_the_cycle
+      5.times {|i| @repository.create(type: 'morning', body: "日替わりの原稿 #{i}")}
+      output = capture {command.slot}
+
+      # ⚠ フィクスチャの通年 1 本 ＋ 5 本。
+      assert_include(output, '通年の原稿: 6 本（一周 6 日・同じ原稿が戻るのは最短 3 日）')
+    end
+
+    # ⚠ **季節の月別。**🔴 **穴がそのまま見える**（実データは 5 月が 1 本）。
+    def test_slot_prints_the_seasonal_months
+      output = capture {command.slot}
+
+      assert_include(output, '6月1 7月1 8月1')
+    end
+
     # ⚠⚠ **ホストの TZ で「今日」を出さない。**⚠ **UTC のホストでは日付が 1 日ずれる**
     # （→ `ScriptImporter.parse_preview_date` の注記）。
     def test_start_date_defaults_to_today_in_the_configured_timezone

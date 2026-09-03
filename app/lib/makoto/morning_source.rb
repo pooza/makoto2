@@ -48,6 +48,22 @@ module Makoto
   #   **日付が特定された原稿（段 1 / 2）と記念日（段 3）が勝つ日は、そのまま出す**
   # - ⚠ **季節の原稿の割合は「その月に何件あるか」で決まる。**実データは 82 / 237 で、
   #   **12 月は 25 件（31 日中 25 日）・5 月は 1 件**（→ makoto-legacy.md）
+  #
+  # ## 🔴 並びは周回ごとに組み替える（#223）
+  #
+  # ⚠⚠ **順送りのままだと「周期で同じ順番」になる。**⚠ **通年は本数ぶんの日数ごとに
+  # 同じ順、季節は毎年まったく同じ日に同じ原稿**（実測: 2026 と 2027 で季節の日
+  # **183 / 183 日が一致**）。🔴 **オーナーの判断（2026-09-01）: それはイヤ。**
+  #
+  # - 🔴 **通年は「前半・後半」を保ったまま、その中を毎周シャッフルする。**
+  #   ⚠⚠ **完全に組み替えると、周の境目で最短 2 日まで落ちる**（前周の最後と次周の
+  #   最初）。⚠ **半分に留めると、同じ原稿が戻るのは最短でも本数の半分の日数**
+  # - **季節は年で組み替える**（⚠ 毎年違う日に違う原稿）
+  # - 🔴 **並べ替えの鍵はハッシュ**（`SHA256("周回番号-slug")`）。⚠⚠ **`Array#shuffle` は
+  #   Ruby の実装・版に依存しうる** — **下見と実機がずれる余地を作らない**
+  # - ⚠⚠ **鍵は `slug`。**🔴 **`id` は DB ごとの採番なので、箱をまたぐと別の並びになる**
+  #   （#224 で正本がファイルへ移り、`slug` はどの箱でも同じ）
+  # - ⚠ **状態は持たない**（周回番号も年も日付から出る）
   class MorningSource
     include Package
 
@@ -106,7 +122,7 @@ module Makoto
       dated = @selector.dated_list(date)
       return [rotate(dated, date), true] if dated.any?
       chosen = seasonal(date)
-      return [rotate(@selector.undated_list(date), date), false] unless chosen
+      return [rotate_undated(@selector.undated_list(date), date), false] unless chosen
       return [chosen, false] unless avoid_previous && repeats?(chosen, date)
       return [escape(chosen, date), false]
     end
@@ -120,7 +136,7 @@ module Makoto
     def escape(chosen, date)
       records = @selector.undated_list(date)
       return chosen if records.size < 2
-      return rotate(records, date)
+      return rotate_undated(records, date)
     end
 
     # ⚠ **前日と同じ原稿か。**⚠⚠ **遡るのは 1 日だけ**（前日は逃がす前で見る）。
@@ -139,7 +155,9 @@ module Makoto
       return nil if records.empty?
       index = slot_of(date, records.size)
       return nil unless index
-      return records[index]
+      # 🔴 **年で組み替える**（#223）。⚠⚠ **年を混ぜないと、毎年まったく同じ日に
+      # 同じ原稿が出る**（実測 183 / 183 日一致）。
+      return shuffle(records, "#{date.year}-#{date.month}")[index]
     end
 
     # その日が何番目の季節の原稿の日か。⚠ **番号が変わる日だけがその原稿の日。**
@@ -150,9 +168,46 @@ module Makoto
       return index
     end
 
+    # 日付から 1 本引く。⚠ **段 1 / 2 / 3（日付で勝つ段）はそのまま順送り**
+    # （⚠⚠ **その日に出る原稿は決まっている**ので、組み替える意味が無い）。
     def rotate(records, date)
       return nil if records.empty?
       return records[date.jd % records.size]
+    end
+
+    # 通年の 1 本。🔴 **周回ごとに、前半・後半を保ったまま中を組み替える**（#223）。
+    #
+    # ⚠⚠ **前半の原稿は次の周も前半に来る**ので、⚠ **同じ原稿が戻るのは最短でも
+    # 「本数 − 前半の大きさ + 1」日**（＝ おおむね本数の半分）。🔴 **完全に組み替えると
+    # 周の境目で最短 2 日まで落ちる。**
+    def rotate_undated(records, date)
+      return nil if records.empty?
+      return records.first if records.size == 1
+      cycle = date.jd / records.size
+      return cycle_order(records, cycle)[date.jd % records.size]
+    end
+
+    # その周の並び。⚠ **前半どうし・後半どうしの中だけで組み替える。**
+    def cycle_order(records, cycle)
+      half = records.size / 2
+      return shuffle(records[0, half], cycle) + shuffle(records[half..], cycle)
+    end
+
+    # 🔴 **決定的に組み替える。**⚠⚠ **`Array#shuffle(random:)` は Ruby の実装・版に
+    # 依存しうる**ので使わない（**下見と実機がずれる余地を作らない**）。
+    def shuffle(records, seed)
+      return records.sort_by {|record| Digest::SHA256.hexdigest("#{seed}-#{key_of(record)}")}
+    end
+
+    # 🔴 **箱をまたいで同じ値になる鍵**（#223・Codex の P2）。⚠⚠ **`id` は DB ごとの
+    # 採番**なので、**`bydo` と `rubicon` で同じ原稿が別の番号になる** — ⚠ **`id` で
+    # 並べると、ステージングの下見が本番の並びを言い当てられない。**
+    # ⚠ **`slug` はファイル（`makoto-scripts`）が持つ鍵なので、どの箱でも同じ**（#224）。
+    def key_of(record)
+      return record[:slug] if record[:slug]
+      # ⚠ **移送前の行はまだ `slug` を持たない**（→ #224）。⚠⚠ **その箱の中では
+      # 決定的**だが、**箱をまたいでは揃わない。**
+      return "id:#{record[:id]}"
     end
 
     # ⚠ **定型挨拶を付けるか。**🔴 **日付で勝った原稿には付けない**（**挨拶は原稿が
