@@ -4,6 +4,7 @@ module Makoto
       return {
         name: '〜SONGBIRD〜',
         artist_name: 'キュアソード/剣崎真琴(CV:宮本佳那子)',
+        collection_name: 'テストアルバム A',
         url: 'https://example.test/track/1',
       }.merge(options)
     end
@@ -86,6 +87,30 @@ module Makoto
 
     def test_blank_prefix_is_ignored
       assert_equal(TrackPresenter.new(track).to_s, TrackPresenter.new(track, prefix: '').to_s)
+    end
+
+    # 🔴 **劇伴はアルバム／シリーズを主役にする**（#16）。⚠⚠ **`bgm` の名義は作曲家**
+    # なので、⚠ **どのシリーズの曲かはアルバム名にしか書いていない。**
+    # ⚠ **出すかどうかは呼ぶ側が決める**（ライブは出さない → 冒頭の表）。
+    def test_the_album_is_placed_before_the_credit
+      text = TrackPresenter.new(track, collection: true).to_s
+
+      assert_equal(['♪ 〜SONGBIRD〜', 'テストアルバム A', 'キュアソード/剣崎真琴(CV:宮本佳那子)',
+        'https://example.test/track/1'], text.lines.map(&:chomp))
+    end
+
+    def test_the_album_is_hidden_by_default
+      assert_not_include(TrackPresenter.new(track).to_s, 'テストアルバム A')
+      assert_nil(TrackPresenter.new(track).collection)
+      assert_equal('テストアルバム A', TrackPresenter.new(track, collection: true).collection)
+    end
+
+    # ⚠⚠ **列は NULL 可。**🔴 **空でも行を作らない**（空行が挟まると本文が崩れる）。
+    def test_a_missing_album_does_not_leave_a_blank_line
+      text = TrackPresenter.new(track(collection_name: nil), collection: true).to_s
+
+      assert_equal(3, text.lines.size)
+      assert_not_include(text, "\n\n")
     end
   end
 end

@@ -288,6 +288,23 @@ properties:
     required:
       - type
       - timetable
+  # 日常の曲紹介（#16）。⚠ 欠けると PostingJob が作れず、毎日の曲紹介が出ない。
+  # ⚠ この type は /message/anniversary に登録しないこと（登録すると前置きが引けない）。
+  song:
+    type: object
+    properties:
+      type:
+        type: string
+      # ⚠ アルバム名を主役にする kind（省略可・空ならどの kind でも出さない）。
+      collection_kinds:
+        type: array
+        items:
+          type: string
+      timetable:
+        $ref: '#/definitions/timetable'
+    required:
+      - type
+      - timetable
   monitor:
     type: object
     properties:
@@ -418,5 +435,6 @@ required:
   - morning
   - package
   - scheduler
+  - song
   - sqlite3
   - track

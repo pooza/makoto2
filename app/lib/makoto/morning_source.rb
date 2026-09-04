@@ -59,10 +59,9 @@ module Makoto
   #   ⚠⚠ **完全に組み替えると、周の境目で最短 2 日まで落ちる**（前周の最後と次周の
   #   最初）。⚠ **半分に留めると、同じ原稿が戻るのは最短でも本数の半分の日数**
   # - **季節は年で組み替える**（⚠ 毎年違う日に違う原稿）
-  # - 🔴 **並べ替えの鍵はハッシュ**（`SHA256("周回番号-slug")`）。⚠⚠ **`Array#shuffle` は
-  #   Ruby の実装・版に依存しうる** — **下見と実機がずれる余地を作らない**
-  # - ⚠⚠ **鍵は `slug`。**🔴 **`id` は DB ごとの採番なので、箱をまたぐと別の並びになる**
-  #   （#224 で正本がファイルへ移り、`slug` はどの箱でも同じ）
+  # - 🔴 **並べ替えの規則そのものは [`Rotation`](rotation.rb)**（ハッシュで決定的に
+  #   組み替える・鍵は `slug`）。⚠⚠ **曲紹介（#16）も同じものを使う** — **同じ規則を
+  #   2 箇所に書かない**（→ #183）
   # - ⚠ **状態は持たない**（周回番号も年も日付から出る）
   class MorningSource
     include Package
@@ -157,7 +156,7 @@ module Makoto
       return nil unless index
       # 🔴 **年で組み替える**（#223）。⚠⚠ **年を混ぜないと、毎年まったく同じ日に
       # 同じ原稿が出る**（実測 183 / 183 日一致）。
-      return shuffle(records, "#{date.year}-#{date.month}")[index]
+      return Rotation.shuffle(records, "#{date.year}-#{date.month}")[index]
     end
 
     # その日が何番目の季節の原稿の日か。⚠ **番号が変わる日だけがその原稿の日。**
@@ -180,34 +179,12 @@ module Makoto
     # ⚠⚠ **前半の原稿は次の周も前半に来る**ので、⚠ **同じ原稿が戻るのは最短でも
     # 「本数 − 前半の大きさ + 1」日**（＝ おおむね本数の半分）。🔴 **完全に組み替えると
     # 周の境目で最短 2 日まで落ちる。**
+    #
+    # 🔴 **通し番号はユリウス通日そのもの**（**1 日 1 本の枠**）。⚠⚠ **規則そのものは
+    # `Rotation`** — ⚠ **曲紹介（#16）は「通日 × 本数 ＋ 枠の番号」で同じ規則を通す**
+    # （**同じ規則を 2 箇所に書かない** → #183）。
     def rotate_undated(records, date)
-      return nil if records.empty?
-      return records.first if records.size == 1
-      cycle = date.jd / records.size
-      return cycle_order(records, cycle)[date.jd % records.size]
-    end
-
-    # その周の並び。⚠ **前半どうし・後半どうしの中だけで組み替える。**
-    def cycle_order(records, cycle)
-      half = records.size / 2
-      return shuffle(records[0, half], cycle) + shuffle(records[half..], cycle)
-    end
-
-    # 🔴 **決定的に組み替える。**⚠⚠ **`Array#shuffle(random:)` は Ruby の実装・版に
-    # 依存しうる**ので使わない（**下見と実機がずれる余地を作らない**）。
-    def shuffle(records, seed)
-      return records.sort_by {|record| Digest::SHA256.hexdigest("#{seed}-#{key_of(record)}")}
-    end
-
-    # 🔴 **箱をまたいで同じ値になる鍵**（#223・Codex の P2）。⚠⚠ **`id` は DB ごとの
-    # 採番**なので、**`bydo` と `rubicon` で同じ原稿が別の番号になる** — ⚠ **`id` で
-    # 並べると、ステージングの下見が本番の並びを言い当てられない。**
-    # ⚠ **`slug` はファイル（`makoto-scripts`）が持つ鍵なので、どの箱でも同じ**（#224）。
-    def key_of(record)
-      return record[:slug] if record[:slug]
-      # ⚠ **移送前の行はまだ `slug` を持たない**（→ #224）。⚠⚠ **その箱の中では
-      # 決定的**だが、**箱をまたいでは揃わない。**
-      return "id:#{record[:id]}"
+      return Rotation.pick(records, date.jd)
     end
 
     # ⚠ **定型挨拶を付けるか。**🔴 **日付で勝った原稿には付けない**（**挨拶は原稿が
