@@ -40,6 +40,24 @@ module Makoto
   # （→ [CLAUDE.md](../../../docs/CLAUDE.md)「進行位置は状態ではなく計算で出す」）。
   #
   # ⚠ **組み替えの規則そのものは [`Rotation`](rotation.rb)**（朝挨拶と共通・#183）。
+  #
+  # ## 🔴 ライブが持つ日は黙る（Codex の P1）
+  #
+  # ⚠⚠ **枠が正面からぶつかる。**🔴 **11/4 は `live-open` が 12:00・`live-close` が
+  # 20:00**、**11/3 は `live-eve` が 12:00〜20:00 の毎正時**で、⚠ **こちらの
+  # 12:00 / 20:00 と同じ時刻。**
+  #
+  # ⚠ **時刻をずらしても解けない** — 🔴 **ライブの進行そのものが 12:02〜20:00 の
+  # 8 時間**なので、**その日に日常の曲を出せば、どの時刻でもライブに割り込む。**
+  # ⚠⚠ **「今日の 1 曲」がバースデーライブの開幕に混ざるのが、いちばん壊れた形。**
+  #
+  # 🔴 **`LiveProgram#live_day?` と対称。**⚠ **あちらは「ライブ当日だけ曲を出す」**、
+  # ⚠⚠ **こちらは「ライブ当日だけ曲を出さない」** — **どちらも日付の正本は
+  # `/message/anniversary`**（**枠は日付を知らない** → #14 / #12）。
+  #
+  # ⚠ **黙る日は設定が決める**（`/song/quiet_types`）。🔴 **その type が実際に
+  # 予約されていなければ起動時に落とす**（→ `Song#validate_quiet_types`）— ⚠⚠ **綴りを
+  # 間違えると検査が黙って無効になり、ライブの真ん中に日常の曲が出る。**
   class SongSource
     include Package
 
@@ -47,24 +65,40 @@ module Makoto
     # @param selector [MessageSelector] 前置きを引く口
     # @param timetable [Timetable] 枠。⚠ **通し番号を出すのに要る**
     # @param collection_kinds [Array<String>] アルバム名を出す kind（→ `TrackPresenter`）
-    def initialize(lottery:, selector:, timetable:, collection_kinds: nil)
+    # @param quiet_types [Array<String>] ⚠ **この type が予約されている日は黙る**
+    def initialize(lottery:, selector:, timetable:, collection_kinds: nil, quiet_types: nil)
       @lottery = lottery
       @selector = selector
       @timetable = timetable
       @collection_kinds = Array(collection_kinds).map(&:to_s)
+      @quiet_types = Array(quiet_types).map(&:to_s)
     end
 
-    # ⚠ **枠の外・曲が引けなければ nil**（＝その枠は投稿しない）。
+    # ⚠ **枠の外・ライブが持つ日・曲が引けなければ nil**（＝その枠は投稿しない）。
     def call(time = nil)
       time ||= Time.now
       return nil unless @timetable.index_at(time)
+      return nil if quiet?(time)
       track = draw
       return nil unless track
       return presenter(track, prefix(time)).to_s
     end
 
+    # 🔴 **その日は他の枠が持っているか**（＝日常の曲紹介は黙る）。
+    #
+    # ⚠ **`anniversary_types_on` ではなく `reserved_types_on` を見る** — ⚠⚠ **前者は
+    # 自分の許可リスト（`song`）で絞るので、ライブの予約が 1 件も見えない。**
+    def quiet?(time = nil)
+      return false if @quiet_types.empty?
+      date = @selector.date_of(time || Time.now)
+      return @selector.reserved_types_on(date).intersect?(@quiet_types)
+    end
+
     # その枠の前置き。⚠ **原稿が 1 件も無ければ nil**（＝曲だけを出す）。
     # ⚠⚠ **`Date` をそのまま渡せない** — **枠の番号は時刻からしか出ない。**
+    #
+    # ⚠ **黙る日かどうかはここでは見ない**（🔴 **`call` の門はひとつ**）。⚠⚠ **下見は
+    # 「黙る日」と「前置きが引けない日」を別々に見せる**（→ `SongCommand`）。
     def prefix(time = nil)
       time ||= Time.now
       index = @timetable.index_at(time)

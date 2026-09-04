@@ -171,6 +171,48 @@ module Makoto
       end
     end
 
+    # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **11/4 は `live-open` が 12:00・
+    # `live-close` が 20:00 で、こちらとまったく同じ時刻。**
+    def test_silent_on_the_live_day
+      assert_true(source.quiet?(jst(11, 4, 12)))
+      assert_nil(source.call(jst(11, 4, 12)))
+      assert_nil(source.call(jst(11, 4, 20)))
+    end
+
+    # ⚠ **前日増量の日も黙る**（`live-eve` が 12:00〜20:00 の毎正時）。
+    def test_silent_on_the_eve
+      assert_true(source.quiet?(jst(11, 3, 12)))
+      assert_nil(source.call(jst(11, 3, 20)))
+    end
+
+    # ⚠⚠ **予告だけの日は黙らない**（10:00 なのでぶつからない）。
+    # 🔴 **黙るのは「ライブの枠が持つ日」だけ**で、記念日そのものではない。
+    def test_the_announcement_days_still_get_a_song
+      assert_false(source.quiet?(jst(11, 1, 12)))
+      assert_not_nil(source.call(jst(11, 1, 12)))
+      assert_not_nil(source.call(jst(11, 2, 20)))
+    end
+
+    def test_an_ordinary_day_is_not_quiet
+      assert_false(source.quiet?(jst(9, 1, 12)))
+    end
+
+    # ⚠ **設定を消せば黙らない**（#77）。⚠⚠ **ただし消すのは枠をライブの外へ
+    # 動かしたときだけ。**
+    def test_the_gate_can_be_emptied
+      config['/song/quiet_types'] = []
+
+      assert_false(song.source.quiet?(jst(11, 4, 12)))
+      assert_not_nil(song.source.call(jst(11, 4, 12)))
+    end
+
+    # 🔴 **見るのは許可リストで絞る前の予約**（⚠⚠ **`anniversary_types_on` は自分の
+    # type（`song`）で絞るので、ライブの予約が 1 件も見えない**）。
+    def test_the_gate_looks_past_its_own_allow_list
+      assert_empty(song.selector.anniversary_types_on(Date.new(2026, 11, 4)))
+      assert_include(song.selector.reserved_types_on(Date.new(2026, 11, 4)), 'live_open')
+    end
+
     # 🔴 **引けなかったら黙らない。**⚠⚠ **`PostingJob` は「本文が無い」を `debug` に
     # しか書かない** — ⚠ **曲紹介は毎日出る枠**なので、**引けないのは異常。**
     def test_an_empty_pool_leaves_a_warning

@@ -69,6 +69,17 @@ module Makoto
       assert_include(output, '♪ ')
     end
 
+    # 🔴 **黙る日はそう書く**（Codex の P1）。⚠⚠ **枠だけを並べると、下見と実機が
+    # 食い違う** — ⚠ **11/3 / 11/4 はライブが持っているので 1 通も出ない。**
+    def test_preview_marks_the_quiet_days
+      output = capture {command(date: '2026-11-03', days: 2).preview}
+
+      assert_equal(2, output.lines.count {|line| line.include?('他の枠が持つ日なので出しません')})
+      assert_include(output, 'live_eve')
+      assert_include(output, 'live_open')
+      assert_not_include(output, '♪ ')
+    end
+
     def test_preview_rejects_a_bad_day_count
       assert_raise(SystemExit) {capture {command(days: 0).preview}}
     end
@@ -104,6 +115,35 @@ module Makoto
       assert_include(output, '前置きの原稿: 4 本')
       assert_include(output, '抽選の母集合: ')
       assert_include(output, 'アルバム名を出す')
+    end
+
+    # 🔴 **重みが付いているのに 1 曲も無い kind を 0% と出す**（Codex の P2）。
+    # ⚠⚠ **この画面はまさに「母集合と設定の食い違い」を見るためのもの**なので、
+    # ⚠ **重みだけで割ると、引けない kind が「出る」と表示される。**
+    def test_slot_reports_zero_for_a_kind_without_tracks
+      output = capture {command.slot}
+      line = output.lines.find {|text| text.include?('instrumental')}
+
+      assert_not_nil(line)
+      assert_include(line, '0 曲')
+      assert_include(line, '0.0%')
+      assert_include(line, '曲が 1 曲も無い')
+    end
+
+    # ⚠ 曲がある kind は素直に比が出る。
+    def test_slot_reports_the_share_of_an_available_kind
+      output = capture {command.slot}
+      line = output.lines.find {|text| text.include?('vocal')}
+
+      assert_not_include(line, '0.0%')
+      assert_not_include(line, '曲が 1 曲も無い')
+    end
+
+    # ⚠⚠ **黙る日が 1 画面で見える**（設定を消すと黙らなくなるので）。
+    def test_slot_lists_the_quiet_days
+      output = capture {command.slot}
+
+      assert_include(output, '黙る日: 11-03 / 11-04')
     end
 
     def test_slot_says_when_there_is_no_prefix

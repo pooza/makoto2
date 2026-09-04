@@ -69,6 +69,27 @@ module Makoto
       assert_equal([], song.collection_kinds)
     end
 
+    # ⚠ **黙る日の type**（→ `SongSource#quiet?`）。
+    def test_quiet_types
+      assert_equal(['live_eve', 'live_open', 'live_close'], song.quiet_types)
+    end
+
+    # 🔴 **予約されていない type を書いたら起動時に落とす**（Codex の P1）。
+    # ⚠⚠ **`quiet?` が永久に false になり、検査が黙って無効になる** —
+    # ⚠ **表面化するのは 11/4 の 12:00**（**投稿は取り消せない**）。
+    def test_rejects_a_quiet_type_that_is_not_reserved
+      config['/song/quiet_types'] = ['live_open', 'live_typo']
+
+      assert_raise(Ginseng::ConfigError) {song.job}
+    end
+
+    # ⚠ **設定を消せば検査も通る**（黙らなくなるだけ → #77）。
+    def test_the_gate_can_be_emptied
+      config['/song/quiet_types'] = []
+
+      assert_equal(Song::NAME, song.job.name)
+    end
+
     # ⚠ 抽選は #11 の重み付き（→ `TrackLottery`）。**母集合は `distinct` × `linkable`。**
     def test_the_lottery_draws_from_the_linkable_pool
       ids = Array.new(50) {song.lottery.draw[:id]}.uniq

@@ -19,6 +19,13 @@ module Makoto
   # （08:30〜09:00）のどれとも重ならない。**⚠⚠ **窓の検査は `Scheduler#register`**
   # （**自分から出す投稿すべてに掛ける** → `CommentaryWindow`）。
   #
+  # ## 🔴 ライブが持つ日は黙る
+  #
+  # ⚠⚠ **11/3 / 11/4 は枠が正面からぶつかる**（`live-eve` / `live-open` / `live-close`
+  # がまさに 12:00 と 20:00）。⚠ **時刻をずらしても解けない** — 🔴 **ライブの進行
+  # そのものが 8 時間**なので、**その日に日常の曲を出せば、どの時刻でも割り込む**
+  # （→ `SongSource` の「ライブが持つ日は黙る」）。
+  #
   # ## ⚠ ハッシュタグは付けない
   #
   # 🔴 **MAKOTO が自分で付けるタグはライブの 1 つだけ**（2026-08-19 決定 →
@@ -63,6 +70,15 @@ module Makoto
       return Array(optional_config("#{PREFIX}/collection_kinds", [])).map(&:to_s)
     end
 
+    # 🔴 **この type が記念日に予約されている日は黙る**（Codex の P1 → `SongSource`）。
+    #
+    # ⚠ **設定が無ければ黙らない**（消せば元の挙動に戻る → #77）。⚠⚠ **ただし
+    # 空にすると 11/3 / 11/4 にライブと正面からぶつかる**ので、**消すのは枠を
+    # ライブの外へ動かしたときだけ。**
+    def quiet_types
+      return Array(optional_config("#{PREFIX}/quiet_types", [])).map(&:to_s)
+    end
+
     def timetable
       @timetable ||= Timetable.new(
         start: config["#{PREFIX}/timetable/start"],
@@ -88,6 +104,7 @@ module Makoto
         selector: selector,
         timetable: timetable,
         collection_kinds: collection_kinds,
+        quiet_types: quiet_types,
       )
       return @source
     end
@@ -101,7 +118,22 @@ module Makoto
 
     def validate
       validate_type
+      validate_quiet_types
       return nil
+    end
+
+    # 🔴 **黙る日の type が実際に予約されていなければ落とす**（Codex の P1）。
+    #
+    # ⚠⚠ **`/message/anniversary` に無い type を書いても、`quiet?` は永久に false**
+    # — ⚠ **検査が黙って無効になり、バースデーライブの開幕に日常の曲が混ざる。**
+    # 🔴 **表面化するのは 11/4 の 12:00**（**投稿は取り消せない**）ので、**起動時に落とす。**
+    #
+    # ⚠ **`Announcement#validate` と同じ判断**（**登録の有無を設定の側で確かめる**）。
+    def validate_quiet_types
+      missing = quiet_types - selector.reserved_types
+      return if missing.empty?
+      raise Ginseng::ConfigError,
+        "song: quiet type '#{missing.join(', ')}' must be registered in /message/anniversary"
     end
 
     # 🔴 **前置きの type を記念日に登録させない。**⚠⚠ **記念日に予約された type は

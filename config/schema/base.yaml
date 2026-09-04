@@ -300,6 +300,12 @@ properties:
         type: array
         items:
           type: string
+      # 🔴 この type が予約されている日は黙る（省略可）。⚠⚠ 空にすると 11/3 / 11/4 に
+      # ライブと正面からぶつかる。⚠ 予約されていない type を書くと起動時に落ちる。
+      quiet_types:
+        type: array
+        items:
+          type: string
       timetable:
         $ref: '#/definitions/timetable'
     required:

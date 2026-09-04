@@ -57,6 +57,7 @@ module Makoto
         time.strftime('%H:%M')
       end.join(' / ')}）"
       puts "実況の窓: #{CommentaryWindow.new}"
+      dump_quiet_days
       dump_prefixes
       dump_pool
     rescue Ginseng::ConfigError => e
@@ -68,6 +69,19 @@ module Makoto
     end
 
     private
+
+    # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **設定を消すと黙らなくなる**ので、
+    # ⚠ **「いま何日が黙る日か」がここに出る。**
+    def dump_quiet_days
+      types = song.quiet_types
+      if types.empty?
+        puts '黙る日: 無し（⚠ ライブの日も日常の曲を出します）'
+        return nil
+      end
+      days = song.selector.anniversary_types.select {|_, names| names.intersect?(types)}.keys
+      puts "黙る日: #{days.sort.join(' / ')}（#{types.join(', ')}）"
+      return nil
+    end
 
     # 🔴 **一周の長さ ＝ 前置きの本数 ÷ 1 日の本数**（#223 の規則を通す）。
     # ⚠⚠ **同じ前置きが戻るまでの間隔は、その半分を下回らない。**
@@ -97,13 +111,20 @@ module Makoto
 
     # ⚠⚠ **出る割合は「重みの合計」に対する比**で、⚠ **曲が 1 曲も無い kind は
     # 分母にも入らない**（→ `TrackLottery#pick_kind`）。
+    #
+    # 🔴 **分母から外した kind は 0% と出す**（Codex の P2）。⚠⚠ **重みだけで割ると、
+    # 1 曲も無い kind が「20% 出る」と表示される** — ⚠ **この画面はまさに
+    # 「母集合と設定の食い違い」を見るためのもの**なので、**そこで嘘をつかない。**
     def pool_line(kind, weight, counts, weights)
+      count = counts[kind].to_i
       total = weights.select {|name, value| value.positive? && counts[name].to_i.positive?}
         .values.sum
-      share = total.positive? ? (weight * 100.0 / total) : 0
+      share = count.positive? && total.positive? ? (weight * 100.0 / total) : 0.0
       marker = song.collection_kinds.include?(kind) ? ' ⚠ アルバム名を出す' : ''
-      return "  #{kind.to_s.ljust(13)} 重み #{weight}  #{counts[kind].to_i} 曲" \
-        "  #{share.round(1)}%#{marker}"
+      # ⚠ **重みが付いているのに 1 曲も無い**のは設定漏れの合図（→ `TrackLottery#warn_unweighted`
+      # の裏返し）。🔴 **0% とだけ書くと「重みが 0 なのか曲が無いのか」が読めない。**
+      marker = "#{marker} 🔴 曲が 1 曲も無い" if count.zero? && weight.positive?
+      return "  #{kind.to_s.ljust(13)} 重み #{weight}  #{count} 曲  #{share.round(1)}%#{marker}"
     end
 
     def kinds(value)
@@ -131,10 +152,13 @@ module Makoto
       return nil
     end
 
+    # 🔴 **黙る日はそう書く**（Codex の P1）。⚠⚠ **枠だけを並べると、下見と実機が
+    # 食い違う** — ⚠ **11/3 / 11/4 はライブが持っているので 1 通も出ない。**
     def dump(date, days)
       days.times do |offset|
         day = date + offset
         puts "#{day} (#{Date::ABBR_DAYNAMES[day.wday]})"
+        next puts("  #{quiet_reason(day)}") if song.source.quiet?(day)
         song.timetable.times(day).each do |time|
           record = song.source.prefix_record(time)
           label = record ? "[#{record[:id]}] #{record[:type]}" : '前置きはありません'
@@ -145,6 +169,12 @@ module Makoto
           text.each_line {|line| puts "    #{line.chomp}"}
         end
       end
+    end
+
+    # ⚠ **どの枠が持っている日かを名指しで書く**（**「出ません」だけだと理由が追えない**）。
+    def quiet_reason(day)
+      types = song.selector.reserved_types_on(day) & song.quiet_types
+      return "他の枠が持つ日なので出しません（#{types.join(', ')}）"
     end
 
     # その日の 1 本目の枠。⚠ **枠の番号が要る**ので時刻で渡す（`Date` では出ない）。
