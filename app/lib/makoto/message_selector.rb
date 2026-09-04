@@ -133,8 +133,20 @@ module Makoto
 
     # その日に使える記念日の type。⚠ 許可リストに無いものは外す。設定に無い日なら空。
     def anniversary_types_on(date)
+      return reserved_types_on(date) & @types
+    end
+
+    # 🔴 **その日に予約されている type**（⚠⚠ **許可リストで絞る前**）。設定に無い日なら空。
+    #
+    # ⚠ **「他の枠がその日を持っているか」を訊く口**（→ `SongSource#quiet?`・#16）。
+    # ⚠⚠ **日常の枠は、ライブが持つ日には黙る** — **`anniversary_types_on` は自分の
+    # 許可リストで絞ってしまう**ので、**他の枠の予約は見えない。**
+    #
+    # 🔴 **日付の鍵の書き方はここが正本**（`/message/anniversary` の `MM-DD`）。
+    # ⚠ **呼ぶ側に組み立てさせない**（同じ規則が複数箇所に散ると揃わなくなる → #183）。
+    def reserved_types_on(date)
       key = '%<month>02d-%<day>02d' % {month: date.month, day: date.day}
-      return anniversary_types.fetch(key, []) & @types
+      return anniversary_types.fetch(key, [])
     end
 
     # 記念日として予約されている type。⚠ **その日以外では選ばれない。**
