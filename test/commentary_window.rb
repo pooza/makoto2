@@ -35,9 +35,9 @@ module Makoto
       assert_false(window.cover?(monday(8, 45)))
     end
 
-    # ⚠ 朝挨拶の 07:00 は窓の外（→ config）。
+    # ⚠ 朝挨拶の 08:00 は窓の外（→ config・#247）。⚠⚠ **余裕は 29 分しかない。**
     def test_the_morning_slot_does_not_conflict
-      assert_false(window.conflict?(timetable('07:00', '07:01')))
+      assert_false(window.conflict?(timetable('08:00', '08:01')))
     end
 
     # 🔴 **窓に落ちる枠は検出する。**⚠⚠ **枠は日付を区別しない**ので、平日に走らせても
