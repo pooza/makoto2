@@ -25,7 +25,7 @@ module Makoto
       assert_equal([jst(9, 1, 12), jst(9, 1, 20)], times)
     end
 
-    # 🔴 **朝挨拶（07:00）・予告（10:00）・日曜の実況の窓（08:30〜09:00）のどれとも
+    # 🔴 **朝挨拶（08:00）・予告（10:00）・日曜の実況の窓（08:30〜09:00）のどれとも
     # 重ならない。**⚠⚠ **窓の検査そのものは `Scheduler#register`。**
     def test_the_default_slot_avoids_the_commentary_window
       assert_false(CommentaryWindow.new.conflict?(song.timetable))

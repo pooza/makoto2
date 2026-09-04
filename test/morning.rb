@@ -12,7 +12,8 @@ module Makoto
       return Morning.new(repository: repository)
     end
 
-    def jst(month, day, hour = 7, year: 2026)
+    # ⚠ **既定は枠の頭（08:00）**（→ config・#247）。
+    def jst(month, day, hour = 8, year: 2026)
       return Time.new(year, month, day, hour, 0, 0, '+09:00')
     end
 
@@ -25,8 +26,8 @@ module Makoto
       return config['/morning/greeting']
     end
 
-    # ⚠ 枠は 1 日 1 本。**`finish` は含まない（半開区間）**ので 07:00 だけ。
-    # 🔴 07:00 は旧アカウントの実測（→ config）。
+    # ⚠ 枠は 1 日 1 本。**`finish` は含まない（半開区間）**ので 08:00 だけ。
+    # 🔴 **08:00 は元ネタ『キッズ劇場!!』の放送開始時刻**（→ config・#247）。
     def test_timetable_has_one_slot_a_day
       times = morning.timetable.times(Date.new(2026, 9, 1))
 
@@ -40,9 +41,14 @@ module Makoto
       assert_equal(morning.timetable.to_s, job.timetable.to_s)
     end
 
-    # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **07:00 JST は前日の 22:00 UTC。**
+    # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **08:00 JST は前日の 23:00 UTC。**
+    #
+    # 🔴 **07:00 と 08:00 は別のキー**（#247）。⚠⚠ **切り替える日に両方の枠が動くと、
+    # どちらも「1 回目」として通る** — ⚠ **デプロイは 07:00 より前か 08:00:30 以降。**
     def test_idempotency_key_comes_from_the_slot
-      assert_equal('morning-20260831T220000Z', morning.job.idempotency_key(jst(9, 1)))
+      assert_equal('morning-20260831T230000Z', morning.job.idempotency_key(jst(9, 1)))
+      assert_not_equal(morning.job.idempotency_key(jst(9, 1, 7)),
+        morning.job.idempotency_key(jst(9, 1)))
     end
 
     # ⚠ 使ってよい原稿は日替わり（`morning`）と特定日（`holiday`）の 2 つ。
@@ -342,7 +348,7 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {morning.job}
     end
 
-    # ⚠ 既定の 07:00 は窓の外（＝そのまま起動できる）。🔴 **窓の検査そのものは
+    # ⚠ 既定の 08:00 は窓の外（＝そのまま起動できる）。🔴 **窓の検査そのものは
     # `Scheduler#register`**（自分から出す投稿すべてに掛ける → test/scheduler.rb）。
     def test_the_default_slot_is_accepted
       assert_equal(Morning::NAME, morning.job.name)

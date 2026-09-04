@@ -42,7 +42,8 @@ module Makoto
       assert_equal(0, Scheduler.instance.send(:jobs))
     end
 
-    # ⚠ いま持っている枠はすべて窓の外（朝挨拶 07:00 / 予告 10:00 / ライブ 12:00〜）。
+    # ⚠ いま持っている枠はすべて窓の外（朝挨拶 08:00 / 予告 10:00 / 曲紹介 12:00 /
+    # ライブ 12:00〜）。
     def test_register_accepts_the_slots_outside_the_window
       assert_equal(Scheduler.instance, Scheduler.instance.register(Morning.new.job))
       assert_equal(Scheduler.instance, Scheduler.instance.register(Announcement.new.job))
