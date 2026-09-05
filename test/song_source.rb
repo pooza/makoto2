@@ -67,7 +67,7 @@ module Makoto
     def test_no_repeat_across_consecutive_slots
       add_prefixes(6)
       prefixes = (1..7).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 20))]
+        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
       end
 
       assert_equal([], prefixes.each_cons(2).select {|a, b| a == b})
@@ -82,7 +82,7 @@ module Makoto
     def test_every_prefix_comes_up
       bodies = add_prefixes(6)
       picked = (1..6).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 20))]
+        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
       end
 
       assert_equal(bodies.sort, picked.uniq.sort)
@@ -98,7 +98,7 @@ module Makoto
 
     # ⚠ **枠の外では何も返さない**（枠の番号が出ない）。
     #
-    # ⚠⚠ **「枠の外」は 12:00〜20:01 の外**であって、**枠の頭の外ではない**
+    # ⚠⚠ **「枠の外」は 12:00〜19:01 の外**であって、**枠の頭の外ではない**
     # （`Timetable#index_at` は幅で答える）。🔴 **枠の頭かどうかを見るのは
     # `PostingJob#due_slot`** — ⚠ **こちらは呼ばれた時刻がどの枠に属するかだけを見る。**
     def test_outside_the_slots_nothing_is_posted
@@ -176,13 +176,13 @@ module Makoto
     def test_silent_on_the_live_day
       assert_true(source.quiet?(jst(11, 4, 12)))
       assert_nil(source.call(jst(11, 4, 12)))
-      assert_nil(source.call(jst(11, 4, 20)))
+      assert_nil(source.call(jst(11, 4, 19)))
     end
 
     # ⚠ **前日増量の日も黙る**（`live-eve` が 12:00〜20:00 の毎正時）。
     def test_silent_on_the_eve
       assert_true(source.quiet?(jst(11, 3, 12)))
-      assert_nil(source.call(jst(11, 3, 20)))
+      assert_nil(source.call(jst(11, 3, 19)))
     end
 
     # ⚠⚠ **予告だけの日は黙らない**（10:00 なのでぶつからない）。
@@ -190,7 +190,7 @@ module Makoto
     def test_the_announcement_days_still_get_a_song
       assert_false(source.quiet?(jst(11, 1, 12)))
       assert_not_nil(source.call(jst(11, 1, 12)))
-      assert_not_nil(source.call(jst(11, 2, 20)))
+      assert_not_nil(source.call(jst(11, 2, 19)))
     end
 
     def test_an_ordinary_day_is_not_quiet
