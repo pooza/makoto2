@@ -95,12 +95,115 @@ module Makoto
       end
       puts "[#{message[:id]}] #{message[:type]} #{format_date(message)}"
       puts message[:body]
+    # ⚠ **`ConfigError` も拾う**（#212）。🔴 **`--types` は人の入力だが、`MessageSelector`
+    # は許可リストが設定から来る場合と区別できない**ので `ConfigError` を投げる。
+    # ⚠⚠ **拾わないと下見がバックトレースで落ちる**（**空の `--types=` でも同じだった**）。
+    rescue Ginseng::ValidateError, Ginseng::ConfigError => e
+      warn error_message(e)
+      exit 1
+    end
+
+    option :type, type: :string, required: true, desc: '書き出す type をカンマ区切りで'
+    option :out, type: :string, required: true, desc: '書き出すファイル（YAML）'
+    option :prefix, type: :string, desc: 'slug の接頭辞（既定は type）'
+    option :exclude, type: :string, desc: '書き出さない id をカンマ区切りで'
+    option :force, type: :boolean, default: false, desc: '既にあるファイルを上書きする'
+    desc 'export', '原稿を取り込みの形式（YAML）で書き出す'
+    def export
+      # 🔴 **本文をこのリポジトリに出さない**（public。→ docs/CLAUDE.md の情報の記載先）。
+      # ⚠⚠ **標準出力にも出さない** — **書き出し先はファイルだけ**にして、
+      # ⚠ **原稿がログや貼り付けに紛れ込む経路を作らない。**
+      path = options[:out]
+      if File.exist?(path) && !options[:force]
+        warn "#{path} は既にあります（上書きするなら --force）"
+        exit 1
+      end
+      records = export_records(options[:type].split(','), exclude_ids(options[:exclude]))
+      File.write(path, export_header(records) + records.to_yaml)
+      puts "#{records.size} 件を #{path} へ書き出しました"
     rescue Ginseng::ValidateError => e
       warn error_message(e)
       exit 1
     end
 
     private
+
+    # ⚠ **`slug` を持つ行はその `slug` を保つ**（⚠⚠ **付け直すと取り込みで二重になる**）。
+    # ⚠ **持たない行には `接頭辞-通し番号` を振る。**番号は id 順で安定させる。
+    def export_records(types, excluded)
+      rows = types.flat_map {|type| repository.by_type(type.strip).order(:id).all}
+      rows = rows.reject {|row| excluded.include?(row[:id])}
+      # 🔴 **既にある `slug` と衝突させない**（#224・Codex の P2）。⚠⚠ **持っている行の
+      # `slug` を保つ**ので、⚠ **通し番号がその `slug` と同じ値を作りうる** —
+      # **同じ `slug` が 2 つあるファイルは取り込みが弾く**（`ScriptImporter#read`）。
+      taken = repository.by_slug.select_map(:slug).to_set
+      counter = 0
+      rows.map do |row|
+        slug = row[:slug]
+        slug, counter = next_slug(options[:prefix] || row[:type], taken, counter) unless slug
+        export_record(row, slug)
+      end
+    end
+
+    # 空いている通し番号の `slug`。⚠ **番号は id 順に振る**（並びが安定する）。
+    def next_slug(prefix, taken, counter)
+      loop do
+        counter += 1
+        slug = '%{prefix}-%<counter>04d' % {prefix: prefix, counter: counter}
+        next if taken.include?(slug)
+        taken.add(slug)
+        return [slug, counter]
+      end
+    end
+
+    # ⚠ テストが差し替えるためだけに 1 つに寄せてある（→ `MorningCommand#morning`）。
+    def repository
+      @repository ||= MessageRepository.new
+      return @repository
+    end
+
+    def export_record(row, slug)
+      record = {
+        'slug' => slug,
+        'type' => row[:type],
+      }
+      record['date'] = export_date(row) if row[:month]
+      seasons = repository.seasons(row[:id])
+      record['season'] = seasons unless seasons.empty?
+      record['feature'] = row[:feature] if row[:feature]
+      record['body'] = row[:body]
+      return record
+    end
+
+    # ⚠ **`MM-DD`（毎年）と `YYYY-MM-DD`（その年だけ）**（→ `ScriptImporter.parse_date`）。
+    def export_date(row)
+      return '%{year}%<month>02d-%<day>02d' % {year: row[:year] ? "#{row[:year]}-" : '',
+        month: row[:month],
+        day: row[:day]}
+    end
+
+    def exclude_ids(value)
+      return [] if value.blank?
+      return value.split(',').map {|id| Integer(id.strip)}
+    rescue ArgumentError
+      raise Ginseng::ValidateError, "除く id は数字で指定してください（'#{value}'）"
+    end
+
+    # ⚠ **どこから出したファイルかを書き残す。**⚠⚠ **取り込み元が分からない原稿は、
+    # 直してよいのか捨ててよいのかも分からない。**
+    def export_header(records)
+      types = records.map {|record| record['type']}.tally.map {|type, size| "#{type} #{size}"}
+      return <<~HEADER
+        # #{Package.full_name} の `makoto message export` が書き出したもの。
+        # 内訳: #{types.join(' / ')}
+        #
+        # ⚠ 取り込みは `makoto message import`（`slug` が upsert の鍵）。
+        # ⚠⚠ 消すときは行を消して `--prune` を付ける。消えるのは、このファイルに
+        #   出てくる type の、slug を持つ行だけ。
+        # 🔴 したがって、この type の原稿を別のファイルにも分けて置かないこと
+        #   （片方を --prune で取り込むと、もう片方が消える）。
+      HEADER
+    end
 
     # ⚠ **書き込む前に見る口。**`--prune` は行を消すので、本番でいきなり流させない。
     def preview_import(importer, path)

@@ -20,8 +20,10 @@ module Makoto
     end
 
     # ⚠ `makoto message add` で足した原稿の代役。**slug を持たない。**
+    # ⚠⚠ **正本が makoto-scripts へ移った type（`morning` / `holiday`）は直接足せない**
+    # ので（#224）、ここでは別の type を使う。
     def add_by_cli(body = '手で足した原稿')
-      return @repository.create(type: 'morning', body: body)
+      return @repository.create(type: 'test_note', body: body)
     end
 
     def slugs
@@ -115,13 +117,26 @@ module Makoto
       assert_equal(6, @repository.count)
     end
 
+    # ⚠ **消えるのは、取り込んだファイルに出てくる type の原稿だけ**（#224）。
     def test_prune_removes_disappeared_scripts
       importer.import(fixture_dir)
       write_script('few.yaml', "- slug: test-open\n  type: test_open\n  body: はじまります。\n")
       result = importer.import(@tmp_path, prune: true)
 
-      assert_equal(5, result.pruned.size)
-      assert_equal(['test-open'], slugs)
+      assert_equal([], result.pruned)
+      assert_equal(6, slugs.size)
+    end
+
+    # 🔴 **`--prune` は、そのファイルに出てくる type の外を消さない**（#224・Codex の P1）。
+    # ⚠⚠ **絞らないと、`morning.yaml` を取り込んだだけでライブの台本が全部消える。**
+    def test_prune_does_not_touch_other_types
+      importer.import(fixture_dir)
+      write_script('few.yaml', "- slug: test-autumn\n  type: test_morning\n  body: 秋です。\n")
+      result = importer.import(@tmp_path, prune: true)
+
+      # ⚠ 同じ type（`test_morning`）の `test-plain` だけが落ちる。
+      assert_equal(['test-plain'], result.pruned)
+      assert_equal(5, slugs.size)
     end
 
     # ⚠⚠ #50 の完了条件。**`makoto message add` で足した原稿を取り込みが消さない。**
@@ -133,7 +148,8 @@ module Makoto
       importer.import(@tmp_path, prune: true)
 
       assert_equal('手で足した原稿', @repository.dataset[id: id][:body])
-      assert_equal(2, @repository.count)
+      # ⚠ 取り込んだ 6 本（`test_open` は残り、他の type は絞りの外）＋ 手で足した 1 本。
+      assert_equal(7, @repository.count)
     end
 
     # ⚠⚠ **空の取り込み元を指しても全滅させない。**`--prune` と組み合わさると

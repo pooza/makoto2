@@ -95,6 +95,12 @@ module Makoto
     # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
     def register_jobs
       Scheduler.instance.register(Announcement.new.job)
+      # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
+      # 何も返さない**（→ Morning / MessageSelector）。
+      Scheduler.instance.register(Morning.new.job)
+      # ⚠ 曲紹介は 1 日 2 本（#16）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
+      # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
+      Scheduler.instance.register(Song.new.job)
       # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
       # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
       Live.new.jobs.each {|job| Scheduler.instance.register(job)}

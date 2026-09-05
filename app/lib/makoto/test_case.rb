@@ -36,6 +36,11 @@ module Makoto
     def corpus_db
       unless @corpus_db
         @corpus_db = empty_db
+        # ⚠⚠ **フィクスチャは「移送前」の形を作る**（#224）。⚠ `/message/scripted_types`
+        # が既定のままだと、**旧ダンプ由来の `morning` / `holiday` が入らない** —
+        # 🔴 **朝挨拶（#17）と原稿の選択（#12）のテストはその行を使う。**
+        # ⚠ **移送後の形は `CorpusImporterTest` が別に見る。**
+        config['/message/scripted_types'] = []
         CorpusImporter.new(corpus_fixture_dir, db: @corpus_db).exec
       end
       return @corpus_db

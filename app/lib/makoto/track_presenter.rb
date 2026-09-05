@@ -18,16 +18,32 @@ module Makoto
   # | 括弧書き（#119） | ⚠ **落とす**（供給元の但し書きは読む側の役に立たない） | 落とさない |
   # | 自分名義（#121） | 🔴 **出さない**（歌っているのが自分であることが自明） | 出す |
   # | ⚠ 感嘆符・疑問符（#120） | **揃える** | ⚠⚠ **揃える**（こちらは共通） |
+  # | ⚠ アルバム名 | 出さない（**曲だけを並べる 8 時間**） | 🔴 **劇伴では出す**（#16・下記） |
+  #
+  # ## 🔴 劇伴はアルバム／シリーズを主役にする（#16）
+  #
+  # ⚠⚠ **`bgm` の名義は作曲家**（`林ゆうき` / `高梨康治`）で、**どのシリーズの曲かは
+  # 名義からは分からない。**⚠ **曲名にも色気が無い**（`星を追われし者`）ので、
+  # 🔴 **文脈を持っているのはアルバム名だけ**（`スター☆トゥインクルプリキュア
+  # オリジナル・サウンドトラック2`）。
+  #
+  # ⚠ **`instrumental` も同じ**（劇伴盤に入っている歌のインスト）。⚠⚠ **`karaoke` /
+  # `tv_size` は名義が歌手そのもの**なので、**アルバム名は文脈を足さない。**
+  #
+  # 🔴 **どの `kind` で出すかはここが決めない**（`cover_prefix` と同じ）— **呼ぶ側が
+  # 設定から渡す**（`/song/collection_kinds`）。
   class TrackPresenter
     # @param track [Hash] `track` テーブルの 1 行
     # @param prefix [String, nil] 曲名の前に置く一言（カバーの断りなど）
     # @param plain_name [Boolean] ⚠ 曲名から括弧書きを落とすか（#119）
     # @param artist [Boolean] ⚠ 名義を出すか（#121）
-    def initialize(track, prefix: nil, plain_name: false, artist: true)
+    # @param collection [Boolean] ⚠ アルバム名を出すか（#16）
+    def initialize(track, prefix: nil, plain_name: false, artist: true, collection: false)
       @track = track
       @prefix = prefix.to_s
       @plain_name = plain_name
       @artist = artist
+      @collection = collection
     end
 
     # 表示する曲名。⚠ **感嘆符・疑問符は常に揃える**（#120・ライブでも日常でも）。
@@ -42,10 +58,21 @@ module Makoto
       return @track[:artist_name]
     end
 
+    # 表示するアルバム名。⚠ **出さないときは空**（→ `to_s` が行ごと落とす）。
+    #
+    # ⚠⚠ **列は NULL 可**（母集合では実測 0 件だが、⚠ **収集の版が変われば入りうる**）。
+    # 🔴 **空でも行を作らない**（`compact_blank` が落とす）。
+    def collection
+      return nil unless @collection
+      return @track[:collection_name]
+    end
+
+    # ⚠ **名義より先にアルバム名を置く**（#16）。🔴 **劇伴では、どのシリーズかのほうが
+    # 作曲家の名前より先に要る情報。**
     def to_s
       # ⚠ url が無い曲はそもそも母集合から外れている（`TrackRepository#linkable`）が、
       # ここでも空行を作らないようにしておく。
-      return [headline, credit, @track[:url]].compact_blank.join("\n")
+      return [headline, collection, credit, @track[:url]].compact_blank.join("\n")
     end
 
     private

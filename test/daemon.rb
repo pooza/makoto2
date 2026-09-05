@@ -518,8 +518,9 @@ module Makoto
 
       @daemon.register_jobs
 
-      # 予告（#14）1 本 ＋ ライブ（#13）4 本。
-      assert_equal(5, Scheduler.instance.send(:jobs))
+      # 予告（#14）1 本 ＋ 朝挨拶（#17）1 本 ＋ 曲紹介（#16）1 本 ＋ ライブ（#13）4 本。
+      # ⚠⚠ **`heartbeat` の `jobs` はこの数**（→ docs/CLAUDE.md 同期手順 3.）。
+      assert_equal(7, Scheduler.instance.send(:jobs))
     ensure
       Scheduler.instance.clear
     end

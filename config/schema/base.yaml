@@ -36,6 +36,23 @@ properties:
   # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
   announcement:
     $ref: '#/definitions/scripted_slot'
+  # 日曜の実況の窓（#172）。⚠ 欠けると「自分から出す投稿」の枠を検査できない。
+  # ⚠⚠ 検査できないことは、窓に差し込んでしまうまで分からない。
+  commentary:
+    type: object
+    properties:
+      weekday:
+        type: integer
+        minimum: 0
+        maximum: 6
+      start:
+        type: string
+      finish:
+        type: string
+    required:
+      - weekday
+      - start
+      - finish
   corpus:
     type: object
     properties:
@@ -227,6 +244,11 @@ properties:
   message:
     type: object
     properties:
+      # ⚠ 正本が makoto-scripts へ移った type（#224）。省略可（移送前は空）。
+      scripted_types:
+        type: array
+        items:
+          type: string
       # 記念日。⚠ キーは `MM-DD`、値はその日に使う原稿の type。
       # ⚠⚠ ここに挙げた type は、その日以外では選ばれない。
       # ⚠ 1 日に複数の type を持てる（11/4 は誕生日とライブの台本が同居する → #13）。
@@ -246,6 +268,49 @@ properties:
   # 監視の口（#84）。⚠⚠ 3 つとも required にする — optional_config で既定値に
   # 逃がすと、⚠ 設定を消しただけで監視の口が静かに閉じる（#77 の裏返し。
   # /scheduler/posting/failure_limit と同じ判断）。
+  # 朝挨拶（#17）。⚠ 欠けると PostingJob が作れず、毎朝 1 本も出ない。
+  # ⚠⚠ type は /message/anniversary に登録しないこと（登録すると通年の段から外れる）。
+  morning:
+    type: object
+    properties:
+      type:
+        type: string
+      # ⚠ 日付が特定された日に上書きする type。挨拶は原稿が自分で持つ。
+      dated_types:
+        type: array
+        items:
+          type: string
+      # ⚠ 定型挨拶。空なら付けない（省略可）。
+      greeting:
+        type: string
+      timetable:
+        $ref: '#/definitions/timetable'
+    required:
+      - type
+      - timetable
+  # 日常の曲紹介（#16）。⚠ 欠けると PostingJob が作れず、毎日の曲紹介が出ない。
+  # ⚠ この type は /message/anniversary に登録しないこと（登録すると前置きが引けない）。
+  song:
+    type: object
+    properties:
+      type:
+        type: string
+      # ⚠ アルバム名を主役にする kind（省略可・空ならどの kind でも出さない）。
+      collection_kinds:
+        type: array
+        items:
+          type: string
+      # 🔴 この type が予約されている日は黙る（省略可）。⚠⚠ 空にすると 11/3 / 11/4 に
+      # ライブと正面からぶつかる。⚠ 予約されていない type を書くと起動時に落ちる。
+      quiet_types:
+        type: array
+        items:
+          type: string
+      timetable:
+        $ref: '#/definitions/timetable'
+    required:
+      - type
+      - timetable
   monitor:
     type: object
     properties:
@@ -361,6 +426,7 @@ properties:
       - weight
 required:
   - announcement
+  - commentary
   - corpus
   - cure_api
   - environment
@@ -372,7 +438,9 @@ required:
   - mastodon
   - message
   - monitor
+  - morning
   - package
   - scheduler
+  - song
   - sqlite3
   - track
