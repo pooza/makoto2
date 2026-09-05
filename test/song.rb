@@ -45,10 +45,10 @@ module Makoto
       assert_equal(song.timetable.to_s, job.timetable.to_s)
     end
 
-    # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **12:00 JST は 03:00 UTC。**
+    # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **12:00 JST は 03:00 UTC・19:00 JST は 10:00 UTC。**
     def test_idempotency_key_comes_from_the_slot
       assert_equal('song-20260901T030000Z', song.job.idempotency_key(jst(9, 1, 12)))
-      assert_equal('song-20260901T110000Z', song.job.idempotency_key(jst(9, 1, 20)))
+      assert_equal('song-20260901T100000Z', song.job.idempotency_key(jst(9, 1, 19)))
     end
 
     # 🔴 **前置きの type を記念日に登録させない。**⚠⚠ **登録すると通年の段から外れ、

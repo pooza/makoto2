@@ -60,7 +60,7 @@ module Makoto
     def test_the_two_slots_of_a_day_differ
       add_prefixes(6)
 
-      assert_not_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 20)))
+      assert_not_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 19)))
     end
 
     # ⚠ **連日でも続かない**（通し番号が枠ごとに 1 進む）。
@@ -111,7 +111,7 @@ module Makoto
       add_prefixes(6)
 
       assert_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 15)))
-      assert_equal(source.prefix(jst(9, 1, 20)), source(1).prefix(jst(9, 1, 20)))
+      assert_equal(source.prefix(jst(9, 1, 19)), source(1).prefix(jst(9, 1, 19)))
     end
 
     # 🔴 **劇伴はアルバム名を主役にする**（#16）。⚠⚠ **`bgm` の名義は作曲家**なので、
@@ -171,8 +171,9 @@ module Makoto
       end
     end
 
-    # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **11/4 は `live-open` が 12:00・
-    # `live-close` が 20:00 で、こちらとまったく同じ時刻。**
+    # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **11/4 は `live-open` が 12:00 で
+    # こちらの 1 本目とまったく同じ時刻**、⚠ **`live` の進行が 12:02〜20:00 なので
+    # 2 本目の 19:00 もその中。**🔴 **時刻をずらしても解けない。**
     def test_silent_on_the_live_day
       assert_true(source.quiet?(jst(11, 4, 12)))
       assert_nil(source.call(jst(11, 4, 12)))
