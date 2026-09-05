@@ -17,16 +17,19 @@ module Makoto
       return Time.new(year, month, day, hour, 0, 0, '+09:00')
     end
 
-    # ⚠ 枠は 1 日 2 本（12:00 / 20:00）。**`finish` は含まない（半開区間）。**
-    # 🔴 2026-09-04 オーナー判断。
+    # ⚠ 枠は 1 日 2 本（12:00 / 19:00）。**`finish` は含まない（半開区間）。**
+    # 🔴 本数は 2026-09-04・2 本目の時刻は 2026-09-05 のオーナー判断（#254）。
     def test_timetable_has_two_slots_a_day
       times = song.timetable.times(Date.new(2026, 9, 1))
 
-      assert_equal([jst(9, 1, 12), jst(9, 1, 20)], times)
+      assert_equal([jst(9, 1, 12), jst(9, 1, 19)], times)
     end
 
-    # 🔴 **朝挨拶（08:00）・予告（10:00）・日曜の実況の窓（08:30〜09:00）のどれとも
-    # 重ならない。**⚠⚠ **窓の検査そのものは `Scheduler#register`。**
+    # 🔴 **朝挨拶（08:00）・予告（10:00）・ニチアサ実況の窓（日曜 08:30〜09:00）の
+    # どれとも重ならない。**⚠⚠ **窓の検査そのものは `Scheduler#register`。**
+    #
+    # ⚠ **夜実況（概ね毎晩 20:00〜）はここでは見ない** — 🔴 **性格は同じだが強さが違い、
+    # 窓としては持っていない**（→ #254 / #255）。
     def test_the_default_slot_avoids_the_commentary_window
       assert_false(CommentaryWindow.new.conflict?(song.timetable))
     end
@@ -42,10 +45,10 @@ module Makoto
       assert_equal(song.timetable.to_s, job.timetable.to_s)
     end
 
-    # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **12:00 JST は 03:00 UTC。**
+    # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **12:00 JST は 03:00 UTC・19:00 JST は 10:00 UTC。**
     def test_idempotency_key_comes_from_the_slot
       assert_equal('song-20260901T030000Z', song.job.idempotency_key(jst(9, 1, 12)))
-      assert_equal('song-20260901T110000Z', song.job.idempotency_key(jst(9, 1, 20)))
+      assert_equal('song-20260901T100000Z', song.job.idempotency_key(jst(9, 1, 19)))
     end
 
     # 🔴 **前置きの type を記念日に登録させない。**⚠⚠ **登録すると通年の段から外れ、

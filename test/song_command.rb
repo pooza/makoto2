@@ -49,7 +49,7 @@ module Makoto
 
       assert_equal(2, output.lines.count {|line| line.match?(/\A {2}\d{2}:\d{2} /)})
       assert_include(output, '12:00')
-      assert_include(output, '20:00')
+      assert_include(output, '19:00')
     end
 
     # 🔴 **前置きごと出す。**⚠⚠ **下見で前置きが見えないと、実際の投稿と別物を読む
@@ -111,7 +111,7 @@ module Makoto
       output = capture {command.slot}
 
       assert_include(output, "#{Song::NAME}: ")
-      assert_include(output, '1 日 2 本（12:00 / 20:00）')
+      assert_include(output, '1 日 2 本（12:00 / 19:00）')
       assert_include(output, '前置きの原稿: 4 本')
       assert_include(output, '抽選の母集合: ')
       assert_include(output, 'アルバム名を出す')

@@ -60,14 +60,14 @@ module Makoto
     def test_the_two_slots_of_a_day_differ
       add_prefixes(6)
 
-      assert_not_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 20)))
+      assert_not_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 19)))
     end
 
     # ⚠ **連日でも続かない**（通し番号が枠ごとに 1 進む）。
     def test_no_repeat_across_consecutive_slots
       add_prefixes(6)
       prefixes = (1..7).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 20))]
+        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
       end
 
       assert_equal([], prefixes.each_cons(2).select {|a, b| a == b})
@@ -82,7 +82,7 @@ module Makoto
     def test_every_prefix_comes_up
       bodies = add_prefixes(6)
       picked = (1..6).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 20))]
+        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
       end
 
       assert_equal(bodies.sort, picked.uniq.sort)
@@ -98,7 +98,7 @@ module Makoto
 
     # ⚠ **枠の外では何も返さない**（枠の番号が出ない）。
     #
-    # ⚠⚠ **「枠の外」は 12:00〜20:01 の外**であって、**枠の頭の外ではない**
+    # ⚠⚠ **「枠の外」は 12:00〜19:01 の外**であって、**枠の頭の外ではない**
     # （`Timetable#index_at` は幅で答える）。🔴 **枠の頭かどうかを見るのは
     # `PostingJob#due_slot`** — ⚠ **こちらは呼ばれた時刻がどの枠に属するかだけを見る。**
     def test_outside_the_slots_nothing_is_posted
@@ -111,7 +111,7 @@ module Makoto
       add_prefixes(6)
 
       assert_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 15)))
-      assert_equal(source.prefix(jst(9, 1, 20)), source(1).prefix(jst(9, 1, 20)))
+      assert_equal(source.prefix(jst(9, 1, 19)), source(1).prefix(jst(9, 1, 19)))
     end
 
     # 🔴 **劇伴はアルバム名を主役にする**（#16）。⚠⚠ **`bgm` の名義は作曲家**なので、
@@ -171,18 +171,19 @@ module Makoto
       end
     end
 
-    # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **11/4 は `live-open` が 12:00・
-    # `live-close` が 20:00 で、こちらとまったく同じ時刻。**
+    # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **11/4 は `live-open` が 12:00 で
+    # こちらの 1 本目とまったく同じ時刻**、⚠ **`live` の進行が 12:02〜20:00 なので
+    # 2 本目の 19:00 もその中。**🔴 **時刻をずらしても解けない。**
     def test_silent_on_the_live_day
       assert_true(source.quiet?(jst(11, 4, 12)))
       assert_nil(source.call(jst(11, 4, 12)))
-      assert_nil(source.call(jst(11, 4, 20)))
+      assert_nil(source.call(jst(11, 4, 19)))
     end
 
     # ⚠ **前日増量の日も黙る**（`live-eve` が 12:00〜20:00 の毎正時）。
     def test_silent_on_the_eve
       assert_true(source.quiet?(jst(11, 3, 12)))
-      assert_nil(source.call(jst(11, 3, 20)))
+      assert_nil(source.call(jst(11, 3, 19)))
     end
 
     # ⚠⚠ **予告だけの日は黙らない**（10:00 なのでぶつからない）。
@@ -190,7 +191,7 @@ module Makoto
     def test_the_announcement_days_still_get_a_song
       assert_false(source.quiet?(jst(11, 1, 12)))
       assert_not_nil(source.call(jst(11, 1, 12)))
-      assert_not_nil(source.call(jst(11, 2, 20)))
+      assert_not_nil(source.call(jst(11, 2, 19)))
     end
 
     def test_an_ordinary_day_is_not_quiet
