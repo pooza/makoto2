@@ -39,19 +39,60 @@ module Makoto
       end
     end
 
-    # 🔴 **空・壊れた pid ファイルは `pid = 0` になる**（`File.read(...).to_i`）。
-    # ⚠⚠ **`0` は truthy で、`Process.kill(0, 0)` は自分のプロセスグループ宛てなので
-    # 成功する**ため、⚠ **これを「動いている」と答えると `run_restart` が
-    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM を送る**
-    # （リリース前レビューの黄 3）。
+    # 🔴 **空・壊れた pid ファイルを「動いている」と答えない**（リリース前レビューの黄 3）。
+    #
+    # ⚠⚠ **`1.23.5` までは `pid = 0` になっていた**（`File.read(...).to_i`）。⚠ **`0` は
+    # truthy で、`Process.kill(0, 0)` は自分のプロセスグループ宛てなので成功する**ため、
+    # 🔴 **`run_restart` が `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ
+    # 全体に TERM を送る**形だった。
+    #
+    # ✅ **`1.23.6` で上流が `parse_pid` を入れ、`nil` に倒すようになった**（#257）。
+    # ⚠ **`'12_34'`（Ruby は桁区切りとして受ける）と `pid_t` を超える数も足した** —
+    # ⚠⚠ **`to_i` の時代は通っていた形。**
     def test_a_broken_pid_file_is_not_the_daemon
-      ['', "\n", 'abc', '0'].each do |body|
+      ['', "\n", 'abc', '0', '12_34', '9999999999'].each do |body|
         with_daemon(pid: nil) do |daemon|
           File.write(daemon.pid_file, body)
 
-          assert_equal(0, daemon.pid, "pid file: #{body.inspect}")
+          assert_nil(daemon.pid, "pid file: #{body.inspect}")
           assert_false(daemon.alive?, "pid file: #{body.inspect}")
         end
+      end
+    end
+
+    # 🔴 **#257 の本体。**⚠⚠ **`pid` は「無い」も「読めない」も `nil` に畳む**ので、
+    # ⚠ **`super` のあとに読み直すこの override は、「読めない」を `:dead` に化けさせうる**
+    # （上流 `ginseng-core#635` がこの形を名指しで警告している）。
+    #
+    # 🔴 **`:dead` と答えると `run_restart` が `run_stop` を飛ばし、生きている常駐の
+    # 横に 2 本目が立つ。**⚠⚠ **8 時間の配信中なら、そのまま全枠が二重投稿。**
+    #
+    # ⚠ **`super` が `:alive` と答えた直後に読めなくなる形**を作る（1 回目は本物、
+    # 2 回目から `nil`）。⚠⚠ **`pid_file_unreadable?` は「在るのに読めなかった」**。
+    def test_an_unreadable_second_read_is_not_dead
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        reads = [Process.pid]
+        daemon.define_singleton_method(:pid) {reads.shift}
+        daemon.define_singleton_method(:pid_file_unreadable?) {true}
+
+        assert_equal(:unknown, daemon.alive_state)
+        assert_false(daemon.alive?)
+      end
+    end
+
+    # 🔴 **逆に、消えたのなら `:dead`**（Codex の P2）。⚠⚠ **`super` が見たあとに
+    # 常駐が終了して pid ファイルを消した形** — ⚠ **これを `:unknown` と答えると
+    # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
+    # 後継を起動しないまま終わる。**
+    #
+    # ⚠ **`pid_file_unreadable?` は `ENOENT` では立たない**ので、素のままで分かれる。
+    def test_a_vanished_pid_file_is_dead
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        reads = [Process.pid]
+        daemon.define_singleton_method(:pid) {reads.shift}
+
+        assert_false(daemon.pid_file_unreadable?, '前提: 読めなかった記録は無い')
+        assert_equal(:dead, daemon.alive_state)
       end
     end
 
@@ -249,20 +290,43 @@ module Makoto
       end
     end
 
-    # 🔴 **#162。**⚠⚠ **空・壊れた pid ファイルは `0` になり、`0` は truthy** なので
-    # `unless (target = pid)` を素通りする。⚠ **そのまま送ると
+    # 🔴 **#162 の受け皿は上流へ移った**（#257・上流 `ginseng-core#627`）。
+    #
+    # ⚠⚠ **`1.23.5` までは空・壊れた pid ファイルが `0` になり、`0` は truthy なので
+    # `unless (target = pid)` を素通りしていた** — ⚠ **そのまま送ると
     # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM。**
+    # 🔴 **こちらの `stoppable?` がそれを止めていた。**
+    #
+    # ✅ **いまは `run_stop` の冒頭で `abort_stop!` に落ちる**ので、⚠ **`stoppable?` まで
+    # 来ない。**⚠⚠ **pid ファイルは残る**（🔴 **`1.23.5` までは消していた**）— **次の
+    # `run_start` が `write_pid` で原子的に奪うので、残っても詰まらない**（上流 #622）。
+    #
+    # ⚠ **送らないことは変わっていない。**🔴 **確かめるのは「TERM が飛ばないこと」**で、
+    # **どちらの層が止めたかではない。**
     def test_run_stop_does_not_signal_a_broken_pid_file
       ['', "\n", 'abc', '0'].each do |body|
         with_daemon(command: ['sleep', '300']) do |daemon|
           File.write(daemon.pid_file, body)
           with_captured_kill do |sent|
-            daemon.send(:run_stop)
+            assert_raise(SystemExit, "pid file: #{body.inspect}") {daemon.send(:run_stop)}
 
             assert_equal([], sent, "pid file: #{body.inspect}")
-            assert_path_not_exist(daemon.pid_file, "pid file: #{body.inspect}")
+            assert_path_exist(daemon.pid_file, "pid file: #{body.inspect}")
           end
         end
+      end
+    end
+
+    # ⚠⚠ **残した pid ファイルが次の起動を塞がないこと**（上記の帰結の確認）。
+    # 🔴 **上流は「pid として読めない中身」を生死を訊かずに奪う**（#622）ので、
+    # ⚠ **`write_pid` が自分の番号を書けて `run_start` が進む。**
+    def test_a_broken_pid_file_is_reclaimed_by_the_next_start
+      with_daemon(pid: nil) do |daemon|
+        File.write(daemon.pid_file, 'abc')
+
+        assert_nothing_raised {daemon.send(:abort_if_running!)}
+        assert_nothing_raised {daemon.send(:write_pid)}
+        assert_equal(Process.pid, daemon.pid)
       end
     end
 
