@@ -47,12 +47,20 @@ module Makoto
     #
     # ⚠ **`1.23.5` までは踏まなかった** — **`pid` が `File.read(...).to_i` で、
     # 読めなければ例外、空なら `0` だった**（🔴 **`nil` を返す枝そのものが無かった**）。
+    #
+    # 🔴🔴 **ただし `nil` を全部 `:unknown` に倒すと、今度は `restart` が止まる**
+    # （Codex の P2）。⚠⚠ **`super` が見たあとに常駐が終了して pid ファイルを消した**
+    # なら、**それは「読めない」ではなく「もう居ない」** — ⚠ **`:unknown` と答えると
+    # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
+    # **後継を起動しないまま終わる。**
+    #
+    # ⚠ **上流の `alive_state` と同じ分け方にする** — 🔴 **`pid_file_unreadable?` が
+    # 「在るのに読めなかった」だけを指す**（`ENOENT` では立たない）。
     def alive_state
       state = super
       return state unless state == :alive
-      # ⚠⚠ **確かめる番号が無いなら「確かめられなかった」と答える** — 🔴 **`:unknown`
-      # は上流にとって「起動もしないし、停止も飛ばさない」の側。**
-      return :unknown unless (found = pid)
+      # ⚠⚠ **確かめる番号が無いときだけ、読めなかったのか消えたのかを分ける。**
+      return pid_file_unreadable? ? :unknown : :dead unless (found = pid)
       return daemon_pid?(found, proc_dir: @proc_dir) ? :alive : :dead
     end
 

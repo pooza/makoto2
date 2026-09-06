@@ -68,14 +68,31 @@ module Makoto
     # 横に 2 本目が立つ。**⚠⚠ **8 時間の配信中なら、そのまま全枠が二重投稿。**
     #
     # ⚠ **`super` が `:alive` と答えた直後に読めなくなる形**を作る（1 回目は本物、
-    # 2 回目から `nil`）。
+    # 2 回目から `nil`）。⚠⚠ **`pid_file_unreadable?` は「在るのに読めなかった」**。
     def test_an_unreadable_second_read_is_not_dead
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
         reads = [Process.pid]
         daemon.define_singleton_method(:pid) {reads.shift}
+        daemon.define_singleton_method(:pid_file_unreadable?) {true}
 
         assert_equal(:unknown, daemon.alive_state)
         assert_false(daemon.alive?)
+      end
+    end
+
+    # 🔴 **逆に、消えたのなら `:dead`**（Codex の P2）。⚠⚠ **`super` が見たあとに
+    # 常駐が終了して pid ファイルを消した形** — ⚠ **これを `:unknown` と答えると
+    # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
+    # 後継を起動しないまま終わる。**
+    #
+    # ⚠ **`pid_file_unreadable?` は `ENOENT` では立たない**ので、素のままで分かれる。
+    def test_a_vanished_pid_file_is_dead
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        reads = [Process.pid]
+        daemon.define_singleton_method(:pid) {reads.shift}
+
+        assert_false(daemon.pid_file_unreadable?, '前提: 読めなかった記録は無い')
+        assert_equal(:dead, daemon.alive_state)
       end
     end
 

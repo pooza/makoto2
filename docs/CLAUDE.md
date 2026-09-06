@@ -1927,6 +1927,8 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ⚠⚠ **上流がこの形を名指しで警告している**（`Daemon::PidFile#pid_file_unreadable?` のコメント）。🔴 **`run_start` は上流が `abort_if_running!` で先に拒むので届かない** — ⚠ **こちらで塞ぐのは `restart` と `status` の経路**（**`run_restart` は `run_stop unless alive_state == :dead`** なので、**生きている常駐を止めずに 2 本目を立てる**）。✅ **番号が取れなければ `:unknown` を返すようにした。**
 
+⚠⚠ **ただし `nil` を全部 `:unknown` に倒すと、今度は `restart` が止まる**（Codex の P2）。🔴 **`super` が見たあとに常駐が終了して pid ファイルを消した**なら、**それは「読めない」ではなく「もう居ない」** — ⚠ **`:unknown` と答えると `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて後継を起動しないまま終わる。**✅ **上流の `alive_state` と同じく `pid_file_unreadable?` で分けた**（🔴 **`ENOENT` では立たない**）。
+
 🔴 **2. `run_stop` が壊れた pid ファイルを消さなくなった。**⚠⚠ **`1.23.5` までは `pid` が `0` になり、こちらの `stoppable?` が止めて pid ファイルを消していた** — ⚠ **いまは上流が `abort_stop!` で先に止め、pid ファイルは残す。**🔴 **残っても詰まらない**（**次の `run_start` の `write_pid` が「pid として読めない中身」を原子的に奪う** — `#622`）。⚠ **テストの期待をそちらへ寄せ、「奪えること」を 1 本足した。**
 
 ⚠⚠ **どちらも「回避策を上流へ返した先で挙動が変わった」形**（→ #198 / #199 と同じ）。🔴 **`pid&.positive?` の 1 枚は残した** — **上流の保証に寄りかかる守りを 1 枚だけにしない。**
