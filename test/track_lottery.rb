@@ -9,6 +9,58 @@ module Makoto
       return Array.new(count) {lottery.draw}
     end
 
+    def history(size = 3)
+      return TrackHistory.new(
+        post: 'song', size: size,
+        repository: TrackHistoryRepository.new(track_db)
+      )
+    end
+
+    def lottery_with(subject, seed = 20_261_104)
+      return TrackLottery.new(
+        TrackRepository.new(track_db),
+        random: Random.new(seed), history: subject,
+      )
+    end
+
+    # 🔴 **直近に出した曲は引かない**（#41）。
+    def test_never_draws_what_the_history_holds
+      subject = history
+      subject.record(TrackRepository.new(track_db).dataset.first(id: 1001))
+
+      assert_not_include(draws(200, lottery_with(subject)).map {|track| track[:id]}, 1001)
+    end
+
+    # ⚠⚠ **鍵は `dedupe_key`。**🔴 **別名義の行を出しても、同じ曲の代表が外れる。**
+    def test_the_history_hides_the_whole_song
+      subject = history
+      subject.record(TrackRepository.new(track_db).dataset.first(id: 1002))
+
+      assert_not_include(draws(200, lottery_with(subject)).map {|track| track[:id]}, 1001)
+    end
+
+    # 🔴 **避けきれなくなっても沈黙させない**（⚠ **`nil` はその枠が投稿されない**）。
+    def test_gives_up_rather_than_going_silent
+      subject = history(1000)
+      repository = TrackRepository.new(track_db)
+      repository.distinct(repository.linkable).each {|track| subject.record(track)}
+
+      assert_not_nil(lottery_with(subject).draw)
+    end
+
+    # ⚠ **引いただけでは書かない**（🔴 **書くのは `record` を呼んだ側** →
+    # `SongSource#posted`）。⚠⚠ **下見が本番の履歴を汚さないのはこの一線。**
+    def test_drawing_does_not_record
+      subject = history
+      lottery = lottery_with(subject)
+      lottery.draw
+
+      assert_equal(0, subject.count)
+      lottery.record(lottery.draw)
+
+      assert_equal(1, subject.count)
+    end
+
     def test_draw_returns_a_track
       track = lottery.draw
 

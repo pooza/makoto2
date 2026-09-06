@@ -11,19 +11,27 @@ module Makoto
   # ⚠ **ライブ（#13）はこれを使わない。**ライブはセットリストとして組む＝整列であって
   # 抽選ではない（→ [birthday-live.md](../../../docs/birthday-live.md)）。
   #
-  # ⚠ 投稿履歴による重複回避は #41。ここでは扱わない。
+  # 🔴 **最近出した曲は外す**（#41 → `TrackHistory`）。⚠ **外すのは `kind` を選んだ後**
+  # — ⚠⚠ **母集合から先に外すと、小さい `kind` が空になった日だけ重みの分母が変わる**
+  # （**設定した「出る割合」が黙って動く**）。
+  #
+  # ⚠ **履歴を渡さなければ、これまでどおり毎回全部から引く。**
   class TrackLottery
     include Package
 
     WEIGHT_PREFIX = '/track/weight'.freeze
 
-    attr_reader :random
+    attr_reader :random, :history
 
     # ⚠ `random` を差し替えられるようにしてあるのはテストのため。分布を確認する
     # テストは乱数に依存するので、シードを固定できないと落ちたり通ったりする。
-    def initialize(repository = nil, random: Random.new)
+    #
+    # @param history [TrackHistory, nil] ⚠ **最近出した曲を外す口**（#41）。
+    #   🔴 **書くのはここではない**（→ `SongSource#posted`）
+    def initialize(repository = nil, random: Random.new, history: nil)
       @repository = repository || TrackRepository.new
       @random = random
+      @history = history
     end
 
     # 抽選の母集合。
@@ -53,7 +61,15 @@ module Makoto
         raise Ginseng::ConfigError,
           "track: no positive weight for available kinds (#{counts.keys.sort.join(', ')})"
       end
-      return pick_track(records.where(kind: kind))
+      return pick_track(fresh(records.where(kind: kind)))
+    end
+
+    # 🔴 **出した曲を覚える**（#41）。⚠ **呼ぶのは「実際に投稿できた」と分かった側**
+    # （→ `SongSource#posted` / `PostingJob#notify`）。⚠⚠ **引いた時点では書かない** —
+    # **下見が本番の履歴を汚す。**
+    def record(track)
+      return nil unless @history
+      return @history.record(track)
     end
 
     # 設定された重み。
@@ -73,6 +89,15 @@ module Makoto
     end
 
     private
+
+    # 🔴 **最近出した曲を外す**（#41）。⚠ **履歴が無ければ何もしない。**
+    #
+    # ⚠⚠ **外して 1 曲も残らなければ履歴を無視する**（→ `TrackHistory#exclude`）—
+    # ⚠ **`nil` を返すとその枠が沈黙する**ので、**重複を許すほうを採る。**
+    def fresh(records)
+      return records unless @history
+      return @history.exclude(records)
+    end
 
     # 実際に曲がある kind だけを対象に、重みで 1 つ選ぶ。
     #

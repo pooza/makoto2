@@ -59,6 +59,7 @@ module Makoto
       puts "実況の窓: #{CommentaryWindow.new}"
       dump_quiet_days
       dump_prefixes
+      dump_history
       dump_pool
     rescue Ginseng::ConfigError => e
       warn error_message(e)
@@ -95,6 +96,23 @@ module Makoto
       days = size.to_f / slots
       cycle = (days * 10).round / 10.0
       puts "前置きの原稿: #{size} 本（一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日）"
+      return nil
+    end
+
+    # 🔴 **最近出した曲を避けているか**（#41）。⚠⚠ **設定を消せば止まる**ので、
+    # ⚠ **「いま何本ぶん避けているか」がここに出る。**
+    #
+    # ⚠ **記録が窓に満たないうちは、その本数しか避けていない**（🔴 **入れたその日から
+    # 効くわけではない**）。
+    def dump_history
+      history = song.history
+      unless history.enabled?
+        puts '最近出した曲を避ける: 無し（⚠ 同じ曲が続けて出ることがあります）'
+        return nil
+      end
+      last = history.last
+      when_ = last ? "最後は #{last[:posted_at]}" : '⚠ まだ 1 本も出していません'
+      puts "最近出した曲を避ける: #{history}（記録 #{history.count} 本・#{when_}）"
       return nil
     end
 

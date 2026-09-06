@@ -1483,6 +1483,8 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/song.rb` / `song_source.rb` | 日常の曲紹介（#16）の枠と本文。⚠⚠ **曲は抽選・前置きは順送り**（→ 上記「曲紹介は…」） |
 | `app/lib/makoto/rotation.rb` | 用意した原稿を通し番号で順に送る規則（#223）。🔴 **朝挨拶と曲紹介が同じものを使う**（⚠⚠ **同じ規則を 2 箇所に書かない** → #183） |
 | `app/lib/makoto/track_lottery.rb` | `kind` で重み付けした曲の抽選（#11）。⚠ **普段用は BGM が 53%** なので一様には引かない（→ [track-corpus.md](track-corpus.md)） |
+| `app/lib/makoto/track_history.rb` | 最近出した曲を避ける規則（#41）。🔴 **鍵は `track.id` ではなく `dedupe_key`**（⚠ **同じ曲が名義違い・盤違いで複数行ある**）。⚠⚠ **外すのは `kind` を選んだ後**（**先に外すと重みの分母が動く**）。⚠ **書くのは実際に投稿できたときだけ**（→ `PostingJob#notify`・**下見は履歴を汚さない**） |
+| `app/lib/makoto/model/track_history_repository.rb` | 履歴の行の出し入れ（#41）。⚠ **判断は持たない。**⚠⚠ **並びは `posted_at` ではなく `id`**（**同じ秒に 2 行入ると順序が決まらない**） |
 | `app/lib/makoto/script_rotation.rb` | 原稿を枠の順に頭から消化する `source`。⚠ **1 日に何本も出す枠で `MessageSelector` の乱択を使わないための層** |
 | `app/lib/makoto/hashtag_source.rb` | 本文の最終行にハッシュタグを足す `source`（#64）。⚠ **原稿の側に書き足さない**（曲の投稿は原稿ではないので、書き足す形にすると曲だけ付かない）。⚠⚠ **本文が無ければタグも出さない**。⚠ **組み立ては上流の `Ginseng::Fediverse::TagContainer`**（本文に既にあるタグは足さない・#124） |
 | `app/lib/makoto/script_importer.rb` | ファイルに書いた原稿を `message` へ取り込む（#50）。⚠⚠ **原稿は DB の行で git 管理下に無い**ので、これが無いと `bydo` に入れた台本が本番へ運ばれない |

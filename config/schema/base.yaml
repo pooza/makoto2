@@ -306,6 +306,19 @@ properties:
         type: array
         items:
           type: string
+      # 🔴 最近出した曲を避ける（#41・省略可）。⚠ 消せば止まる（#77）。
+      #
+      # ⚠⚠ ここで型を決めておくこと。Song#history_size は to_i で読むので、
+      # 'nope' と書いても 0 になって「重複回避が黙って外れる」形になる
+      # （Codex の P2）。⚠ 負の数も同じ。
+      history:
+        type: object
+        properties:
+          size:
+            type: integer
+            minimum: 0
+        required:
+          - size
       timetable:
         $ref: '#/definitions/timetable'
     required:
