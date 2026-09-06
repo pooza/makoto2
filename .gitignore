@@ -13,3 +13,7 @@ Desktop.ini
 *.swp
 .vscode
 .claude
+
+# ⚠ tools/ の Python が作る中間ファイル。走らせるたびに diff に出る（2026-09-06 に追跡から外した）
+__pycache__/
+*.pyc
