@@ -1635,14 +1635,15 @@ bin/makoto corpus stat     # 件数を確認する
 
    ⚠ **これでも間に合わせ**（🔴 **reflog は「置き換えた時刻」であって「常駐が読み込んだ SHA」ではない**）。⚠⚠ **確実な形は「起動時に読み込んだ SHA を常駐自身がログに出す」** — ⚠ **いまの heartbeat は `version` しか持たない**（→ **#242**）。
 
-   🔴 **実機に届かない日がある**（2026-09-06 に踏んだ）。⚠⚠ **`bydo` / `rubicon` は `192.168.100.0/24` の LAN の中**なので、**その LAN の外（テザリングなど）からは名前も引けない** — ⚠ **`ssh: Could not resolve hostname bydo`。**🔴 **VPN は無い。**
+   🔴 **実機に届かない日がある**（2026-09-06 に踏んだ）。⚠⚠ **`bydo` / `rubicon` は自宅 LAN の中の箱で、名前を引くのもその LAN の DNS**（→ 上記「実行環境」・**アドレスと接続情報の正本は chubo2 のインフラノート**）。⚠ **LAN の外（テザリングなど）からは名前解決の段階で落ちる** — 🔴 **VPN は無い。**
 
    ⚠ **その日は「見なかった」ではなく「見られなかった」と書く。**⚠⚠ **この手順の 3 点（`git reflog` / `ActiveEnterTimestamp` / `heartbeat`）は丸ごと持ち越しになる**ので、🔴 **モンキーテスト待ちの Issue は 1 件も閉じられない。**
 
-   ⚠ **判定はこれで足りる**（🔴 **名前が引けなければ、その先は全部無駄**）:
+   ⚠ **判定は名前解決で足りる**（🔴 **引けなければ、その先は全部無駄**）:
 
    ```sh
-   getent hosts bydo.b-shock.local >/dev/null || echo '⚠ LAN の外。実機の確認は持ち越し'
+   # ⚠ ホスト名は ~/.ssh/config の Host 行から取る（このリポジトリには書かない）
+   getent hosts "$MAKOTO_DEV_HOST" >/dev/null || echo '⚠ LAN の外。実機の確認は持ち越し'
    ```
 
 4. **Dependabot セキュリティアラート** — `gh api repos/pooza/makoto2/dependabot/alerts`
