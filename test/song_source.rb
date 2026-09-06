@@ -30,6 +30,62 @@ module Makoto
       end
     end
 
+    # 🔴 **引いただけでは履歴に書かない**（#41）。
+    #
+    # ⚠⚠ **下見（`makoto song preview`）はここを通る**ので、⚠ **引いた時点で書くと
+    # 読むだけのつもりの下見が、次に出る曲を変える。**
+    def test_drawing_alone_does_not_touch_the_history
+      subject = song
+      subject.source.call(jst(9, 1))
+
+      assert_equal(0, subject.history.count)
+    end
+
+    # 🔴 **出せたと言われて初めて書く**（→ `PostingJob#notify`）。
+    def test_posted_records_the_song_that_went_out
+      expected = Song.new(repository: @repository, tracks: @tracks, random: Random.new(20_261_104))
+        .lottery.draw
+      subject = song
+      subject.source.call(jst(9, 1))
+      subject.source.posted(jst(9, 1))
+
+      assert_equal([expected[:dedupe_key]], subject.history.recent_keys)
+    end
+
+    # ⚠ **枠が食い違えば書かない。**⚠⚠ **`tick` は重なりうる**ので、**`call` と
+    # `posted` のあいだに別の枠が割り込むことがある** — 🔴 **1 本書き漏らすほうが、
+    # 違う曲を「出した」と覚えるより害が小さい。**
+    def test_posted_ignores_a_slot_it_did_not_draw
+      subject = song
+      subject.source.call(jst(9, 1))
+      subject.source.posted(jst(9, 2))
+
+      assert_equal(0, subject.history.count)
+    end
+
+    # ⚠ **同じ枠を 2 回言われても 1 本しか書かない**（`PostingJob#claim` の裏側）。
+    def test_posted_records_once
+      subject = song
+      subject.source.call(jst(9, 1))
+      subject.source.posted(jst(9, 1))
+      subject.source.posted(jst(9, 1))
+
+      assert_equal(1, subject.history.count)
+    end
+
+    # 🔴 **出した曲は次の抽選から外れる**（#41 の完了条件）。
+    def test_the_song_that_went_out_is_not_drawn_again
+      subject = song
+      subject.source.call(jst(9, 1))
+      subject.source.posted(jst(9, 1))
+      key = subject.history.recent_keys.first
+
+      assert_not_include(
+        Array.new(50) {subject.lottery.draw[:dedupe_key]},
+        key,
+      )
+    end
+
     # ⚠⚠ **前置きが 0 件でも壊れない。**🔴 **原稿を書く前から機能として成立する**
     # （**曲だけを出す**）。
     def test_without_a_prefix_the_song_stands_alone

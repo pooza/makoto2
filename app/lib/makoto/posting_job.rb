@@ -196,10 +196,30 @@ module Makoto
       )
       logger.info(post: @name, slot: format_slot(slot), status_id: response['id'])
       record(:success, slot)
+      notify(slot)
       return response
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
       record(:failure, slot)
+      return nil
+    end
+
+    # 🔴 **`source` に「その枠は実際に出た」と伝える**（#41）。⚠ **要らなければ
+    # 実装しなくてよい**（`respond_to?` で見る）。
+    #
+    # ⚠⚠ **これがあるのは「下見が実機を動かさない」ため。**🔴 **下見は `PostingJob` を
+    # 通らない**ので、⚠ **`source` の側で「引いた」ときに書くと、`makoto song preview`
+    # が本番の履歴を汚す**（**読むだけのつもりの下見が、次に出る曲を変える**）。
+    #
+    # ⚠ **成功したときだけ呼ぶ。**⚠⚠ **失敗した枠は誰も見ていない**ので、
+    # **その曲を「出した」とは数えない。**
+    #
+    # ⚠ **ここで落ちても投稿の側を巻き込まない**（`record` と同じ判断）。
+    def notify(slot)
+      return nil unless @source.respond_to?(:posted)
+      return @source.posted(slot)
+    rescue => e
+      logger.error(post: @name, slot: format_slot(slot), error: e)
       return nil
     end
 

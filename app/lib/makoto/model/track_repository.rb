@@ -8,6 +8,10 @@ module Makoto
   # ライブ用 vocal は 194 行に対して曲名ユニークが 134 しかない。8 時間の枠が
   # 埋まるかどうかは行数ではなく `dedupe_key` の数で見る（→ #13）。
   class TrackRepository
+    # ⚠ **履歴（#41）の口を同じ DB に揃えるためだけに公開している**（→ `Song#history`）。
+    # 🔴 **これが無いと、メモリ DB で走るテストの履歴だけが開発用の DB を掴む。**
+    attr_reader :db
+
     def initialize(db = Database.connection)
       @db = db
     end

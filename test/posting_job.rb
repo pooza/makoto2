@@ -51,6 +51,51 @@ module Makoto
       assert_empty(recorded[:warn])
     end
 
+    # 🔴 **出せたことを `source` に伝える**（#41 → `SongSource#posted`）。
+    #
+    # ⚠⚠ **これがあるのは「下見が実機を動かさない」ため** — ⚠ **下見は `PostingJob` を
+    # 通らない**ので、**引いた時点で履歴に書く形にすると `makoto song preview` が
+    # 本番の履歴を汚す。**
+    def test_tells_the_source_that_the_slot_went_out
+      stub_post
+      source = Struct.new(:posted_slots) do
+        def call(_time = nil)
+          return 'いくよ！'
+        end
+
+        def posted(slot)
+          posted_slots.push(slot)
+        end
+      end.new([])
+      job(source).exec(jst(12, 0))
+
+      assert_equal([jst(12, 0)], source.posted_slots)
+    end
+
+    # ⚠ **失敗した枠は誰も見ていない**ので、🔴 **「出した」とは数えない。**
+    def test_a_failed_post_is_not_reported_to_the_source
+      stub_request(:post, @url).to_return(status: 500)
+      source = Struct.new(:posted_slots) do
+        def call(_time = nil)
+          return 'いくよ！'
+        end
+
+        def posted(slot)
+          posted_slots.push(slot)
+        end
+      end.new([])
+      job(source).exec(jst(12, 0))
+
+      assert_empty(source.posted_slots)
+    end
+
+    # ⚠⚠ **`posted` を実装しない `source` でも落ちない**（ライブも朝挨拶も持たない）。
+    def test_a_source_without_the_hook_is_fine
+      stub_post
+
+      assert_nothing_raised {job.exec(jst(12, 0))}
+    end
+
     def test_posts_at_the_top_of_a_slot
       stub_post
       job.exec(jst(12, 0))

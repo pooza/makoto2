@@ -45,11 +45,15 @@ module Makoto
   # モロヘイヤのタグ付け**であって、**MAKOTO は出していなかった。**
   # ⚠ **したがってここは `HashtagSource` で包まない**（`Live#tagged` と対称）。
   #
-  # ## ⚠⚠ 同じ曲が続けて出ることは、まだ避けられない
+  # ## ✅ 最近出した曲は避ける（#41）
   #
-  # 🔴 **投稿履歴による重複回避は #41。**⚠ **母数の小さい `kind`（`instrumental` は
-  # 32 曲）は 1 曲あたりの露出が `vocal` の約 20 倍**になるので、⚠⚠ **それが入るまでは
-  # 重みを低く保つ**（→ track-corpus.md）。
+  # 🔴 **出した曲を `dedupe_key` で覚え、次の抽選から外す**（→ `TrackHistory`）。
+  # ⚠ **書くのは実際に投稿できたときだけ**（→ `SongSource#posted` / `PostingJob#notify`）
+  # なので、**下見は履歴を汚さない。**
+  #
+  # ⚠⚠ **`/song/history/size` を消せば止まる**（#77）。⚠ **母数の小さい `kind`
+  # （`instrumental` は 32 曲）は 1 曲あたりの露出が `vocal` の約 20 倍**なので、
+  # **窓の広さは母集合のいちばん小さい `kind` で決まる**（→ track-corpus.md）。
   class Song
     include Package
 
@@ -62,10 +66,13 @@ module Makoto
     # @param repository [MessageRepository] テストが差し替えるためだけの口
     # @param tracks [TrackRepository] 同上
     # @param random [Random] 同上（抽選の分布を見るテストはシードを固定する）
-    def initialize(repository: nil, tracks: nil, random: nil)
+    # @param history [TrackHistory] 同上。⚠⚠ **既定は本番の DB を掴む**ので、
+    #   🔴 **メモリ DB で走るテストは必ず渡す**（→ `TrackHistoryRepository`）
+    def initialize(repository: nil, tracks: nil, random: nil, history: nil)
       @repository = repository
       @tracks = tracks
       @random = random
+      @history = history
     end
 
     # 前置きに使う原稿の type。
@@ -91,6 +98,17 @@ module Makoto
       return Array(optional_config("#{PREFIX}/quiet_types", [])).map(&:to_s)
     end
 
+    # 🔴 **直近この本数の曲を避ける**（#41）。⚠ **設定が無ければ避けない**（#77）。
+    def history_size
+      return optional_config("#{PREFIX}/history/size", 0).to_i
+    end
+
+    # ⚠ **出した曲の履歴。**🔴 **枠の名前で分ける**（`NAME` ＝ 冪等キーと同じ根拠）。
+    def history
+      @history ||= TrackHistory.new(post: NAME, size: history_size, repository: history_repository)
+      return @history
+    end
+
     def timetable
       @timetable ||= Timetable.new(
         start: config["#{PREFIX}/timetable/start"],
@@ -106,7 +124,8 @@ module Makoto
     end
 
     def lottery
-      @lottery ||= @random ? TrackLottery.new(@tracks, random: @random) : TrackLottery.new(@tracks)
+      # ⚠ **`random` の既定は `TrackLottery` 側の `Random.new`** と同じもの。
+      @lottery ||= TrackLottery.new(@tracks, random: @random || Random.new, history: history)
       return @lottery
     end
 
@@ -127,6 +146,16 @@ module Makoto
     end
 
     private
+
+    # 🔴 **履歴は曲と同じ DB から読む。**⚠⚠ **`tracks` を差し替えたテストで、履歴だけが
+    # 開発用の DB（`tmp/db/makoto.db`）を掴む形にしない** — ⚠ **投入済みのコーパスを
+    # 壊すうえ、テストの結果が手元の DB の中身で変わる。**
+    #
+    # ⚠ **既定（本番）は `nil` を返す**ので、`TrackHistory` が `Database.connection` を掴む。
+    def history_repository
+      return nil unless @tracks
+      return TrackHistoryRepository.new(@tracks.db)
+    end
 
     def validate
       validate_type

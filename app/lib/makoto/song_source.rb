@@ -12,7 +12,7 @@ module Makoto
   # ⚠⚠ **曲は抽選、前置きは順送り。**🔴 **同じ投稿の中で 2 つの選び方が同居している**
   # ので、⚠ **下見は前置きしか言い当てられない**（→ `SongCommand`）。
   #
-  # ## 🔴 曲は重み付き抽選（#11 → `TrackLottery`）
+  # ## 🔴 曲は重み付き抽選（#11 → `TrackLottery`）＋ 最近出した曲は外す（#41）
   #
   # ⚠ **普段用 4,305 行のうち BGM が 53%。**⚠⚠ **一様に引くと曲紹介がサントラだらけに
   # なる**（→ [track-corpus.md](../../../docs/track-corpus.md)）。
@@ -71,6 +71,10 @@ module Makoto
       @timetable = timetable
       @collection_kinds = Array(collection_kinds).map(&:to_s)
       @quiet_types = Array(quiet_types).map(&:to_s)
+      # 🔴 **直前に引いた曲**（#41）。⚠ **プロセス内だけの記憶**で、
+      # ⚠⚠ **`PostingJob` が「出した」と言ってきたときに履歴へ書くためだけにある**
+      # （`PostingJob#claim` と同じ性格 — **消えても投稿の位置は動かない**）。
+      @drawn = nil
     end
 
     # ⚠ **枠の外・ライブが持つ日・曲が引けなければ nil**（＝その枠は投稿しない）。
@@ -80,7 +84,26 @@ module Makoto
       return nil if quiet?(time)
       track = draw
       return nil unless track
+      @drawn = [time, track]
       return presenter(track, prefix(time)).to_s
+    end
+
+    # 🔴 **その枠が実際に出たときだけ履歴に書く**（#41 → `PostingJob#notify`）。
+    #
+    # ⚠⚠ **下見は `PostingJob` を通らない**ので、**`makoto song preview` は履歴を
+    # 汚さない** — ⚠ **引いたときに書くと、読むだけのつもりの下見が次に出る曲を変える。**
+    #
+    # ⚠ **枠が食い違ったら書かない。**⚠⚠ **`tick` は重なりうる**ので、**`call` と
+    # `posted` のあいだに別の枠が割り込むと、直前に引いた曲が入れ替わっている** —
+    # 🔴 **そのときは 1 本ぶん書き漏らすほうを採る**（**違う曲を「出した」と覚えるより
+    # 害が小さい**）。
+    def posted(slot = nil)
+      drawn = @drawn
+      @drawn = nil
+      return nil unless drawn
+      return nil if slot && drawn.first != slot
+      # ⚠ **履歴を持っているのは `TrackLottery`**（**外す側と覚える側を 1 つにする**）。
+      return @lottery.record(drawn.last)
     end
 
     # 🔴 **その日は他の枠が持っているか**（＝日常の曲紹介は黙る）。
