@@ -61,6 +61,24 @@ module Makoto
       subject.source.posted(jst(9, 2))
 
       assert_equal(0, subject.history.count)
+      subject.source.posted(jst(9, 1))
+
+      assert_equal(1, subject.history.count)
+    end
+
+    # 🔴 **枠が重なっても両方とも残る**（Codex の P2）。
+    #
+    # ⚠⚠ **`tick` は重なりうる**ので、**12:00 の投稿が飛んでいるあいだに 19:00 の枠が
+    # `call` を通りうる**（`PostingJob#claim` は新しい枠を通す）。⚠ **直前の 1 つしか
+    # 覚えないと、先に返ってきた 12:00 が 19:00 のぶんを消し、両方とも履歴に残らない。**
+    def test_two_slots_in_flight_are_both_recorded
+      subject = song
+      subject.source.call(jst(9, 1, 12))
+      subject.source.call(jst(9, 1, 19))
+      subject.source.posted(jst(9, 1, 12))
+      subject.source.posted(jst(9, 1, 19))
+
+      assert_equal(2, subject.history.count)
     end
 
     # ⚠ **同じ枠を 2 回言われても 1 本しか書かない**（`PostingJob#claim` の裏側）。

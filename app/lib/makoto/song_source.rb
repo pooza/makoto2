@@ -60,6 +60,10 @@ module Makoto
   class SongSource
     include Package
 
+    # 🔴 **同時に覚えておく枠の数**（#41・Codex の P2）。⚠ **実際に飛んでいるのは
+    # 1 か 2 だが、下見は `posted` を呼ばないので上限が要る。**
+    PENDING_LIMIT = 8
+
     # @param lottery [TrackLottery] 曲を引く口
     # @param selector [MessageSelector] 前置きを引く口
     # @param timetable [Timetable] 枠。⚠ **通し番号を出すのに要る**
@@ -71,10 +75,16 @@ module Makoto
       @timetable = timetable
       @collection_kinds = Array(collection_kinds).map(&:to_s)
       @quiet_types = Array(quiet_types).map(&:to_s)
-      # 🔴 **直前に引いた曲**（#41）。⚠ **プロセス内だけの記憶**で、
+      # 🔴 **引いた曲を枠ごとに覚える**（#41）。⚠ **プロセス内だけの記憶**で、
       # ⚠⚠ **`PostingJob` が「出した」と言ってきたときに履歴へ書くためだけにある**
       # （`PostingJob#claim` と同じ性格 — **消えても投稿の位置は動かない**）。
-      @drawn = nil
+      #
+      # 🔴 **1 つでは足りない**（Codex の P2）。⚠⚠ **`tick` は重なりうる**ので、
+      # **12:00 の投稿が飛んでいるあいだに 19:00 の枠が `call` を通りうる**
+      # （`claim` は新しい枠を通す）— ⚠ **1 つしか持たないと、先に返ってきた
+      # 12:00 が 19:00 のぶんを消し、両方とも履歴に残らない。**
+      @drawn = {}
+      @drawn_mutex = Mutex.new
     end
 
     # ⚠ **枠の外・ライブが持つ日・曲が引けなければ nil**（＝その枠は投稿しない）。
@@ -84,7 +94,7 @@ module Makoto
       return nil if quiet?(time)
       track = draw
       return nil unless track
-      @drawn = [time, track]
+      remember(time, track)
       return presenter(track, prefix(time)).to_s
     end
 
@@ -93,17 +103,13 @@ module Makoto
     # ⚠⚠ **下見は `PostingJob` を通らない**ので、**`makoto song preview` は履歴を
     # 汚さない** — ⚠ **引いたときに書くと、読むだけのつもりの下見が次に出る曲を変える。**
     #
-    # ⚠ **枠が食い違ったら書かない。**⚠⚠ **`tick` は重なりうる**ので、**`call` と
-    # `posted` のあいだに別の枠が割り込むと、直前に引いた曲が入れ替わっている** —
-    # 🔴 **そのときは 1 本ぶん書き漏らすほうを採る**（**違う曲を「出した」と覚えるより
-    # 害が小さい**）。
-    def posted(slot = nil)
-      drawn = @drawn
-      @drawn = nil
-      return nil unless drawn
-      return nil if slot && drawn.first != slot
+    # ⚠ **その枠で引いた曲だけを書く。**🔴 **引いていない枠を言われたら何もしない**
+    # （⚠⚠ **他の枠の曲を「出した」と覚えない**）。
+    def posted(slot)
+      track = @drawn_mutex.synchronize {@drawn.delete(key_of(slot))}
+      return nil unless track
       # ⚠ **履歴を持っているのは `TrackLottery`**（**外す側と覚える側を 1 つにする**）。
-      return @lottery.record(drawn.last)
+      return @lottery.record(track)
     end
 
     # 🔴 **その日は他の枠が持っているか**（＝日常の曲紹介は黙る）。
@@ -158,6 +164,25 @@ module Makoto
     end
 
     private
+
+    # ⚠ **引いた曲を枠ごとに覚える。**
+    #
+    # ⚠⚠ **際限なく溜めない** — 🔴 **下見は 1 プロセスで何十枠も `call` する**
+    # （`makoto song preview --days=30` で 60 枠）。⚠ **下見は `posted` を呼ばない**
+    # ので、**溜めた側から捨てるほかに減る道が無い。**
+    def remember(slot, track)
+      @drawn_mutex.synchronize do
+        @drawn[key_of(slot)] = track
+        @drawn.shift while @drawn.size > PENDING_LIMIT
+      end
+      return track
+    end
+
+    # 🔴 **枠の鍵は `Time` そのものではなく秒。**⚠⚠ **同じ枠を指す `Time` が別の
+    # オブジェクトで来る**（`call` と `posted` は `PostingJob` の別々の行から呼ばれる）。
+    def key_of(slot)
+      return slot.to_i
+    end
 
     # 🔴 **その枠の通し番号。**⚠⚠ **日付だけだと同じ日の 2 本が同じ前置きになる。**
     #
