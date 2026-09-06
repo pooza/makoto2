@@ -169,6 +169,20 @@ module Makoto
       assert_equal(body, subject.call)
     end
 
+    # 🔴 **Shift_JIS の本文を UTF-8 として読み替えない**（Codex の P2・#192）。
+    #
+    # ⚠⚠ **`valid_encoding?` は「そう読めるか」であって「そうである」ではない** —
+    # ⚠ **`'凜々'.encode('Windows-31J')` のバイト列 `EA A3 81 58` は妥当な UTF-8
+    # でもある**ので、**ラベルを貼り替えると `ꣁX` として投稿される。**
+    #
+    # 🔴 **タグが ASCII だけでも通る経路**なので、**いまの設定でも踏む。**
+    def test_does_not_reinterpret_a_shift_jis_body_as_utf8
+      body = '凜々'.encode('Windows-31J')
+
+      assert_equal("#{body}\n#TAG", source(body).call)
+      assert_equal(Encoding::Windows_31J, source(body).call.encoding)
+    end
+
     # ⚠ 枠の頭の時刻はそのまま渡す。
     def test_passes_the_slot_through
       stub = Object.new

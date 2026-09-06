@@ -76,18 +76,24 @@ module Makoto
       return text
     end
 
-    # ⚠ **中身が妥当な UTF-8 と確かめられたときだけラベルを貼り替える。**
+    # ⚠ **ラベルを貼り替えるのは ASCII-8BIT だけ**（🔴 **直したいのはその 1 件** —
+    # **`Sequel` / SQLite が非 ASCII を ASCII-8BIT で返す**）。
     # 🔴 **中身は 1 バイトも変わらない**ので、**投稿するのは元の文字列**のまま。
     #
-    # ⚠⚠ **確かめずに `force_encoding` しない** — **中身を見ないので Shift_JIS の
-    # 本文が壊れたまま UTF-8 を名乗る**（🔴 **上流が「採らない」と決めた形** →
-    # `pooza/ginseng-fediverse#248` / 上記 `create_tags`）。
+    # ⚠⚠ **エンコーディングを名乗っている文字列には触らない**（Codex の P2）。
+    # 🔴 **「妥当な UTF-8 か」だけで決めると、Shift_JIS の本文が黙って化ける** —
+    # ⚠ **`'凜々'.encode('Windows-31J')` は `EA A3 81 58` で、これは妥当な UTF-8
+    # でもある**ので、**貼り替えると `ꣁX` として投稿される。**
+    # ⚠⚠ **`valid_encoding?` は「そう読めるか」であって「そうである」ではない。**
     #
-    # ⚠ **直せないもの（Shift_JIS・不正なバイト列）はここでは何もしない** —
-    # **`join` の `rescue` がタグを諦めて本文を返す。**
+    # ⚠ **ASCII-8BIT は「エンコーディングが分からない」**という意味なので、
+    # **妥当な UTF-8 と確かめられたときに限って UTF-8 と見なしてよい。**
+    #
+    # ⚠ **触らなかったもの（Shift_JIS・不正なバイト列）は `join` に任せる** —
+    # 🔴 **タグが ASCII だけなら普通に繋がり、非 ASCII なら `rescue` がタグを諦める。**
     def utf8(text)
       text = text.to_s
-      return text if text.encoding == Encoding::UTF_8
+      return text unless text.encoding == Encoding::ASCII_8BIT
       utf8 = text.dup.force_encoding(Encoding::UTF_8)
       return utf8.valid_encoding? ? utf8 : text
     end
