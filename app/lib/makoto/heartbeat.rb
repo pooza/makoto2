@@ -26,6 +26,37 @@ module Makoto
   # 成功に数えると、⚠ **#77 の「設定を消すと枠の中で例外が上がる」形が中立に紛れる**
   # （その経路も本文が nil になるため）。**だから `source` の失敗と空の本文を、
   # `PostingJob` の側で分けている。**
+  #
+  # ## 🔴 結末は枠ごとに持つ（#86）
+  #
+  # ⚠⚠ **`failures` を全枠で 1 つにしていたので、どれか 1 つが成功すると 0 に戻った。**
+  # 🔴 **`0.5` で毎日必ず成功する枠が 3 つ増える**（`morning` 08:00 / `song` 12:00・19:00）
+  # ので、⚠ **他の枠の連敗が 1 日 3 回打ち消され、`failure_limit` に構造的に届かなくなる。**
+  #
+  # ⚠ **いちばん痛い形**（**11/1〜11/3 の予告が毎日落ちる場合**）:
+  #
+  # ```
+  # 08:00 morning 成功(0) → 10:00 announcement 失敗(1) → 12:00 song 成功(0) → 19:00 song 成功(0)
+  # ```
+  #
+  # 🔴 **永久に 1 を超えない。**⚠⚠ **`/healthz/posting` は 200、`makoto status` は
+  # 今日の成功を出す**ので**健全に見える** — **締め切りそのものの機能が、無警告で
+  # 3 日間出ないことになる。**
+  #
+  # ⚠ **v0.4.1 までは効いていた**（**平常日に投稿する枠が `announcement` だけ**だった
+  # ので **11/01 → 1、11/02 → 2、11/03 10:00 で 3** に達していた）。🔴 **`0.5` がその
+  # 検知を消すので、`0.5` で直す**（2026-09-08・`0.5` のリリース前レビューの赤 2）。
+  #
+  # ⚠⚠ **したがって結末は `posts` の下に枠の名前で分けて持ち、`record_success` は
+  # 自分の名前だけ 0 に戻す。**⚠ **`failures` は全枠の最大**（**どれか 1 つでも
+  # 閾値に達していれば鳴らす**）。
+  #
+  # ⚠ **`posted_at` / `failed_at` は全枠のものを残す**（**`status` の「最後に投稿できた
+  # のはいつか」は枠を跨いだ話**）。🔴 **枠ごとの時刻は `posts` の中にも持つ。**
+  #
+  # ⚠⚠ **版を上げた最初の 1 回は、古い痕跡の `failures` を引き継がない**（**どの枠の
+  # ぶんだったか分からない**）。⚠ **痕跡は観測のためだけのもので、消しても動作は
+  # 変わらない**（上記）ので、**そこは数え直しでよい。**
   class Heartbeat
     include Package
 
@@ -59,9 +90,17 @@ module Makoto
     # まだ要る。**
     #
     # ⚠ **覚える数を絞るのは、痕跡を無限に太らせないため。**同じ枠が重なるのは拾う幅
-    # （数秒）の内側だけなので、⚠⚠ **その間に来うる枠の数＝登録されたジョブの本数を
-    # 上回っていれば足りる**（いまは 5 本）。
+    # （数秒）の内側だけなので、⚠⚠ **その間に来うる枠の数を上回っていれば足りる。**
+    #
+    # 🔴 **#86 で枠ごとに分けたので、いま数えるのは「1 つの枠が拾う幅の内側で重なる
+    # 回数」**（**ライブの 3 分間隔でも 1〜2**）。⚠ **32 は以前の「全枠ぶん」の名残で、
+    # 余裕は十分。**⚠⚠ **本数を書かない** — **枠は増える**（→ `feedback` の
+    # 「数字ではなく数え方を置く」）。
     COUNTED_SLOTS = 32
+
+    # ⚠ **枠の名前が渡らなかったときの入れ物。**⚠⚠ **テストと、名前を持たない
+    # 呼び出しが 1 つの束に入る** — 🔴 **`PostingJob` は必ず名前を渡す。**
+    UNNAMED_POST = '-'.freeze
 
     class << self
       # ⚠ **テストは別のファイルに落とす。**`Environment.db` と同じ理由で、稼働中の
@@ -130,9 +169,16 @@ module Makoto
       end
 
       # 枠が 1 つ投稿できた。⚠ **失敗の数を 0 に戻す。**
-      def record_success(now: nil)
+      #
+      # 🔴 **戻すのは自分の枠だけ**（#86）。⚠⚠ **全枠まとめて戻すと、毎日必ず成功する
+      # 枠が他の枠の連敗を打ち消す**（→ このクラスの冒頭「結末は枠ごとに持つ」）。
+      #
+      # @param post [String] 枠の名前（`PostingJob#name`）。⚠ **省くと 1 つの束に入る**
+      def record_success(post: nil, now: nil)
+        time = (now || Time.now).getutc.iso8601
         return update do |record|
-          record.merge(posted_at: (now || Time.now).getutc.iso8601, failures: 0, slots: [])
+          cleared = merge_post(record, post, failures: 0, slots: [], posted_at: time)
+          cleared.merge(posted_at: time)
         end
       end
 
@@ -143,20 +189,45 @@ module Makoto
       # 本数で見る** — MAKOTO は平常日に数本しか投稿しないので、**時間で見ると
       # ライブ当日（3 分間隔）と平常日で意味が変わってしまう。**
       #
+      # @param post [String] 枠の名前（`PostingJob#name`）。⚠ **省くと 1 つの束に入る**
       # @param slot [String] 枠の識別子（`PostingJob#idempotency_key`）。
       #   ⚠⚠ **同じ枠を 2 度数えない**（→ `COUNTED_SLOTS`）。⚠ **省くと毎回数える。**
-      def record_failure(slot: nil, now: nil)
+      def record_failure(post: nil, slot: nil, now: nil)
+        time = (now || Time.now).getutc.iso8601
         return update do |record|
-          time = (now || Time.now).getutc.iso8601
-          counted = Array(record[:slots])
+          current = post_record(record, post)
+          counted = Array(current[:slots])
           # ⚠ 既に数えた枠なら、時刻だけ進めて数は据え置く。
-          next record.merge(failed_at: time) if slot && counted.include?(slot)
-          record.merge(
+          if slot && counted.include?(slot)
+            next merge_post(record, post, failed_at: time).merge(failed_at: time)
+          end
+          values = {
             failed_at: time,
-            failures: record[:failures].to_i + 1,
+            failures: current[:failures].to_i + 1,
             slots: slot ? counted.push(slot).last(COUNTED_SLOTS) : counted,
-          )
+          }
+          merge_post(record, post, **values).merge(failed_at: time)
         end
+      end
+
+      # 🔴 **枠ごとの結末を読む**（#86）。⚠ **無ければ空。**
+      def post_record(record, post)
+        found = record[:posts]
+        return {} unless found.is_a?(Hash)
+        return found[post_key(post)] || {}
+      end
+
+      # ⚠ **枠ごとの結末を書き換えた痕跡を返す**（元の Hash は触らない）。
+      def merge_post(record, post, **values)
+        posts = record[:posts].is_a?(Hash) ? record[:posts] : {}
+        key = post_key(post)
+        return record.merge(posts: posts.merge(key => (posts[key] || {}).merge(values)))
+      end
+
+      # ⚠⚠ **痕跡は `symbolize_names: true` で読む**ので、**枠の名前も Symbol に揃える。**
+      # 🔴 **揃えないと、書いたものが次の起動で読めない。**
+      def post_key(post)
+        return post.presence&.to_s&.to_sym || UNNAMED_POST.to_sym
       end
 
       # ⚠ **読んで書き直す。**⚠⚠ **`read` ではなく `stored` から読む** — 時刻の欠けた
@@ -201,8 +272,28 @@ module Makoto
       end
 
       # 最後の成功からの、連続した失敗の数。⚠ **読めなければ 0**（→ `Health`）。
+      #
+      # 🔴 **全枠の最大**（#86）。⚠⚠ **合計にしない** — **閾値は「1 つの枠が続けて
+      # 落ちている」を見るもの**で、**別々の枠が 1 回ずつ落ちたのとは意味が違う。**
       def failures
-        return stored[:failures].to_i
+        return posts.values.map {|v| v[:failures].to_i}.max || 0
+      end
+
+      # 枠ごとの結末。⚠ **読めなければ空**（→ `Health`）。
+      def posts
+        found = stored[:posts]
+        return {} unless found.is_a?(Hash)
+        return found
+      end
+
+      # 🔴 **閾値に達している枠の名前と回数**（#86）。⚠ **`failing?` の根拠を出す口。**
+      def failing_posts(limit: nil)
+        threshold = limit || failure_limit
+        return posts.filter_map do |name, value|
+          count = value[:failures].to_i
+          next nil if count < threshold
+          [name.to_s, count]
+        end.to_h
       end
 
       # 最後に投稿できた時刻／最後に落ちた時刻。⚠ **一度も無ければ nil。**

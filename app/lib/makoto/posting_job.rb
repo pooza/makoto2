@@ -230,8 +230,8 @@ module Makoto
     # （初回 tick と `every` の重なり・再起動）ので、**成功だけ Mastodon 側で畳まれて
     # 失敗が二重に数えられると、落ちた枠 1 つで閾値を 2 つ消費する**（#81）。
     def record(outcome, slot)
-      return Heartbeat.record_success if outcome == :success
-      return Heartbeat.record_failure(slot: idempotency_key(slot))
+      return Heartbeat.record_success(post: @name) if outcome == :success
+      return Heartbeat.record_failure(post: @name, slot: idempotency_key(slot))
     rescue => e
       logger.error(post: @name, heartbeat: outcome, error: e)
       return nil

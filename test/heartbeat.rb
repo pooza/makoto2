@@ -136,11 +136,43 @@ module Makoto
     # 書き直す側は `stored` を見るため。
     def test_update_keeps_the_record_without_time
       FileUtils.mkdir_p(File.dirname(Heartbeat.path))
-      File.write(Heartbeat.path, {failures: 2}.to_json)
+      File.write(Heartbeat.path, {posts: {Heartbeat::UNNAMED_POST => {failures: 2}}}.to_json)
       Heartbeat.record_failure(now: now)
 
       assert_nil(Heartbeat.read)
       assert_equal(3, Heartbeat.failures)
+    end
+
+    # 🔴 **#86 の本体。**⚠⚠ **枠が違えば、成功しても他の枠の連敗は 0 に戻らない。**
+    # ⚠ **`0.5` は毎日必ず成功する枠を 3 つ増やす**ので、**まとめて戻すと閾値に
+    # 構造的に届かなくなる**（→ `Heartbeat` の「結末は枠ごとに持つ」）。
+    def test_a_success_does_not_clear_another_posts_failures
+      Heartbeat.record_failure(post: 'announcement', slot: 'announcement-1', now: now)
+      Heartbeat.record_success(post: 'morning', now: now + 60)
+      Heartbeat.record_failure(post: 'announcement', slot: 'announcement-2', now: now + 120)
+      Heartbeat.record_success(post: 'song', now: now + 180)
+
+      assert_equal(2, Heartbeat.failures)
+      assert_equal({'announcement' => 2}, Heartbeat.failing_posts(limit: 2))
+    end
+
+    # ⚠ **自分の枠の成功は、自分の連敗だけを 0 に戻す。**
+    def test_a_success_clears_its_own_posts_failures
+      Heartbeat.record_failure(post: 'announcement', slot: 'announcement-1', now: now)
+      Heartbeat.record_failure(post: 'announcement', slot: 'announcement-2', now: now + 60)
+      Heartbeat.record_success(post: 'announcement', now: now + 120)
+
+      assert_equal(0, Heartbeat.failures)
+      assert_equal({}, Heartbeat.failing_posts(limit: 1))
+    end
+
+    # 🔴 **合計にしない。**⚠⚠ **別々の枠が 1 回ずつ落ちたのと、1 つの枠が続けて
+    # 2 回落ちたのは意味が違う** — **閾値が見るのは後者。**
+    def test_failures_is_the_maximum_not_the_sum
+      Heartbeat.record_failure(post: 'announcement', slot: 'announcement-1', now: now)
+      Heartbeat.record_failure(post: 'song', slot: 'song-1', now: now + 60)
+
+      assert_equal(1, Heartbeat.failures)
     end
 
     # ⚠⚠ **同じ枠は 1 回しか数えない**（#81）。⚠ **時刻だけは進める**（最後に落ちた
@@ -172,7 +204,9 @@ module Makoto
       (Heartbeat::COUNTED_SLOTS + 10).times {|i| Heartbeat.record_failure(slot: "live-#{i}", now: now)}
 
       assert_equal(Heartbeat::COUNTED_SLOTS + 10, Heartbeat.failures)
-      assert_equal(Heartbeat::COUNTED_SLOTS, Heartbeat.stored[:slots].size)
+      slots = Heartbeat.stored[:posts][Heartbeat::UNNAMED_POST.to_sym][:slots]
+
+      assert_equal(Heartbeat::COUNTED_SLOTS, slots.size)
     end
 
     # ⚠⚠ **書き込み中の痕跡を読ませない**（#81 のレビュー指摘）。`File.write` は
