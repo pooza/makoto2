@@ -106,11 +106,15 @@ module Makoto
     #
     # ⚠ **バージョン違いはここで 1 曲に寄せる**（#118）。⚠⚠ **`distinct` を通しても
     # 残る**のは、`dedupe_key` が括弧の中身を残すから（→ `TrackName`）。
+    #
+    # 🔴 **`own?` の 2 段目は落とした**（#183・2026-09-07）。⚠⚠ **`OwnCredit.records`
+    # が粗い絞り込みだった頃は、混ざった他人の曲をここで落としていた** — ⚠ **いまは
+    # `records` 自身が `own?` で判定するので、通ってくる行はすべて `live` か本人名義。**
+    # ⚠⚠ **同じ規則を 2 度書かない**（→ `OwnCredit`・**そのための切り出しだった**）。
     def songs
       @songs ||= dedupe_versions(
         distinct(@repository.by_kind('vocal', OwnCredit.records(@repository)))
           .order(:release_date, :id).all
-          .select {|track| track[:live] || OwnCredit.own?(track[:artist_name])}
           .reject {|track| excluded?(track)},
       )
       return @songs
