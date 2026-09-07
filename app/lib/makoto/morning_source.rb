@@ -79,9 +79,7 @@ module Makoto
     def call(time = nil)
       time ||= Time.now
       record, dated = choose(time)
-      # ⚠ **`list` は `MessageSelector#call` を通らない**ので、⚠⚠ **予約された日に
-      # 引けなかったときの警告はここから呼ぶ**（→ `ScriptRotation` と同じ・#114）。
-      return @selector.report_silence(time) unless record
+      return report_silence(time) unless record
       return [greeting_for(record, dated), record[:body]].compact.join("\n")
     end
 
@@ -92,6 +90,32 @@ module Makoto
     end
 
     private
+
+    # 🔴 **引けなかったら黙らない**（2026-09-08・`0.5` のレビューの赤）。
+    #
+    # ⚠ **`list` は `MessageSelector#call` を通らない**ので、⚠⚠ **予約された日に
+    # 引けなかったときの警告はここから呼ぶ**（→ `ScriptRotation` と同じ・#114）。
+    #
+    # 🔴 **それだけでは足りない。**⚠⚠ **`report_silence` はその日が
+    # `/message/anniversary` に登録されていなければ黙る** — ⚠ **`morning` は
+    # **登録してはいけない** type（登録すると通年の段から外れる → `Morning#validate_type`）
+    # なので、**この枠では 1 年のほとんどで 1 行も出ない。**
+    #
+    # ⚠ **その先は `PostingJob#exec` の `debug`**（平常日に 171 行出るため）で、
+    # `/logger/level: info` では出力されない。🔴 **`Heartbeat` は「本文が無い」を
+    # 中立に扱う**ので `failures` も動かず、**毎朝 08:00 に何も出ないまま全計器が緑**
+    # になる。
+    #
+    # ⚠⚠ **#114 が想定していなかったのは「毎日出る枠」で、そこはこの版で初めて増えた。**
+    # ⚠ **曲紹介は同じ判断を自前で書いている**（→ `SongSource#draw`）。
+    #
+    # ⚠ **予約された日（11/1〜11/4）は 2 行出る** — 🔴 **片方は「どの type が予約
+    # されていたか」を持つので、畳まずに両方残す。**
+    def report_silence(time)
+      @selector.report_silence(time)
+      logger.warn(post: Morning::NAME, message: 'no script for today')
+      return nil
+    end
 
     # その日の原稿と、**日付で勝った段かどうか**。
     #

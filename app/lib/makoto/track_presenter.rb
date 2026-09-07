@@ -72,7 +72,12 @@ module Makoto
     def to_s
       # ⚠ url が無い曲はそもそも母集合から外れている（`TrackRepository#linkable`）が、
       # ここでも空行を作らないようにしておく。
-      return [headline, collection, credit, @track[:url]].compact_blank.join("\n")
+      body = [headline, collection, credit, @track[:url]].compact_blank.join("\n")
+      # 🔴 **組み上げてから当てる**（→ `StatusText`）。⚠⚠ **`#` がタグになるかは
+      # 「本文のどこに居るか」で決まる**ので、**欄ごとに当てても判定できない**
+      # （アルバム名と名義は行頭に来る）。⚠ **`HashtagSource` が足すタグは
+      # この後なので通らない。**
+      return StatusText.escape_unintended(body)
     end
 
     private
