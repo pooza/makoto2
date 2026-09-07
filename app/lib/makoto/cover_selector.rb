@@ -64,16 +64,21 @@ module Makoto
 
     private
 
-    # ⚠ `dedupe_key` が NULL の行を部分集合に混ぜない。**`NOT IN` は NULL が 1 つでも
-    # 混ざると 1 行も返さない**ので、静かに「カバー無し」になる。
-    # 🔴 **本人がメンバーのユニット名義の曲を混ぜない**（#177）。⚠⚠ **`live` フラグは
-    # 収集の産物なので、`キュア・カルテット` 名義の曲は「他の歌手の持ち歌」に見える** —
-    # ⚠ **当たると本人の曲を「（お借りした歌）」として出すことになる**（実測で 4 曲）。
-    # ⚠⚠ **判定は `OwnCredit`**（本編・表示と同じ規則 → `Setlist#own_records`）。
+    # 🔴 **本人の曲を混ぜない**（#177 / #183）。⚠⚠ **`live` フラグは収集の産物**なので、
+    # **`キュア・カルテット` 名義の曲は「他の歌手の持ち歌」に見える** — ⚠ **当たると
+    # 本人の曲を「（お借りした歌）」として出すことになる**（実測で 4 曲）。
+    # ⚠⚠ **判定は `OwnCredit`**（本編・表示と同じ規則 → `Setlist#songs`）。
+    #
+    # 🔴 **外すのは「鍵」で、代表を選ぶ前**（#183・2026-09-07）。⚠⚠ **かつては
+    # `live` の鍵だけを外し、選ばれた代表 1 行を `own?` に掛けていた** — ⚠ **同じ
+    # `dedupe_key` に本人名義の行と他人名義の行が混ざると、本編には本人の曲として
+    # 入り、カバー母集合には他人名義の代表が残る**（🔴 **同じ曲が本編とカバーの
+    # 両方に出て、片方が「（お借りした歌）」になる** ＝ **#177 が塞いだはずの形**）。
+    #
+    # ⚠ `dedupe_key` が NULL の行を部分集合に混ぜない（→ `OwnCredit.keys`）。
     def pool_of_singers
-      live_keys = @repository.live.exclude(dedupe_key: nil).select(:dedupe_key)
-      pool = distinct(@repository.by_kind('vocal')).exclude(dedupe_key: live_keys).order(:id).all
-      pool = pool.reject {|track| OwnCredit.own?(track[:artist_name])}
+      pool = distinct(@repository.by_kind('vocal'))
+        .exclude(dedupe_key: OwnCredit.keys(@repository)).order(:id).all
       return pool.select {|track| @cure_api.singer?(track[:artist_name])}
     end
 

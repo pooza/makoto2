@@ -66,21 +66,43 @@ module Makoto
     # ⚠ **`live` フラグ（seed）は書き換えない**（#63 / #118 と同じ — **並びの都合は
     # 選曲が持ち、データの区分は触らない**）。
     #
-    # ⚠⚠ **SQL では粗く絞るだけ** — **中黒の有無**（`キュア・カルテット` /
-    # `キュアカルテット`）**の両方を `LIKE` に並べ**、🔴 **本当に本人かは呼ぶ側が
-    # `own?` で確かめる**（`Setlist#songs`）。⚠ **粗い絞り込みが混ぜた他人の曲を
-    # 本編に入れないための 2 段。**
+    # 🔴 **判定は `own?` ひとつ**（#183・2026-09-07）。⚠⚠ **かつては SQL の `LIKE` で
+    # 粗く絞ってから `own?` で確かめる 2 段だった**が、⚠ **`LIKE` に並べていたのは
+    # 「設定の綴り」と「中黒を落とした綴り」の 2 つだけ**で、🔴 **`own?` の正規化
+    # （NFKC ＋ 空白除去 ＋ コーラス区画除去 ＋ 中黒除去）とは寄る幅が違った。**
+    #
+    # ⚠⚠ **`キュア･カルテット`（半角中黒）は `own?` が真で `LIKE` が偽** — ⚠ **本編は
+    # ここで落ち、カバー母集合は `own?` で弾くので、どちらにも出ない**（**消えたことに
+    # 気付ける場所が 1 つも無い**）。
+    #
+    # ⚠ **4,305 行を Ruby で判定する。**🔴 **SQL では `own?` と同じ正規化ができない**
+    # 以上、**規則を 2 つ持つより全件を見るほうが安い**（実測で差は出ない）。
+    #
+    # ⚠⚠ **今日は 1 行も結果が変わらない**（実測 2026-09-07・**`own?` が真で `live`
+    # でない vocal 9 行はすべてユニット名義**）。🔴 **変わるのは `own_artists` 名義の
+    # 非 `live` 行が来た日**で、⚠ **そのとき本編に入るのは #177 の規則どおり**
+    # （**`Setlist#songs` の 2 段目が元からそう書いてあった**）。
     def records(repository)
-      patterns = unit_patterns
-      return repository.live if patterns.empty?
-      conditions = patterns.map {|value| Sequel.like(:artist_name, "%#{value}%")}
-      return repository.dataset.where(Sequel.|({live: true}, *conditions))
+      return repository.live if credits.empty?
+      ids = own_ids(repository)
+      return repository.live if ids.empty?
+      return repository.dataset.where(Sequel.|({live: true}, {id: ids}))
     end
 
-    # ⚠ **ユニット名の `LIKE` 用の断片**（中黒ありと中黒なしの両方）。
-    def unit_patterns
-      names = Array(optional_config('/live/setlist/own_units')).compact_blank
-      return names.flat_map {|name| [name, name.gsub(SEPARATORS, '')]}.uniq
+    # ⚠ **`live` でない行のうち、名義が本人のものの id。**
+    def own_ids(repository)
+      return repository.dataset.exclude(live: true).select_map([:id, :artist_name])
+          .select {|_, name| own?(name)}.map(&:first)
+    end
+
+    # 🔴 **本人の曲の `dedupe_key`**（#183）。⚠⚠ **カバー母集合が「代表を選ぶ前に」
+    # 外すために使う** — ⚠ **選ばれた代表 1 行だけを `own?` に掛けると、同じ曲に
+    # 他人名義の行が混ざっていたときに、そちらが代表になって残る。**
+    #
+    # ⚠ **`dedupe_key` が NULL の行は入れない**（🔴 **`NOT IN` は NULL が 1 つでも
+    # 混ざると 1 行も返さない** — **静かに「カバー無し」になる**）。
+    def keys(repository)
+      return records(repository).exclude(dedupe_key: nil).select(:dedupe_key)
     end
 
     # 突き合わせる名義（自分の名義 ＋ 本人がメンバーのユニット）。

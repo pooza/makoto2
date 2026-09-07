@@ -229,6 +229,47 @@ module Makoto
       assert_includes(names(setlist(12).entries), 'ユニットの曲')
     end
 
+    # 🔴 **半角の中黒でも外れない**（#183）。
+    #
+    # ⚠⚠ **かつては SQL の `LIKE` で粗く絞ってから `own?` で確かめる 2 段だった**が、
+    # ⚠ **`LIKE` に並べていたのは「設定の綴り」と「中黒を落とした綴り」の 2 つだけ** —
+    # 🔴 **`own?` は中黒を全部落として比べる**ので、**寄る幅が違った。**
+    #
+    # ⚠ **結果は「どちらにも出ない」** — **本編は `records` で落ち、カバー母集合は
+    # `own?` で弾く。**⚠⚠ **消えたことに気付ける場所が 1 つも無い**ので、**両方を見る。**
+    def test_the_unit_matches_with_a_halfwidth_separator
+      seed(songs: 6, covers: 2)
+      add_cover('ユニットの曲', 'キュア･カルテット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      entries = setlist(12).entries
+
+      assert_includes(names(entries), 'ユニットの曲')
+      assert_empty(entries.select(&:cover?).map {|entry| entry.track[:name]}
+        .grep('ユニットの曲'))
+    end
+
+    # 🔴 **同じ曲に他人名義の行が混ざっていても、カバーに残らない**（#183）。
+    #
+    # ⚠⚠ **本編は `OwnCredit.records` で絞った中から代表を選ぶ**が、⚠ **カバー母集合は
+    # `vocal` 全体の中で最小 id を代表にする** — 🔴 **かつては選ばれた代表 1 行だけを
+    # `own?` に掛けていた**ので、**他人名義の行が代表になると `own?` を素通りした。**
+    #
+    # ⚠⚠ **当たると同じ曲が本編とカバーの両方に出て、片方が「（お借りした歌）」になる**
+    # （**#177 が塞いだはずの形**）。⚠ **他人名義の行を先に足して代表にする。**
+    def test_a_song_with_another_credit_on_the_same_key_never_becomes_a_cover
+      seed(songs: 6, covers: 2)
+      add_cover('名義が割れている曲', '歌手9999')
+      add_cover('名義が割れている曲', 'キュア・カルテット')
+      config['/live/setlist/own_units'] = ['キュア・カルテット']
+
+      entries = setlist(12).entries
+
+      assert_includes(names(entries), '名義が割れている曲')
+      assert_empty(entries.select(&:cover?).map {|entry| entry.track[:name]}
+        .grep('名義が割れている曲'))
+    end
+
     # ⚠⚠ **粗い絞り込みが混ぜた他人の曲を本編に入れない。**
     def test_another_singer_stays_a_cover
       seed(songs: 6, covers: 2)
