@@ -1483,6 +1483,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/song.rb` / `song_source.rb` | 日常の曲紹介（#16）の枠と本文。⚠⚠ **曲は抽選・前置きは順送り**（→ 上記「曲紹介は…」） |
 | `app/lib/makoto/rotation.rb` | 用意した原稿を通し番号で順に送る規則（#223）。🔴 **朝挨拶と曲紹介が同じものを使う**（⚠⚠ **同じ規則を 2 箇所に書かない** → #183） |
 | `app/lib/makoto/track_lottery.rb` | `kind` で重み付けした曲の抽選（#11）。⚠ **普段用は BGM が 53%** なので一様には引かない（→ [track-corpus.md](track-corpus.md)） |
+| `app/lib/makoto/model/track_aliases.rb` | 同じ曲だが表記が違うものの表（#123）。🔴 **訂正表と別物** — **あちらは片方が誤記なので曲名を直し、こちらはどちらも正しいので鍵だけを揃える**（⚠⚠ **投稿に出る曲名は変えない**）。⚠ **読み仮名を持っていないので規則では解けず、数え上げた組を名指しで寄せる** |
 | `app/lib/makoto/track_history.rb` | 最近出した曲を避ける規則（#41）。🔴 **鍵は `track.id` ではなく `dedupe_key`**（⚠ **同じ曲が名義違い・盤違いで複数行ある**）。⚠⚠ **外すのは `kind` を選んだ後**（**先に外すと重みの分母が動く**）。⚠ **書くのは実際に投稿できたときだけ**（→ `PostingJob#notify`・**下見は履歴を汚さない**） |
 | `app/lib/makoto/model/track_history_repository.rb` | 履歴の行の出し入れ（#41）。⚠ **判断は持たない。**⚠⚠ **並びは `posted_at` ではなく `id`**（**同じ秒に 2 行入ると順序が決まらない**） |
 | `app/lib/makoto/script_rotation.rb` | 原稿を枠の順に頭から消化する `source`。⚠ **1 日に何本も出す枠で `MessageSelector` の乱択を使わないための層** |
