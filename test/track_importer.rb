@@ -52,6 +52,91 @@ module Makoto
       assert_equal('日付が壊れている曲', row[:name])
     end
 
+    # ⚠ **別名表だけを足した一時ディレクトリで見る**（`with_corrections` と同じ形）。
+    def with_aliases(entries)
+      Dir.mktmpdir do |dir|
+        [TrackImporter::DAILY, TrackImporter::LIVE].each do |name|
+          FileUtils.cp(File.join(track_fixture_dir, name), File.join(dir, name))
+        end
+        File.write(File.join(dir, TrackAliases::FILE), entries.to_yaml)
+        yield dir
+      end
+    end
+
+    def alias_entry(*names)
+      return {'names' => names, 'noticed' => Date.new(2026, 9, 7), 'reason' => 'テスト'}
+    end
+
+    # 🔴 **表記が違う 2 曲を同じ鍵に寄せる**（#123）。
+    #
+    # ⚠ **フィクスチャの 2 曲に意味は無い**（漢字・かなの実例は `seed/` のほう）。
+    # **表の形が効くことだけを見る。**
+    def test_an_alias_folds_the_dedupe_key
+      with_aliases([alias_entry('しまうまグルグル', 'テストのうた My True Love!')]) do |dir|
+        db = empty_db
+        TrackImporter.new(dir, db: db).exec
+
+        assert_equal(db[:track][id: 1001][:dedupe_key], db[:track][id: 1003][:dedupe_key])
+      end
+    end
+
+    # 🔴 **曲名は 1 文字も変えない**（⚠⚠ **訂正表との決定的な違い** — **どちらも正しい表記**）。
+    def test_an_alias_does_not_touch_the_name
+      with_aliases([alias_entry('しまうまグルグル', 'テストのうた My True Love!')]) do |dir|
+        db = empty_db
+        TrackImporter.new(dir, db: db).exec
+
+        assert_equal('しまうまグルグル', db[:track][id: 1001][:name])
+        assert_equal('テストのうた My True Love!', db[:track][id: 1003][:name])
+      end
+    end
+
+    # ⚠ **先頭が代表**（🔴 **どちらに寄るかが決まっていること**）。
+    def test_the_first_name_wins
+      with_aliases([alias_entry('テストのうた My True Love!', 'しまうまグルグル')]) do |dir|
+        db = empty_db
+        TrackImporter.new(dir, db: db).exec
+
+        assert_equal(
+          TrackImporter.normalize('テストのうた My True Love!'),
+          db[:track][id: 1001][:dedupe_key],
+        )
+      end
+    end
+
+    # 🔴 **1 行も当たらない表記は片付けの合図**（⚠⚠ **訂正表の `fixed` と同じ**）。
+    # ⚠ **黙ると、効いていない行がいつまでも表に残る。**
+    def test_an_unused_alias_is_reported
+      with_aliases([alias_entry('しまうまグルグル', 'そんな曲は無い')]) do |dir|
+        warnings = import_with_warnings(dir, empty_db, 'alias')
+
+        assert_equal(1, warnings.size)
+        assert_equal('unused', warnings.first[:state])
+        assert_equal([TrackImporter.normalize('そんな曲は無い')], warnings.first[:key])
+      end
+    end
+
+    # ⚠ **全部当たっていれば黙る。**
+    def test_a_used_alias_is_not_reported
+      with_aliases([alias_entry('しまうまグルグル', 'テストのうた My True Love!')]) do |dir|
+        assert_empty(import_with_warnings(dir, empty_db, 'alias'))
+      end
+    end
+
+    # 🔴 **`seed/track_aliases.yaml` の 2 組が実際に寄ること**（#123 の実データ）。
+    #
+    # ⚠⚠ **`Setlist#version_key` はこのクラスメソッドを通る**ので、**ここが寄れば
+    # 8 時間の並びでも 1 回になる。**⚠ **NFKC では寄らない**ことも併せて見る。
+    def test_the_shipped_table_folds_the_known_variants
+      [
+        ['五匹の子ぶたとチャールストン', 'ごひきのこぶたとチャールストン'],
+        ['南の島のハメハメハ大王', 'みなみのしまのハメハメハだいおう'],
+      ].each do |kanji, kana|
+        assert_not_equal(TrackImporter.normalize(kanji), TrackImporter.normalize(kana))
+        assert_equal(TrackImporter.dedupe_key(kanji), TrackImporter.dedupe_key(kana))
+      end
+    end
+
     def test_missing_source
       assert_raise(Ginseng::NotFoundError) do
         TrackImporter.new(File.join(track_fixture_dir, 'nowhere'), db: empty_db).exec
@@ -75,7 +160,7 @@ module Makoto
     end
 
     # ⚠ 取り込み中の警告を拾う。**訂正表を片付ける合図が実際に出ること**を見る。
-    def import_with_warnings(dir, db)
+    def import_with_warnings(dir, db, kind = 'correction')
       importer = TrackImporter.new(dir, db: db)
       warnings = []
       logger = Object.new
@@ -83,7 +168,7 @@ module Makoto
       logger.define_singleton_method(:info) {|message| message}
       importer.instance_variable_set(:@logger, logger)
       importer.exec
-      return warnings.select {|message| message[:track] == 'correction'}
+      return warnings.select {|message| message[:track] == kind}
     end
 
     # ⚠⚠ **供給元が間違えた曲名を訂正する**（#58）。⚠ **鍵は訂正後の曲名から作る** —

@@ -86,6 +86,30 @@ module Makoto
       assert_equal(0, other.count)
     end
 
+    # 🔴 **表記ゆれを寄せた日に、履歴だけが古い鍵で残らない**（Codex の P2・#123）。
+    #
+    # ⚠⚠ **別名表を足して `track import` を流すと `track.dedupe_key` は代表の鍵に
+    # 変わる**が、⚠ **`track_history` の鍵は書いた日のまま** — 🔴 **読むときに寄せる。**
+    def test_old_keys_are_read_through_the_alias_table
+      subject = history
+      @history_repository.record('song', TrackImporter.normalize('ごひきのこぶたとチャールストン'))
+
+      assert_equal(
+        [TrackImporter.dedupe_key('五匹の子ぶたとチャールストン')],
+        subject.recent_keys,
+      )
+    end
+
+    # ⚠ **同じ曲の 2 表記が窓に居ても、鍵は 1 つに畳まれる。**
+    def test_two_spellings_collapse_into_one_key
+      subject = history
+      @history_repository.record('song', TrackImporter.normalize('ごひきのこぶたとチャールストン'))
+      @history_repository.record('song', TrackImporter.normalize('五匹の子ぶたとチャールストン'))
+
+      assert_equal(1, subject.recent_keys.size)
+      assert_equal(2, subject.count)
+    end
+
     # ⚠⚠ **書けなくても投稿を落とさない**（`PostingJob#record` と同じ判断）。
     def test_survives_a_broken_repository
       broken = Object.new
