@@ -46,7 +46,7 @@ module Makoto
 
     def recent_keys
       return [] unless enabled?
-      return @repository.recent_keys(@post, @size)
+      return canonicalize(@repository.recent_keys(@post, @size))
     end
 
     # 直近に出した曲を外した母集合。
@@ -90,6 +90,28 @@ module Makoto
     def to_s
       return '無し' unless enabled?
       return "直近 #{@size} 本"
+    end
+
+    private
+
+    # 🔴 **表記ゆれを寄せた日に、履歴だけが古い鍵で残る**（Codex の P2・#123）。
+    #
+    # ⚠⚠ **別名表を足して `track import` を流すと、`track.dedupe_key` は代表の鍵に
+    # 変わる**が、⚠ **`track_history` に書いてある鍵は書いた日のまま。**
+    # 🔴 **`exclude` は文字列で突き合わせる**ので、**寄せた曲だけが窓から外れて、
+    # 入れた直後にまた出うる。**
+    #
+    # ⚠ **行を書き換えるのではなく、読むときに寄せる** — ⚠⚠ **別名表は後から増える**
+    # ので、**移行を 1 回走らせる形にすると、次に足した日にまた同じことが起きる。**
+    def canonicalize(keys)
+      return keys if aliases.empty?
+      return keys.map {|key| aliases.key_for(key) || key}.uniq
+    end
+
+    # ⚠ **取り込みと同じ表を見る**（→ `TrackImporter.default_aliases`）。
+    def aliases
+      @aliases ||= TrackImporter.default_aliases
+      return @aliases
     end
   end
 end
