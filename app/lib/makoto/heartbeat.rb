@@ -98,11 +98,12 @@ module Makoto
     # 「数字ではなく数え方を置く」）。
     COUNTED_SLOTS = 32
 
-    # ⚠ **枠の名前が渡らなかったときの入れ物。**⚠⚠ **テストと、名前を持たない
-    # 呼び出しが 1 つの束に入る** — 🔴 **`PostingJob` は必ず名前を渡す。**
-    UNNAMED_POST = '-'.freeze
-
     class << self
+      # 🔴 **枠ごとの結末を読み書きする口**（#86 → `HeartbeatPosts`）。
+      # ⚠ **`class << self` の中で `include` するので、あちらのメソッドは
+      # `Heartbeat.` で呼べる。**
+      include HeartbeatPosts
+
       # ⚠ **テストは別のファイルに落とす。**`Environment.db` と同じ理由で、稼働中の
       # 痕跡をテストが書き換えると `makoto status` が嘘をつく。
       def path
@@ -210,26 +211,6 @@ module Makoto
         end
       end
 
-      # 🔴 **枠ごとの結末を読む**（#86）。⚠ **無ければ空。**
-      def post_record(record, post)
-        found = record[:posts]
-        return {} unless found.is_a?(Hash)
-        return found[post_key(post)] || {}
-      end
-
-      # ⚠ **枠ごとの結末を書き換えた痕跡を返す**（元の Hash は触らない）。
-      def merge_post(record, post, **values)
-        posts = record[:posts].is_a?(Hash) ? record[:posts] : {}
-        key = post_key(post)
-        return record.merge(posts: posts.merge(key => (posts[key] || {}).merge(values)))
-      end
-
-      # ⚠⚠ **痕跡は `symbolize_names: true` で読む**ので、**枠の名前も Symbol に揃える。**
-      # 🔴 **揃えないと、書いたものが次の起動で読めない。**
-      def post_key(post)
-        return post.presence&.to_s&.to_sym || UNNAMED_POST.to_sym
-      end
-
       # ⚠ **読んで書き直す。**⚠⚠ **`read` ではなく `stored` から読む** — 時刻の欠けた
       # 痕跡は `read` が nil にするので、そちらを使うと**書き直すたびに投稿の結末が
       # 消える。**
@@ -269,31 +250,6 @@ module Makoto
         record = stored
         return nil if record[:at].blank?
         return record
-      end
-
-      # 最後の成功からの、連続した失敗の数。⚠ **読めなければ 0**（→ `Health`）。
-      #
-      # 🔴 **全枠の最大**（#86）。⚠⚠ **合計にしない** — **閾値は「1 つの枠が続けて
-      # 落ちている」を見るもの**で、**別々の枠が 1 回ずつ落ちたのとは意味が違う。**
-      def failures
-        return posts.values.map {|v| v[:failures].to_i}.max || 0
-      end
-
-      # 枠ごとの結末。⚠ **読めなければ空**（→ `Health`）。
-      def posts
-        found = stored[:posts]
-        return {} unless found.is_a?(Hash)
-        return found
-      end
-
-      # 🔴 **閾値に達している枠の名前と回数**（#86）。⚠ **`failing?` の根拠を出す口。**
-      def failing_posts(limit: nil)
-        threshold = limit || failure_limit
-        return posts.filter_map do |name, value|
-          count = value[:failures].to_i
-          next nil if count < threshold
-          [name.to_s, count]
-        end.to_h
       end
 
       # 最後に投稿できた時刻／最後に落ちた時刻。⚠ **一度も無ければ nil。**
@@ -397,10 +353,36 @@ module Makoto
         return count
       end
 
+      # 落ちた記録が警告を出し続ける長さ（秒）。⚠ **設定が無ければ nil ＝ 期限なし。**
+      #
+      # 🔴 **#86 で結末を枠ごとに分けたことの副作用を塞ぐ**（Codex の P2）。
+      # ⚠⚠ **分ける前は「どれか 1 つでも成功すれば 0 に戻る」ので古い失敗が自然に
+      # 掃除されていた** — ⚠ **分けた後は、その枠自身が次に成功するまで消えない。**
+      #
+      # 🔴 **年に 1 日しか動かない枠がある**（`live-eve` / `live-open` / `live-close`）。
+      # ⚠⚠ **その日の最後の枠が落ちると、`/healthz/posting` が翌年まで 503 のまま。**
+      # ⚠ **赤が常態化すると誰も見なくなる**ので、**本物の警告が埋もれる。**
+      #
+      # ⚠ **`optional_config` で読む**（消せば元の「永久」に戻る → #77）。⚠⚠ **ただし
+      # 値が壊れていたら例外**（**黙って期限なしに落ちると、この塞ぎが効かない**）。
+      def failure_stale
+        key = '/scheduler/posting/failure_stale'
+        # ⚠ **`Package#optional_config` はインスタンス側の口**なので、ここは
+        # `config.key?` で同じことをする（→ `Package`）。
+        return nil unless config.key?(key)
+        value = config[key]
+        return nil if value.blank?
+        seconds = Fugit::Duration.parse(value.to_s)&.to_sec
+        unless seconds&.positive?
+          raise Ginseng::ConfigError, "posting: bad failure_stale '#{value}'"
+        end
+        return seconds
+      end
+
       # ⚠ **投稿が続けて落ちているか。**⚠⚠ **本文の無い枠は数に入っていない**ので、
       # **原稿が無いだけの日は何本過ぎても false**（→ このクラスの冒頭の表）。
-      def failing?
-        return failures >= failure_limit
+      def failing?(now: nil)
+        return failing_posts(now: now).any?
       end
 
       private

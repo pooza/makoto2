@@ -136,7 +136,7 @@ module Makoto
     # 書き直す側は `stored` を見るため。
     def test_update_keeps_the_record_without_time
       FileUtils.mkdir_p(File.dirname(Heartbeat.path))
-      File.write(Heartbeat.path, {posts: {Heartbeat::UNNAMED_POST => {failures: 2}}}.to_json)
+      File.write(Heartbeat.path, {posts: {HeartbeatPosts::UNNAMED_POST => {failures: 2}}}.to_json)
       Heartbeat.record_failure(now: now)
 
       assert_nil(Heartbeat.read)
@@ -199,12 +199,50 @@ module Makoto
       assert_equal(1, Heartbeat.failures)
     end
 
+    # 🔴 **#86 が作った後退を塞ぐ**（Codex の P2・2 巡目）。⚠⚠ **枠ごとに分けた結果、
+    # 年に 1 日しか動かない枠（`live-eve` / `live-open` / `live-close`）の失敗が、
+    # その枠自身が次に成功するまで ＝ 翌年まで居座るようになった。**
+    # ⚠ **`/healthz/posting` が 1 年ずっと 503 になる。**
+    def test_a_stale_failure_stops_warning
+      config['/scheduler/posting/failure_stale'] = '7d'
+      3.times {|i| Heartbeat.record_failure(post: 'live-eve', slot: "live-eve-#{i}", now: now)}
+
+      assert_equal({'live-eve' => 3}, Heartbeat.failing_posts(limit: 3, now: now + 60))
+      assert_equal({}, Heartbeat.failing_posts(limit: 3, now: now + (8 * 24 * 60 * 60)))
+    end
+
+    # ⚠ **毎日出る枠は窓が効く前に翌日の成功で消える**ので、この寿命が効くのは
+    # **動かない枠だけ。**
+    def test_a_recent_failure_still_warns
+      config['/scheduler/posting/failure_stale'] = '7d'
+      3.times {|i| Heartbeat.record_failure(post: 'announcement', slot: "announcement-#{i}", now: now)}
+
+      assert_equal({'announcement' => 3}, Heartbeat.failing_posts(limit: 3, now: now + (6 * 24 * 60 * 60)))
+    end
+
+    # ⚠⚠ **設定を消せば元の「その枠が次に成功するまで永久」に戻る**（#77）。
+    def test_without_the_setting_a_failure_never_goes_stale
+      config.delete('/scheduler/posting/failure_stale')
+      3.times {|i| Heartbeat.record_failure(post: 'live-eve', slot: "live-eve-#{i}", now: now)}
+
+      assert_equal({'live-eve' => 3}, Heartbeat.failing_posts(limit: 3, now: now + (400 * 24 * 60 * 60)))
+    end
+
+    # 🔴 **値が壊れていたら例外。**⚠⚠ **黙って「期限なし」に落ちると、この塞ぎが
+    # 効いていないことに気付けない。**
+    def test_a_bad_failure_stale_raises
+      config['/scheduler/posting/failure_stale'] = 'いつか'
+      Heartbeat.record_failure(post: 'live-eve', slot: 'live-eve-1', now: now)
+
+      assert_raise(Ginseng::ConfigError) {Heartbeat.failing_posts(limit: 1, now: now)}
+    end
+
     # ⚠⚠ **覚える枠の数は上限つき。**痕跡を無限に太らせない（ライブ当日は 160 枠）。
     def test_counted_slots_are_bounded
       (Heartbeat::COUNTED_SLOTS + 10).times {|i| Heartbeat.record_failure(slot: "live-#{i}", now: now)}
 
       assert_equal(Heartbeat::COUNTED_SLOTS + 10, Heartbeat.failures)
-      slots = Heartbeat.stored[:posts][Heartbeat::UNNAMED_POST.to_sym][:slots]
+      slots = Heartbeat.stored[:posts][HeartbeatPosts::UNNAMED_POST.to_sym][:slots]
 
       assert_equal(Heartbeat::COUNTED_SLOTS, slots.size)
     end
