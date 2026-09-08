@@ -385,6 +385,10 @@ properties:
           failure_limit:
             type: integer
             minimum: 1
+          # ⚠ 落ちた記録の寿命（#86）。消すと「その枠が次に成功するまで永久」に戻る
+          # ので、optional_config で読む（→ Heartbeat.failure_stale）。
+          failure_stale:
+            type: string
         required:
           - failure_limit
     # ⚠ timezone が欠けるとホストのローカルタイムに落ちる。ライブの開始時刻がずれても

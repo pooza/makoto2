@@ -58,6 +58,37 @@ module Makoto
 
     # 🔴 **定型挨拶はコード側が付ける。**⚠⚠ **`morning` 237 件に「おはよう」は
     # 1 件も無い**（実測 0 件）ので、これが無いと挨拶なしの投稿になる。
+    # ⚠ ログを差し替えて `warn` だけ拾う（→ `MorningTest#with_recorder`）。
+    def with_recorder(source)
+      recorder = []
+      source.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| recorder.push(payload[:message].to_s)}
+        define_method(:info) {|payload| payload}
+        define_method(:debug) {|payload| payload}
+        def error(*)
+        end
+      end.new(nil))
+      yield
+      return recorder
+    end
+
+    # 🔴 **`0.5` のリリース前レビューの赤 1。**⚠⚠ **朝挨拶は毎日出る枠なので、
+    # 原稿が引けないのは異常** — ⚠ **それまでは `report_silence` が予約された日
+    # （`/message/anniversary`）にしか鳴らず、`morning` はその登録を持てない type
+    # なので 1 年のほとんどで 1 行も出なかった。**
+    #
+    # ⚠ **その先は `PostingJob#exec` の `debug`** で `/logger/level: info` では
+    # 出力されず、🔴 **毎朝 08:00 に何も出ないまま全計器が緑**になっていた。
+    def test_reports_silence_when_no_script_is_left
+      empty = MessageRepository.new(Database.migrate(Database.connect('sqlite:/')))
+      source = morning(empty).source
+      recorder = with_recorder(source) do
+        assert_nil(source.call(jst(9, 1)))
+      end
+
+      assert_include(recorder, 'no script for today')
+    end
+
     def test_greeting_is_prepended_to_the_daily_message
       text = morning.source.call(jst(9, 1))
 
