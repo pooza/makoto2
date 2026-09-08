@@ -65,6 +65,7 @@ module Makoto
     # 始まるので投入とぶつからない**（取り込みは取り込み元の id で上書きする）。
     def create(type:, body:, **options)
       validate_type!(type)
+      reject_scripted!(type)
       return @db.transaction do
         id = dataset.insert(
           type: type.to_s,
@@ -124,9 +125,16 @@ module Makoto
     # `makoto message add` で足した原稿がそこに居る。
     #
     # @param keep [Array<String>] 残す slug
+    # @param types [Array<String>] 🔴 **消してよい type**（#224・Codex の P1）
     # @return [Array<String>] 消した slug
-    def prune(keep)
+    #
+    # 🔴 **type で絞る。**⚠⚠ **絞らないと、1 つのファイルを `--prune` で取り込んだだけで
+    # 別のファイルの原稿が全部消える** — **`morning.yaml` を入れるとライブの台本 61 本が
+    # 落ちる**形だった。⚠ **1 つの type は 1 つのファイルに収めること**（分けると、
+    # 片方を `--prune` で入れたときにもう片方が消える）。
+    def prune(keep, types: nil)
       records = by_slug.exclude(slug: Array(keep).map(&:to_s))
+      records = records.where(type: Array(types).map(&:to_s)) if types.present?
       slugs = records.order(:slug).select_map(:slug)
       dataset.where(slug: slugs).delete if slugs.any?
       return slugs
@@ -162,6 +170,28 @@ module Makoto
     def validate_type!(type)
       return unless DROPPED_TYPES.include?(type.to_s)
       raise Ginseng::ValidateError, "message: type '#{type}' は使わない（#60 で落とした）"
+    end
+
+    # 🔴 **正本が `makoto-scripts` へ移った type は、DB へ直接足させない**（#224・Codex の P1）。
+    #
+    # ⚠⚠ **足せてしまうと、その行は `slug` を持たない** — 🔴 **次の `makoto corpus import`
+    # が「旧ダンプ由来」と見なして黙って消す**（→ `CorpusImporter#purge_messages`）。
+    # ⚠ **消す側と足せる側を同じ設定で揃える**（`birthday` で同じことをした → PR #207）。
+    #
+    # ⚠ **`upsert` は塞がない。**あちらは必ず `slug` を持つ（＝ファイル由来）。
+    def reject_scripted!(type)
+      return unless scripted_types.include?(type.to_s)
+      message = "message: type '#{type}' の原稿は makoto-scripts に書いて"
+      raise Ginseng::ValidateError, "#{message} `makoto message import` で入れる（#224）"
+    end
+
+    # 正本がファイルへ移った type。⚠ 設定が無ければ空（移送前の形）。
+    # ⚠⚠ **`Config#[]` はキーが無ければ例外**なので、`key?` で見てから読む
+    # （→ `Package#optional_config`。⚠ ここは `Package` を include していない）。
+    def scripted_types
+      key = CorpusImporter::SCRIPTED_TYPES_KEY
+      return [] unless Config.instance.key?(key)
+      return Array(Config.instance[key]).map(&:to_s)
     end
 
     # ⚠ 差し替えなので一度消してから入れ直す。**季節は原稿に従属する情報**で、

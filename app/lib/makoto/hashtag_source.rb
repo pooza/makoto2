@@ -53,10 +53,50 @@ module Makoto
       # ⚠⚠ **本文に既に入っていれば `TagContainer` が落とす。**⚠ **空になった
       # ときに改行だけ足さない**（タグの無い空行が最終行に残る）。
       return text if tags.empty?
-      return [text.to_s.rstrip, tags].join("\n")
+      return join(text, tags)
     end
 
     private
+
+    # ⚠ **本文の最終行としてタグを足す。**
+    #
+    # 🔴 **タグを足す都合で投稿そのものを失わない**（`create_tags` / `blank?` と
+    # 同じ倒し方 → #192）。⚠⚠ **`tags` は UTF-8 だが、`text` は投稿する元の文字列**
+    # なので、**ASCII-8BIT や Shift_JIS のまま来る**（`Sequel` / SQLite が非 ASCII を
+    # ASCII-8BIT で返しうる → #124 / #79）。⚠ **どちらも非 ASCII を含むと `join` が
+    # `Encoding::CompatibilityError` を上げる。**
+    #
+    # 🔴 **受けるのは `PostingJob#create_text` の `rescue`** — ⚠⚠ **`record(:failure)`
+    # して `nil` を返す ＝ その枠は 1 文字も投稿されない。**⚠ **重複判定の側
+    # （`create_tags`）だけが #171 で直っていて、連結の側は #64 から残っていた。**
+    def join(text, tags)
+      return [utf8(text).rstrip, tags].join("\n")
+    rescue ArgumentError, EncodingError => e
+      logger.warn(hashtag: 'skipped', at: 'join', error: e)
+      return text
+    end
+
+    # ⚠ **ラベルを貼り替えるのは ASCII-8BIT だけ**（🔴 **直したいのはその 1 件** —
+    # **`Sequel` / SQLite が非 ASCII を ASCII-8BIT で返す**）。
+    # 🔴 **中身は 1 バイトも変わらない**ので、**投稿するのは元の文字列**のまま。
+    #
+    # ⚠⚠ **エンコーディングを名乗っている文字列には触らない**（Codex の P2）。
+    # 🔴 **「妥当な UTF-8 か」だけで決めると、Shift_JIS の本文が黙って化ける** —
+    # ⚠ **`'凜々'.encode('Windows-31J')` は `EA A3 81 58` で、これは妥当な UTF-8
+    # でもある**ので、**貼り替えると `ꣁX` として投稿される。**
+    # ⚠⚠ **`valid_encoding?` は「そう読めるか」であって「そうである」ではない。**
+    #
+    # ⚠ **ASCII-8BIT は「エンコーディングが分からない」**という意味なので、
+    # **妥当な UTF-8 と確かめられたときに限って UTF-8 と見なしてよい。**
+    #
+    # ⚠ **触らなかったもの（Shift_JIS・不正なバイト列）は `join` に任せる** —
+    # 🔴 **タグが ASCII だけなら普通に繋がり、非 ASCII なら `rescue` がタグを諦める。**
+    def utf8(text)
+      text = text.to_s
+      return text unless text.encoding == Encoding::ASCII_8BIT
+      utf8 = text.dup.force_encoding(Encoding::UTF_8)
+      return utf8.valid_encoding? ? utf8 : text
+    end
 
     # ⚠ **本文は重複の判定にだけ使う**（投稿するのは元の文字列）。
     #

@@ -26,7 +26,15 @@ module Makoto
     end
 
     # 投稿を登録する。⚠ `exec` の前に呼ぶこと。
+    #
+    # 🔴 **ここが「自分から出す投稿」の唯一の入口**（#172・Codex の P2）。⚠⚠ **日曜
+    # 08:30〜09:00 の実況の窓に落ちる枠は、ここで落とす** — ⚠ **機能ごとに検査すると、
+    # 次に足す枠が同じ検査を持つ保証が無い**（→ `CommentaryWindow`）。
+    #
+    # ⚠ **応答の経路には掛からない**（#18 / #29）。**窓が止めるのは自分から出すほうだけ**
+    # で、⚠⚠ **呼ばれて答えるのは割り込みではなく参加**（→ docs/CLAUDE.md）。
     def register(job)
+      validate_window(job)
       @jobs.push(job)
       logger.info(scheduler: 'register', post: job.name, timetable: job.timetable.to_s)
       return self
@@ -52,6 +60,13 @@ module Makoto
     end
 
     private
+
+    def validate_window(job)
+      window = CommentaryWindow.new
+      return unless window.conflict?(job.timetable)
+      raise Ginseng::ConfigError,
+        "scheduler: #{job.name} (#{job.timetable}) must avoid the commentary window (#{window})"
+    end
 
     # ⚠⚠ **tick が回ったこと自体を痕跡に残す**（#80 の黄 7）。⚠ **ハートビートは別の
     # rufus ジョブ**なので、**tick 側だけが詰まっても `at` は更新され続ける** —

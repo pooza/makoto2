@@ -196,10 +196,30 @@ module Makoto
       )
       logger.info(post: @name, slot: format_slot(slot), status_id: response['id'])
       record(:success, slot)
+      notify(slot)
       return response
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
       record(:failure, slot)
+      return nil
+    end
+
+    # 🔴 **`source` に「その枠は実際に出た」と伝える**（#41）。⚠ **要らなければ
+    # 実装しなくてよい**（`respond_to?` で見る）。
+    #
+    # ⚠⚠ **これがあるのは「下見が実機を動かさない」ため。**🔴 **下見は `PostingJob` を
+    # 通らない**ので、⚠ **`source` の側で「引いた」ときに書くと、`makoto song preview`
+    # が本番の履歴を汚す**（**読むだけのつもりの下見が、次に出る曲を変える**）。
+    #
+    # ⚠ **成功したときだけ呼ぶ。**⚠⚠ **失敗した枠は誰も見ていない**ので、
+    # **その曲を「出した」とは数えない。**
+    #
+    # ⚠ **ここで落ちても投稿の側を巻き込まない**（`record` と同じ判断）。
+    def notify(slot)
+      return nil unless @source.respond_to?(:posted)
+      return @source.posted(slot)
+    rescue => e
+      logger.error(post: @name, slot: format_slot(slot), error: e)
       return nil
     end
 
@@ -210,8 +230,8 @@ module Makoto
     # （初回 tick と `every` の重なり・再起動）ので、**成功だけ Mastodon 側で畳まれて
     # 失敗が二重に数えられると、落ちた枠 1 つで閾値を 2 つ消費する**（#81）。
     def record(outcome, slot)
-      return Heartbeat.record_success if outcome == :success
-      return Heartbeat.record_failure(slot: idempotency_key(slot))
+      return Heartbeat.record_success(post: @name) if outcome == :success
+      return Heartbeat.record_failure(post: @name, slot: idempotency_key(slot))
     rescue => e
       logger.error(post: @name, heartbeat: outcome, error: e)
       return nil

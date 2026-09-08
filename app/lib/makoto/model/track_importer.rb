@@ -24,6 +24,9 @@ module Makoto
     # 収集スクリプトの側を直すと「気づいた順に足す」形が成立しない。
     CORRECTIONS = 'track_corrections.yaml'.freeze
 
+    # 🔴 **同じ曲だが表記が違うものの表**（#123 → `TrackAliases`）。⚠⚠ **訂正表とは
+    # 別物**で、**あちらは片方が誤記、こちらはどちらも正しい。**
+
     # 重複判定から落とす文字。⚠ **`duration` は鍵に使えない**（同一曲でも盤に
     # よって 1〜3 秒ばらつく。実測）。正規化した曲名だけで寄せる。
     #
@@ -50,8 +53,27 @@ module Makoto
     # ⚠ **同名で別の曲を潰す危険はある**（サントラのキュー名に「サブタイトル」の
     # ような同名別曲が多い）。それでも、**同一曲が名義違いで何度も出るほうが
     # 実害が大きい**ので、こちらに倒す。
-    def self.dedupe_key(name)
+    #
+    # 🔴 **正規化のあとに別名表を当てる**（#123 → `TrackAliases`）。⚠⚠ **漢字とかなの
+    # 表記ゆれは NFKC でも寄らない**（`五匹の子ぶた` / `ごひきのこぶた`）。⚠ **読み仮名を
+    # 持っていないので規則では解けず、数え上げた組を名指しで寄せる。**
+    #
+    # ⚠ **`aliases` を渡せるのはテストと、取り込み元を差し替えたときのため。**
+    def self.dedupe_key(name, aliases = default_aliases)
+      key = normalize(name)
+      return aliases.key_for(key) || key
+    end
+
+    # ⚠ **別名表を当てる前の鍵。**🔴 **別名表そのものがこれで突き合わせる**ので、
+    # ⚠⚠ **`dedupe_key` から呼ぶと無限に回る** — 分けてある。
+    def self.normalize(name)
       return name.to_s.unicode_normalize(:nfkc).gsub(NOISE, '').downcase
+    end
+
+    # ⚠ **`Setlist` のように取り込み元を持たない側が使う既定の表。**
+    def self.default_aliases
+      @default_aliases ||= TrackAliases.new
+      return @default_aliases
     end
 
     def exec
@@ -62,6 +84,7 @@ module Makoto
         import_daily
         mark_live
       end
+      report_unused_aliases
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
     end
@@ -104,9 +127,27 @@ module Makoto
           kind: row[:kind],
           live: false,
           # ⚠ **鍵は訂正後の曲名から作る**（#58）。訂正前で作ると重複がたたまれない。
-          dedupe_key: self.class.dedupe_key(name),
+          dedupe_key: self.class.dedupe_key(name, aliases),
         })
       end
+    end
+
+    # ⚠ **取り込み元と同じディレクトリの別名表**（#123）。
+    def aliases
+      @aliases ||= TrackAliases.new(@dir)
+      return @aliases
+    end
+
+    # 🔴 **1 行も当たらない表記を残す**（#123）。⚠⚠ **訂正表の `fixed` と同じ合図**で、
+    # **供給元が表記を揃えたか、そもそも書き間違えている** — ⚠ **どちらでもその行は
+    # 消せる。**🔴 **黙ると、効いていない行がいつまでも表に残る。**
+    def report_unused_aliases
+      return nil if aliases.empty?
+      present = @db[:track].select_map(:name).to_set {|name| self.class.normalize(name)}
+      unused = aliases.keys.reject {|key| present.include?(key)}
+      return nil if unused.empty?
+      logger.warn(track: 'alias', state: 'unused', key: unused)
+      return unused
     end
 
     # 訂正表を当てた曲名（→ 上記 `CORRECTIONS`）。

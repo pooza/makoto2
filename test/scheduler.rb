@@ -26,6 +26,29 @@ module Makoto
       assert_equal(Scheduler.instance, Scheduler.instance.register(job('live', proc {'ok'})))
     end
 
+    # 🔴 **日曜 08:30〜09:00 の実況の窓に落ちる枠は登録させない**（#172・#17）。
+    # ⚠⚠ **人が話しているところへ定型文を差し込むのは上書き**（→ `CommentaryWindow`）。
+    #
+    # ⚠ **検査を機能ごとに置かない** — **ここが「自分から出す投稿」の唯一の入口**で、
+    # ⚠⚠ **次に足す枠が同じ検査を持つ保証が無い。**
+    def test_register_rejects_a_slot_in_the_commentary_window
+      inside = PostingJob.new(
+        name: 'inside',
+        timetable: Timetable.new(start: '08:45', finish: '08:46', interval: '1m'),
+        source: proc {'ok'},
+      )
+
+      assert_raise(Ginseng::ConfigError) {Scheduler.instance.register(inside)}
+      assert_equal(0, Scheduler.instance.send(:jobs))
+    end
+
+    # ⚠ いま持っている枠はすべて窓の外（朝挨拶 08:00 / 予告 10:00 / 曲紹介 12:00 /
+    # ライブ 12:00〜）。
+    def test_register_accepts_the_slots_outside_the_window
+      assert_equal(Scheduler.instance, Scheduler.instance.register(Morning.new.job))
+      assert_equal(Scheduler.instance, Scheduler.instance.register(Announcement.new.job))
+    end
+
     def test_tick_runs_registered_jobs
       calls = []
       Scheduler.instance.register(job('live', proc {|slot| calls.push(slot) && nil}))

@@ -37,6 +37,25 @@ module Makoto
     # という形になる（Codex の指摘・PR #207）。
     SKIP_MESSAGE_TYPES = MessageRepository::DROPPED_TYPES
 
+    # 🔴 **正本が [pooza/makoto-scripts](https://github.com/pooza/makoto-scripts) へ
+    # 移った `message.type`**（#224）。⚠⚠ **旧ダンプからは取り込まない。**
+    #
+    # ⚠ **`SKIP_MESSAGE_TYPES` とは別に持つ。**🔴 **あちらは「書ける口も塞ぐ」定数**
+    # （`MessageRepository::DROPPED_TYPES`）なので、⚠⚠ **ここに足すと `makoto message
+    # import` まで塞がる** — **正本を移した先から入れられなくなる。**
+    #
+    # ⚠ **消すのは `slug` を持たない行だけ。**🔴 **`slug` を持つ行はファイル由来**
+    # （移送済み・あとから足した原稿）なので触らない。⚠⚠ **これが無いと、
+    # `makoto corpus import` を流すたびに旧ダンプの 237 件が戻る** — **足しても
+    # 落ちない状態**（#212 と同じ「消す側と入れ直す側が揃っていない」形）。
+    #
+    # 🔴 **移送より先にこれを入れない。**⚠ **順番は「書き出す → 取り込む → corpus
+    # import」**（→ docs/CLAUDE.md「朝挨拶の原稿の正本」）。
+    #
+    # ⚠⚠ **設定で持つ**（`/message/scripted_types`）。⚠ **移送は type ごとに進む**ので、
+    # **どこまで移したかはコードではなく設定の側の話**（テストは移送前の形も作れる）。
+    SCRIPTED_TYPES_KEY = '/message/scripted_types'.freeze
+
     # 旧 DB の `series.id` → cure-api の key。
     #
     # ⚠ **作品名ではなく id で対応させている。**名前で引くと、このファイルに
@@ -125,11 +144,24 @@ module Makoto
     # ⚠ 季節の行は外部キーの `on_delete: :cascade` で落ちる。
     def purge_messages
       @db[:message].where(type: SKIP_MESSAGE_TYPES).delete
+      return if scripted_types.empty?
+      # ⚠ **正本が移った type は、旧ダンプ由来の行（`slug` 無し）だけを消す**（#224）。
+      @db[:message].where(type: scripted_types, slug: nil).delete
+    end
+
+    # 正本が `makoto-scripts` へ移った type。⚠ **設定が無ければ空**（移送前の形）。
+    def scripted_types
+      @scripted_types ||= Array(optional_config(SCRIPTED_TYPES_KEY, [])).map(&:to_s)
+      return @scripted_types
+    end
+
+    def skip?(row)
+      return SKIP_MESSAGE_TYPES.include?(row[:type]) || scripted_types.include?(row[:type])
     end
 
     def import_messages
       purge_messages
-      rows('message').reject {|row| SKIP_MESSAGE_TYPES.include?(row[:type])}.each do |row|
+      rows('message').reject {|row| skip?(row)}.each do |row|
         upsert(:message, {
           id: row[:id],
           type: row[:type],

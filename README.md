@@ -39,6 +39,7 @@ bin/makoto corpus import   # 台詞コーパスを投入する（何度実行し
 bin/makoto corpus stat     # 投入済みコーパスの件数
 bin/makoto track import    # 曲データを投入する（何度実行してもよい）
 bin/makoto message import PATH --prune  # 原稿・台本をファイルから取り込む
+bin/makoto morning preview --days=7      # 朝挨拶を数日ぶん下見する（投稿しない）
 bin/makoto live setlist --date=2026-11-04 --mc  # ライブの並びを下見する（投稿しない）
 ```
 

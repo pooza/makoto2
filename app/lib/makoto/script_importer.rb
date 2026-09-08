@@ -24,6 +24,10 @@ module Makoto
   #
   # ⚠⚠ **削除は `--prune` を明示したときだけ。**しかも **`slug` を持つ行しか消さない**
   # ので、旧ダンプ 388 件と `makoto message add` で足した原稿には触らない。
+  #
+  # 🔴 **消す範囲は、そのファイルに出てくる `type` だけ**（#224・Codex の P1）。
+  # ⚠⚠ **絞らないと、`morning.yaml` を `--prune` で取り込んだだけでライブの台本 61 本が
+  # 消える。**⚠ **1 つの `type` は 1 つのファイルに収めること。**
   class ScriptImporter
     include Package
 
@@ -57,7 +61,12 @@ module Makoto
           else updated += 1
           end
         end
-        pruned = @repository.prune(entries.map {|entry| entry[:slug]}) if prune
+        # ⚠ **消す範囲はこのファイルに出てくる type だけ**（#224・Codex の P1）。
+        # ⚠⚠ **絞らないと、1 つのファイルを取り込んだだけで別のファイルの原稿が消える。**
+        if prune
+          pruned = @repository.prune(entries.map {|entry| entry[:slug]},
+            types: entries.map {|entry| entry[:type]}.uniq)
+        end
       end
       return Result.new(created: created, updated: updated, pruned: pruned)
     end

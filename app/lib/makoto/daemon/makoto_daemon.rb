@@ -33,10 +33,35 @@ module Makoto
     # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
     # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
     # `:unknown` という 3 つ目の答えとして上流に入った。**
+    #
+    # 🔴 **番号が取れなかったら `:dead` に倒さない**（#257・上流 `ginseng-core#635`）。
+    # ⚠⚠ **`super` のあとに `pid` を呼び直すこの形を、上流が名指しで警告している**
+    # （`Daemon::PidFile#pid_file_unreadable?` のコメント）— **`pid` は「無い」も
+    # 「読めない」も `nil` に畳む**ので、⚠ **`daemon_pid?` の `pid&.positive?` が
+    # 「読めない」を `false` ＝「常駐ではない」に化けさせる。**
+    #
+    # 🔴 **帰結は二重起動。**⚠⚠ **`run_restart` は `run_stop unless alive_state == :dead`**
+    # なので、**生きている常駐を止めずに 2 本目を立てる**（⚠ **`run_start` のほうは
+    # 上流が `abort_if_running!` で先に拒むので届かない** — **こちらが塞ぐのは
+    # `restart` と `status` の経路**）。
+    #
+    # ⚠ **`1.23.5` までは踏まなかった** — **`pid` が `File.read(...).to_i` で、
+    # 読めなければ例外、空なら `0` だった**（🔴 **`nil` を返す枝そのものが無かった**）。
+    #
+    # 🔴🔴 **ただし `nil` を全部 `:unknown` に倒すと、今度は `restart` が止まる**
+    # （Codex の P2）。⚠⚠ **`super` が見たあとに常駐が終了して pid ファイルを消した**
+    # なら、**それは「読めない」ではなく「もう居ない」** — ⚠ **`:unknown` と答えると
+    # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
+    # **後継を起動しないまま終わる。**
+    #
+    # ⚠ **上流の `alive_state` と同じ分け方にする** — 🔴 **`pid_file_unreadable?` が
+    # 「在るのに読めなかった」だけを指す**（`ENOENT` では立たない）。
     def alive_state
       state = super
       return state unless state == :alive
-      return daemon_pid?(pid, proc_dir: @proc_dir) ? :alive : :dead
+      # ⚠⚠ **確かめる番号が無いときだけ、読めなかったのか消えたのかを分ける。**
+      return pid_file_unreadable? ? :unknown : :dead unless (found = pid)
+      return daemon_pid?(found, proc_dir: @proc_dir) ? :alive : :dead
     end
 
     def command
@@ -95,6 +120,12 @@ module Makoto
     # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
     def register_jobs
       Scheduler.instance.register(Announcement.new.job)
+      # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
+      # 何も返さない**（→ Morning / MessageSelector）。
+      Scheduler.instance.register(Morning.new.job)
+      # ⚠ 曲紹介は 1 日 2 本（#16）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
+      # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
+      Scheduler.instance.register(Song.new.job)
       # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
       # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
       Live.new.jobs.each {|job| Scheduler.instance.register(job)}
@@ -128,11 +159,19 @@ module Makoto
     # alive_state == :dead` なので身元を見た結果で呼ばれるが、`bin/makoto_daemon.rb
     # stop` を直に叩く経路は素通しだった。**
     #
-    # 🔴 **`pid` は `File.read(pid_file).to_i` なので、空も壊れた文字列も `0`。**
-    # ⚠⚠ **`0` は truthy なので `run_stop` 冒頭の `unless` を抜け、
-    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM を送る。**
-    # ⚠ **人が手で止める経路と復旧のラッパーが踏む**（systemd は `ExecStop` を
-    # 書いていないので通らない）。
+    # 🔴 **`0` の枝は上流が引き取った**（#257・上流 `ginseng-core#627`）。⚠⚠ **`1.23.5`
+    # までの `pid` は `File.read(pid_file).to_i` だったので、空も壊れた文字列も `0` に
+    # なり、`0` は truthy なので `run_stop` 冒頭の `unless` を抜けて
+    # `Process.kill('TERM', 0)` ＝ 呼び出し元のプロセスグループ全体に TERM を送っていた。**
+    #
+    # ⚠ **`1.23.6` 以降は `parse_pid` が `''` / `"\n"` / `'abc'` / `'0'` / `'12_34'` /
+    # `pid_t` を超える数を全部 `nil` に倒す**ので、🔴 **`run_stop` は
+    # `send_signal` まで来ずに `abort_stop!` で止まる**（⚠⚠ **pid ファイルは残る** —
+    # **次の `run_start` が `write_pid` で原子的に奪う**ので詰まらない）。
+    #
+    # 🔴 **ここに残る仕事は「番号は妥当だが常駐ではない」だけ**（＝ pid の再利用）。
+    # ⚠ **`daemon_pid?` の `pid&.positive?` は残す** — **上流の保証に寄りかかる形を
+    # 1 枚だけ自分でも持っておく**（→ #198 / #199 で踏んだ「外した先が同じ挙動か」）。
     #
     # 🔴 **確かめられなかったときも送らない**（Codex の P1・#169）。⚠⚠ **`daemon_pid?`
     # は「確かめられない」を `true` に倒す** — ⚠ **それは `alive?` にとっては正しい**

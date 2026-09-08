@@ -129,6 +129,60 @@ module Makoto
       assert_equal(Encoding::Windows_31J, source(body).call.encoding)
     end
 
+    # 🔴 **非 ASCII のタグでも、ASCII-8BIT の本文にタグが足せること**（#192）。
+    #
+    # ⚠⚠ **`join` は `tags` が ASCII だけなら BINARY とも繋がる**ので、
+    # **いまの設定（`#SONGBIRD_PARTY_2026`）では落ちない** — 🔴 **タグを日本語に
+    # した日に初めて `Encoding::CompatibilityError` が出る。**
+    # ⚠ **受けるのは `PostingJob#create_text` の `rescue`** ＝ **その枠が丸ごと消える。**
+    #
+    # ⚠ **中身が妥当な UTF-8 ならラベルだけを直して繋ぐ**（1 バイトも変わらない）。
+    def test_a_binary_body_gains_a_non_ascii_tag
+      body = '本文'.dup.force_encoding(Encoding::ASCII_8BIT)
+      subject = source(body, hashtag: '#キュアスタライブ')
+
+      assert_nothing_raised {subject.call}
+      assert_equal("本文\n#キュアスタライブ", subject.call)
+    end
+
+    # 🔴 **直せない本文は、タグを諦めて投稿を守る**（#192）。
+    #
+    # ⚠⚠ **Shift_JIS は妥当な UTF-8 ではない**ので、⚠ **ラベルを貼り替えられない**
+    # （**貼り替えれば中身が壊れたまま UTF-8 を名乗る** → `create_tags` のコメント）。
+    # ⚠ **`create_tags` / `blank?` と同じ倒し方で、本文をそのまま返す。**
+    def test_a_shift_jis_body_keeps_the_post_when_the_tag_is_non_ascii
+      body = 'すでにタグの無い本文'.encode('Windows-31J')
+      subject = source(body, hashtag: '#キュアスタライブ')
+
+      assert_nothing_raised {subject.call}
+      assert_equal(body, subject.call)
+      assert_equal(Encoding::Windows_31J, subject.call.encoding)
+    end
+
+    # ⚠ **不正なバイト列は `create_tags` が先に握る**ので、連結までは来ない（#171）。
+    # 🔴 **非 ASCII のタグでも同じ**（**タグ無しで本文がそのまま返る**）。
+    def test_an_invalid_byte_sequence_keeps_the_body_with_a_non_ascii_tag
+      body = "本文\xE3\x81"
+      subject = source(body, hashtag: '#キュアスタライブ')
+
+      assert_nothing_raised {subject.call}
+      assert_equal(body, subject.call)
+    end
+
+    # 🔴 **Shift_JIS の本文を UTF-8 として読み替えない**（Codex の P2・#192）。
+    #
+    # ⚠⚠ **`valid_encoding?` は「そう読めるか」であって「そうである」ではない** —
+    # ⚠ **`'凜々'.encode('Windows-31J')` のバイト列 `EA A3 81 58` は妥当な UTF-8
+    # でもある**ので、**ラベルを貼り替えると `ꣁX` として投稿される。**
+    #
+    # 🔴 **タグが ASCII だけでも通る経路**なので、**いまの設定でも踏む。**
+    def test_does_not_reinterpret_a_shift_jis_body_as_utf8
+      body = '凜々'.encode('Windows-31J')
+
+      assert_equal("#{body}\n#TAG", source(body).call)
+      assert_equal(Encoding::Windows_31J, source(body).call.encoding)
+    end
+
     # ⚠ 枠の頭の時刻はそのまま渡す。
     def test_passes_the_slot_through
       stub = Object.new

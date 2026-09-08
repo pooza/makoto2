@@ -436,10 +436,11 @@ module Makoto
     def test_consecutive_posting_failures_are_a_warning
       config['/scheduler/posting/failure_limit'] = 3
       beat
-      3.times {Heartbeat.record_failure(now: now)}
+      3.times {|i| Heartbeat.record_failure(post: 'announcement', slot: "announcement-#{i}", now: now)}
 
       assert_equal(Health::WARNING, health.code)
-      assert_true(health.warnings.any? {|m| m.include?('posting failed 3 times')})
+      # 🔴 **どの枠が落ちているかを出す**（#86）。⚠ **回数だけでは見に行く先が分からない。**
+      assert_true(health.warnings.any? {|m| m.include?('announcement x3')})
       # ⚠⚠ **異常（1）にはしない。**再起動しても直らないので、検知 → 再起動 →
       # また失敗のループになる（→ Health の冒頭）。
       assert_equal([], health.errors)

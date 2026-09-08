@@ -203,9 +203,18 @@ module Makoto
 
     # ⚠ **「何本続けて落ちたか」と「最後に出たのはいつか」を両方出す。**
     # ⚠⚠ **人が見る前提の警告**なので、次に何を確かめればよいかがここで分かること。
+    # 🔴 **どの枠が落ちているかを出す**（#86）。⚠⚠ **枠ごとに数えるようにした以上、
+    # 「何回落ちたか」だけでは復旧の手掛かりにならない** — ⚠ **`morning` が落ちて
+    # いるのと `announcement` が落ちているのでは、見に行く先が違う。**
+    #
+    # ⚠ **`last success` は全枠のもの**（**枠ごとの時刻は痕跡の `posts` にある**）。
     def posting_failure_message
       last = posted_at ? posted_at.getutc.iso8601 : 'never'
-      return "posting failed #{posting_failures} times in a row (last success: #{last})"
+      posts = Heartbeat.failing_posts.map {|name, count| "#{name} x#{count}"}.join(', ')
+      if posts.empty?
+        return "posting failed #{posting_failures} times in a row (last success: #{last})"
+      end
+      return "posting failed: #{posts} (limit #{Heartbeat.failure_limit}, last success: #{last})"
     end
 
     def orphan_pid(dir)

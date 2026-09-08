@@ -21,9 +21,14 @@ AllCops:
     - seed/**/*
     - var/**/*
   Include:
+    # ⚠⚠ 継承分（ginseng-style の config/rubocop.yml の 5 つ）も含めて全部書く。
+    #   1 つでも落とすと、そのパターンのファイルが黙って lint 対象から外れる。
     - '**/*.rb'
+    - '**/*.gemspec'
+    - '**/Gemfile'
     - '**/Rakefile'
-    - bin/makoto
+    - '**/config.ru'
+    - bin/makoto # ここから下が MAKOTO 固有
   TargetRubyVersion: 3.4
 Sequel:
   Exclude:

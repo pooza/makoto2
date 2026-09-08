@@ -17,6 +17,10 @@ module Makoto
   # ⚠⚠ **記念日の type は、その日以外では選ばれない。**除かないと、日付を持たない
   # 原稿が段 5 に混ざって**毎日出る**（🔴 旧 `birthday` 19 件で実際にそうなる形だった）。
   #
+  # 🔴 **落とした type（`MessageRepository::DROPPED_TYPES`）は許可リストに入れさせない**
+  # （#212・→ `validate_dropped_types!`）。⚠⚠ **予約から外すと段 4 / 5 に落ちる**ので、
+  # ⚠ **歯止めを許可リスト 1 枚にしない。**
+  #
   # ⚠ **`type` の許可リストは呼ぶ側が決める。**朝挨拶（#17）は
   # `%w[holiday morning]`、ライブ（#13）は台本の type だけ、という形。
   # ⚠ 許可リストに無い type は、日付が一致しても選ばれない（ライブの台本を朝挨拶が
@@ -36,6 +40,7 @@ module Makoto
     def initialize(types, repository: nil, random: Random.new)
       @types = Array(types).map(&:to_s)
       raise Ginseng::ConfigError, 'message: no type given' if @types.empty?
+      validate_dropped_types!
       @repository = repository || MessageRepository.new
       @random = random
     end
@@ -82,10 +87,66 @@ module Makoto
       return records.order(Sequel.asc(:slug, nulls: :last), Sequel[:message][:id]).all
     end
 
+    # 🔴 **日付で勝つ段の原稿**（段 1 / 2 / 3）。⚠ **無ければ空配列。**
+    #
+    # ⚠⚠ **「その日の原稿があるか」を、実体の照合ではなく段そのもので答える口**
+    # （#17・Codex の P2）。🔴 **日付を持つ原稿が季節も持っていると、`season_list` に
+    # も現れる** — ⚠ **どちらの段で勝ったかを実体から推測すると、日付の上書きを
+    # 季節と読み違える**（`ScriptImporter` は日付と季節の同居を通す）。
+    def dated_list(time = nil)
+      date = date_of(time || Time.now)
+      dated_steps(date).each do |step|
+        records = step.call
+        next unless records
+        next unless records.first
+        return sort_records(records.all)
+      end
+      return []
+    end
+
+    # 🔴 **その月の季節の原稿**（段 4）。⚠ **通年で回してよい type だけ**（記念日に予約
+    # された type は入らない）。⚠ **無ければ空配列。**
+    #
+    # ⚠⚠ **段の勝ち負けとは別に、母集合そのものを取りたい呼び出し側のための口**
+    # （→ `MorningSource`）。🔴 **段の順そのものは変えていない**（#12）。
+    def season_list(time = nil)
+      types = rotating_types
+      return [] if types.empty?
+      date = date_of(time || Time.now)
+      records = @repository.in_season(date.month, type: types).all
+      # 🔴 **日付を持つ原稿は季節の母集合に入れない**（#17・Codex の P2）。⚠⚠ **日付と
+      # 季節は同居できる**ので、⚠ **入れると「その日に出す原稿」が月内の別の日にも出る**
+      # （**上書きのつもりで書いた原稿が、前日に先出しされる**形になる）。
+      return sort_records(records.reject {|record| record[:month] || record[:year]})
+    end
+
+    # 🔴 **日付も季節も持たない原稿**（段 5）。⚠ **通年で回してよい type だけ。**
+    #
+    # ⚠⚠ **この母集合は月替わりでも変わらない。**⚠ **日替わりの順送りが月替わりで
+    # 破れないのはこのため**（→ `MorningSource`・Codex の P2）。
+    def undated_list(time = nil)
+      types = rotating_types
+      return [] if types.empty?
+      # ⚠ 日付は使わないが、呼ぶ側の書き方を `season_list` と揃えるために受ける。
+      return sort_records(@repository.undated(type: types).all)
+    end
+
     # その日に使える記念日の type。⚠ 許可リストに無いものは外す。設定に無い日なら空。
     def anniversary_types_on(date)
+      return reserved_types_on(date) & @types
+    end
+
+    # 🔴 **その日に予約されている type**（⚠⚠ **許可リストで絞る前**）。設定に無い日なら空。
+    #
+    # ⚠ **「他の枠がその日を持っているか」を訊く口**（→ `SongSource#quiet?`・#16）。
+    # ⚠⚠ **日常の枠は、ライブが持つ日には黙る** — **`anniversary_types_on` は自分の
+    # 許可リストで絞ってしまう**ので、**他の枠の予約は見えない。**
+    #
+    # 🔴 **日付の鍵の書き方はここが正本**（`/message/anniversary` の `MM-DD`）。
+    # ⚠ **呼ぶ側に組み立てさせない**（同じ規則が複数箇所に散ると揃わなくなる → #183）。
+    def reserved_types_on(date)
       key = '%<month>02d-%<day>02d' % {month: date.month, day: date.day}
-      return anniversary_types.fetch(key, []) & @types
+      return anniversary_types.fetch(key, [])
     end
 
     # 記念日として予約されている type。⚠ **その日以外では選ばれない。**
@@ -129,6 +190,18 @@ module Makoto
       return nil
     end
 
+    # 🔴 **日付の規則の正本**（#183 の「同じ規則が 3 箇所で揃っていない」を増やさない）。
+    # ⚠ **ホストの TZ ではなく `/scheduler/timezone` で日付を出す。**ライブは JST の
+    # 11/4 に始まる（→ `Timetable`）。⚠ `Date` はそのまま（変換すると逆にずれる）。
+    #
+    # ⚠⚠ **public なのは、原稿を引く側が同じ規則で「その日」を出すため**
+    # （→ `MorningSource`）。**呼ぶ側に `Date.today` を書かせない。**
+    def date_of(value)
+      return value if value.is_a?(Date) && !value.is_a?(DateTime)
+      zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
+      return zone.utc_to_local(value.getutc).to_date
+    end
+
     private
 
     # 段の上から順に見て、最初に当たった段を返す。⚠ **同じ段の中は乱択**
@@ -149,12 +222,18 @@ module Makoto
     # 呼び出し側が、記念日以外の日に無関係な原稿を出す）。
     def steps(date)
       rotating = rotating_types
+      return dated_steps(date) + [
+        -> {rotating.empty? ? nil : @repository.in_season(date.month, type: rotating)},
+        -> {rotating.empty? ? nil : @repository.undated(type: rotating)},
+      ]
+    end
+
+    # 日付で勝つ段（1 / 2 / 3）。⚠ **`dated_list` と `steps` で 2 つに割らない。**
+    def dated_steps(date)
       return [
         -> {@repository.on_date(date.month, date.day, type: @types, year: date.year)},
         -> {@repository.on_date(date.month, date.day, type: @types)},
         -> {anniversary(date)},
-        -> {rotating.empty? ? nil : @repository.in_season(date.month, type: rotating)},
-        -> {rotating.empty? ? nil : @repository.undated(type: rotating)},
       ]
     end
 
@@ -164,22 +243,40 @@ module Makoto
       return @repository.undated(type: types)
     end
 
+    # 🔴 **落とした type は許可リストに入れさせない**（#212）。
+    #
+    # ⚠⚠ **記念日の予約から外した瞬間、その type は段 4 / 5 の候補になる**
+    # （`rotating_types = @types - reserved_types`）。⚠ **#60 で `birthday` を落とした
+    # とき、消す側（`CorpusImporter#purge_messages`）と守る側（`/message/anniversary`）が
+    # 同じ版で揃わず、🔴 **歯止めが許可リスト 1 枚だけになっていた** — ⚠⚠ **許可リストに
+    # 足した日に、日付を持たない行が毎日出る。**
+    #
+    # 🔴 **黙って外さずに落とす。**⚠⚠ **外すと「入れたのに出ない」になり、次に読む人が
+    # 理由を追えない** — **検査そのものが黙って無効になる形**（→ docs/CLAUDE.md）。
+    # ⚠ **書ける口（`MessageRepository#validate_type!`）が例外を投げるのと対称。**
+    #
+    # ⚠ **正本は `MessageRepository::DROPPED_TYPES`。**⚠⚠ **規則を写さず参照する**
+    # （同じ規則が複数箇所に散ると揃わなくなる → #183）。
+    def validate_dropped_types!
+      dropped = @types & MessageRepository::DROPPED_TYPES
+      return if dropped.empty?
+      raise Ginseng::ConfigError,
+        "message: type '#{dropped.join(', ')}' は使わない（#60 で落とした）"
+    end
+
     # 記念日として予約された type を除いた、通年で回してよい type。
     def rotating_types
       return @types - reserved_types
     end
 
+    # ⚠ **並びは `list` と同じ**（`slug` → `id`）。**順送りの位置が安定する。**
+    def sort_records(records)
+      return records.sort_by {|record| [record[:slug] ? 0 : 1, record[:slug].to_s, record[:id]]}
+    end
+
     def pick(records)
       ids = records.select_map(Sequel[:message][:id])
       return records.first(Sequel[:message][:id] => ids[@random.rand(ids.size)])
-    end
-
-    # ⚠ ホストの TZ ではなく `/scheduler/timezone` で日付を出す。ライブは JST の
-    # 11/4 に始まる（→ `Timetable`）。⚠ `Date` はそのまま（変換すると逆にずれる）。
-    def date_of(value)
-      return value if value.is_a?(Date) && !value.is_a?(DateTime)
-      zone = TZInfo::Timezone.get(config['/scheduler/timezone'])
-      return zone.utc_to_local(value.getutc).to_date
     end
   end
 end

@@ -40,13 +40,22 @@ module Makoto
     # 常駐が二重に起動する。**⚠ **黙って素通しにもならない** — 読めた argv が
     # 別物なら false を返す。
     # 🔴 **番号そのものが妥当かを先に見る**（リリース前レビューの黄 3）。
-    # ⚠⚠ **`Ginseng::Daemon#pid` は `File.read(pid_file).to_i`** なので、
-    # ⚠ **空のファイルも壊れたファイルも `0` になる。**⚠⚠ **`0` は truthy で、
+    # ⚠⚠ **`1.23.5` までの `Ginseng::Daemon#pid` は `File.read(pid_file).to_i`** で、
+    # ⚠ **空のファイルも壊れたファイルも `0` になっていた。**⚠⚠ **`0` は truthy で、
     # `Process.kill(0, 0)` は自分のプロセスグループ宛てなので成功する**（実測）ため、
     # 🔴 **`alive?` が「動いている」と答えていた。**帰結は 2 つとも重い —
     # **`run_start` は `already running (PID 0)` で無言終了**（ボットが一度も
     # 起動しない）、**`run_restart` は `Process.kill('TERM', 0)` ＝ 呼び出し元の
     # プロセスグループ全体に TERM。**
+    #
+    # ✅ **`1.23.6` で上流が `parse_pid` を入れ、この形は上流で塞がった**（#257）。
+    # ⚠ **`pid&.positive?` はそのまま残す** — **上流の保証に寄りかかる 1 枚だけの
+    # 守りにしない**（→ #198 / #199）。
+    #
+    # 🔴🔴 **ただし `nil` の意味が変わった。**⚠⚠ **`nil` は「無い」だけでなく
+    # 「読めなかった」でもある**ので、**ここが返す `false` を「常駐ではない」と
+    # 読んではいけない場所がある** — ⚠ **番号が取れたかどうかは呼ぶ側が先に見る**
+    # （→ `MakotoDaemon#alive_state`・上流 `ginseng-core#635`）。
     def daemon_pid?(pid, proc_dir: PROC_DIR)
       return false unless pid&.positive?
       return true unless File.directory?(proc_dir)

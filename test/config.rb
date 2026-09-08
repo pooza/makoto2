@@ -126,5 +126,58 @@ module Makoto
     def test_secure_dump_keeps_other_values
       assert_equal(Package.version, config.secure_dump['/package/version'])
     end
+
+    # 🔴 **落とす列がログ側とずれないこと**（#216）。⚠⚠ **`makoto config` は
+    # `/logger/mask_fields` だけを見ており、上流が `ginseng-core#586` で広げた
+    # 既定が届いていなかった** — ⚠ **ログでは伏せるのに CLI では平文**という形。
+    #
+    # ⚠ **実データでは 0 件だが、その名前のキーを設定に足した日に戻る**ので、
+    # **「いま当たっていない」ではなく「同じ列を見ている」ほうを見る。**
+    def test_secure_dump_masks_every_field_the_logger_masks
+      fields = logger.mask_fields
+      fields.each {|field| config["/masking_test/#{field}"] = 'S3CRET'}
+      dump = config.secure_dump
+
+      fields.each do |field|
+        assert_equal('(masked)', dump["/masking_test/#{field}"], "#{field} が伏せられていない")
+      end
+      assert_not_include(dump.to_yaml, 'S3CRET')
+    end
+
+    # ⚠⚠ **上流の既定にあって `config/application.yaml` に無いキー**が対象。
+    # 🔴 **設定単独を正本にしていたころ、ここが素通りしていた**（#216 の実測では
+    # `apikey` / `client_secret` / `refresh_token` の 3 件）。
+    def test_secure_dump_masks_the_upstream_defaults_absent_from_the_config
+      configured = config['/logger/mask_fields'].map {|field| field.to_s.downcase}
+      upstream_only = logger.mask_fields.reject {|field| configured.include?(field)}
+
+      assert_not_empty(upstream_only, '上流の既定がすべて設定にも並んでいる（この正テストが空回りする）')
+      upstream_only.each do |field|
+        config["/masking_test/#{field}"] = 'S3CRET'
+
+        assert_equal('(masked)', config.secure_dump["/masking_test/#{field}"])
+      end
+    end
+
+    # 🔴 **`code` は上流が意図して既定から外している**（Hash のキーとしては
+    # ステータスコードが普通に入る → #213）。⚠⚠ **こちらの列挙が唯一の根拠**なので、
+    # **合成へ寄せたときに落としていないことを見る。**
+    def test_secure_dump_keeps_masking_the_locally_configured_field
+      config['/masking_test/code'] = 'S3CRET'
+
+      assert_equal('(masked)', config.secure_dump['/masking_test/code'])
+    end
+
+    # ⚠ **上流の `mask_field?` は `key.to_s.downcase` で見る。**⚠⚠ **ここだけ
+    # 完全一致にすると、ログでは伏せるのに CLI では平文**になる（v0.4.0 の
+    # リリース前レビューで上流が実測した形と同じ）。
+    def test_secure_dump_ignores_the_case_of_the_key
+      config['/masking_test/Token'] = 'S3CRET'
+      config['/masking_test/AUTHORIZATION'] = 'S3CRET'
+      dump = config.secure_dump
+
+      assert_equal('(masked)', dump['/masking_test/Token'])
+      assert_equal('(masked)', dump['/masking_test/AUTHORIZATION'])
+    end
   end
 end

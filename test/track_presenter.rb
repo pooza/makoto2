@@ -4,6 +4,7 @@ module Makoto
       return {
         name: '〜SONGBIRD〜',
         artist_name: 'キュアソード/剣崎真琴(CV:宮本佳那子)',
+        collection_name: 'テストアルバム A',
         url: 'https://example.test/track/1',
       }.merge(options)
     end
@@ -22,6 +23,31 @@ module Makoto
 
       assert_equal('（お借りした歌）', text.lines.first.chomp)
       assert_includes(text, '♪ 〜SONGBIRD〜')
+    end
+
+    # 🔴 **供給元の曲名が意図しないタグを作らない**（→ `StatusText`・2026-09-08）。
+    # ⚠⚠ **実データは `#キボウレインボウ#` の 7 行**で、⚠ **`♪ ` の後ろなので
+    # `#` の直前が空白になり、投稿先の `HASHTAG_RE` に当たる。**
+    def test_a_title_starting_with_a_hash_does_not_become_a_tag
+      text = TrackPresenter.new(track(name: '#キボウレインボウ#')).to_s
+
+      assert_includes(text, '♪ # キボウレインボウ#')
+    end
+
+    # 🔴 **アルバム名と名義は行頭に来る**ので、**そちらの `#` も当たる。**
+    # ⚠⚠ **欄ごとではなく組み上げた本文に当てている理由。**
+    def test_a_credit_starting_with_a_hash_does_not_become_a_tag
+      text = TrackPresenter.new(track(artist_name: '#テスト名義')).to_s
+
+      assert_includes(text, "\n# テスト名義")
+    end
+
+    # ⚠ **語中の `@` は無傷**（実データの `H@ppy Together!!!` 系 12 行）。
+    # 🔴 **上流の `escape_status` を使わなかったのはこれを壊さないため。**
+    def test_an_at_sign_inside_a_title_is_left_alone
+      text = TrackPresenter.new(track(name: 'H@ppy Together!!!')).to_s
+
+      assert_includes(text, '♪ H@ppy Together!!!')
     end
 
     # ⚠ 空行を作らない。url が無い曲は母集合から外れているが、ここでも詰める。
@@ -86,6 +112,30 @@ module Makoto
 
     def test_blank_prefix_is_ignored
       assert_equal(TrackPresenter.new(track).to_s, TrackPresenter.new(track, prefix: '').to_s)
+    end
+
+    # 🔴 **劇伴はアルバム／シリーズを主役にする**（#16）。⚠⚠ **`bgm` の名義は作曲家**
+    # なので、⚠ **どのシリーズの曲かはアルバム名にしか書いていない。**
+    # ⚠ **出すかどうかは呼ぶ側が決める**（ライブは出さない → 冒頭の表）。
+    def test_the_album_is_placed_before_the_credit
+      text = TrackPresenter.new(track, collection: true).to_s
+
+      assert_equal(['♪ 〜SONGBIRD〜', 'テストアルバム A', 'キュアソード/剣崎真琴(CV:宮本佳那子)',
+        'https://example.test/track/1'], text.lines.map(&:chomp))
+    end
+
+    def test_the_album_is_hidden_by_default
+      assert_not_include(TrackPresenter.new(track).to_s, 'テストアルバム A')
+      assert_nil(TrackPresenter.new(track).collection)
+      assert_equal('テストアルバム A', TrackPresenter.new(track, collection: true).collection)
+    end
+
+    # ⚠⚠ **列は NULL 可。**🔴 **空でも行を作らない**（空行が挟まると本文が崩れる）。
+    def test_a_missing_album_does_not_leave_a_blank_line
+      text = TrackPresenter.new(track(collection_name: nil), collection: true).to_s
+
+      assert_equal(3, text.lines.size)
+      assert_not_include(text, "\n\n")
     end
   end
 end

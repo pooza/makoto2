@@ -1,5 +1,6 @@
 module Makoto
   class CorpusImporterTest < TestCase
+    # ⚠ 既定の設定では `morning` / `holiday` は取り込まない（正本が移った → #224）。
     def test_counts
       counts = CorpusImporter.new(corpus_fixture_dir, db: empty_db).exec
 
@@ -7,15 +8,46 @@ module Makoto
       assert_equal(3, counts[:series])
       assert_equal(5, counts[:quote])
       assert_equal(3, counts[:respondable])
+      assert_equal(3, counts[:message])
+      assert_equal(2, counts[:message_season])
+    end
+
+    # ⚠ 移送前の形（`/message/scripted_types` が空）では従来どおり全部入る。
+    def test_counts_before_the_migration
+      counts = CorpusImporter.new(corpus_fixture_dir, db: corpus_db).exec
+
       assert_equal(6, counts[:message])
       assert_equal(5, counts[:message_season])
+    end
+
+    # 🔴 **正本が `makoto-scripts` へ移った type は旧ダンプから取り込まない**（#224）。
+    # ⚠⚠ **これが無いと、`makoto corpus import` を流すたびに旧 237 件が戻る** —
+    # ⚠ **足しても落ちない状態**（#212 と同じ形）。
+    def test_the_scripted_types_are_not_imported
+      db = empty_db
+      CorpusImporter.new(corpus_fixture_dir, db: db).exec
+
+      assert_equal(['live_open', 'template'], db[:message].select_map(:type).uniq.sort)
+    end
+
+    # 🔴 **旧ダンプ由来（`slug` 無し）の行は消す。**⚠⚠ **ファイル由来（`slug` 有り）
+    # には触らない** — **移送した原稿と、あとから足した原稿がそこに居る。**
+    def test_the_scripted_types_purge_only_the_rows_without_a_slug
+      db = corpus_db
+      kept = db[:message].insert(slug: 'morning-0001', type: 'morning', body: 'ファイル由来の原稿')
+      config['/message/scripted_types'] = ['morning', 'holiday']
+      CorpusImporter.new(corpus_fixture_dir, db: db).exec
+
+      assert_equal('ファイル由来の原稿', db[:message][id: kept][:body])
+      assert_empty(db[:message].where(type: 'morning', slug: nil).all)
+      assert_empty(db[:message].where(type: 'holiday').all)
     end
 
     # 🔴 **`birthday` は取り込まない**（#60）。⚠⚠ **用途をライブの台本が吸収した** —
     # 11/4 は 8 時間のライブ当日で、⚠ 旧 `birthday` は進行を持たない静的な宣言。
     # ⚠ **`morning` / `holiday` / `template` は従来どおり入る**（落としすぎない）。
     def test_birthday_is_not_imported
-      db = empty_db
+      db = corpus_db
       CorpusImporter.new(corpus_fixture_dir, db: db).exec
 
       assert_empty(db[:message].where(type: 'birthday').all)
