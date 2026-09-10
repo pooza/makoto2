@@ -43,12 +43,13 @@ module Makoto
         output.lines.map(&:chomp).grep(/\A\d{4}-/))
     end
 
-    # ⚠⚠ **1 日 2 本の枠がそのまま見える。**
-    def test_preview_shows_both_slots
+    # ⚠⚠ **1 日 3 本の枠がそのまま見える**（#292）。
+    def test_preview_shows_every_slot
       output = capture {command(date: '2026-09-01', days: 1).preview}
 
-      assert_equal(2, output.lines.count {|line| line.match?(/\A {2}\d{2}:\d{2} /)})
+      assert_equal(3, output.lines.count {|line| line.match?(/\A {2}\d{2}:\d{2} /)})
       assert_include(output, '12:00')
+      assert_include(output, '15:30')
       assert_include(output, '19:00')
     end
 
@@ -111,7 +112,7 @@ module Makoto
       output = capture {command.slot}
 
       assert_include(output, "#{Song::NAME}: ")
-      assert_include(output, '1 日 2 本（12:00 / 19:00）')
+      assert_include(output, '1 日 3 本（12:00 / 15:30 / 19:00）')
       assert_include(output, '前置きの原稿: 4 本')
       assert_include(output, '抽選の母集合: ')
       assert_include(output, 'アルバム名を出す')

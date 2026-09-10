@@ -20,6 +20,11 @@ module Makoto
       return Time.new(year, month, day, hour, 0, 0, '+09:00')
     end
 
+    # その日の枠の列。⚠ **枠の本数と時刻は設定が正本**なので、テストに焼かない。
+    def slots(date)
+      return song.timetable.times(date)
+    end
+
     # 前置きの原稿を足す。⚠ **季節も日付も持たないので段 5（無指定）に入る。**
     # ⚠ **戻り値は本文の一覧**（`create` は id を返す）。
     def add_prefixes(count)
@@ -129,19 +134,21 @@ module Makoto
       assert_equal('♪', lines[2][0])
     end
 
-    # 🔴 **同じ日の 2 本が同じ前置きにならない**（#16 の枠は 1 日 2 本）。
-    # ⚠⚠ **日付だけで送るとここが揃う。**
-    def test_the_two_slots_of_a_day_differ
+    # 🔴 **同じ日の枠どうしが同じ前置きにならない**（#292 で 1 日 3 本）。
+    # ⚠⚠ **日付だけで送るとここが揃う。**⚠ **枠は設定から取る**（本数を焼かない）。
+    def test_the_slots_of_a_day_differ
       add_prefixes(6)
+      prefixes = slots(Date.new(2026, 9, 1)).map {|time| source.prefix(time)}
 
-      assert_not_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 19)))
+      assert_equal(3, prefixes.size)
+      assert_equal(prefixes.size, prefixes.uniq.size)
     end
 
     # ⚠ **連日でも続かない**（通し番号が枠ごとに 1 進む）。
     def test_no_repeat_across_consecutive_slots
       add_prefixes(6)
       prefixes = (1..7).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
+        slots(Date.new(2026, 9, day)).map {|time| source.prefix(time)}
       end
 
       assert_equal([], prefixes.each_cons(2).select {|a, b| a == b})
@@ -156,7 +163,7 @@ module Makoto
     def test_every_prefix_comes_up
       bodies = add_prefixes(6)
       picked = (1..6).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
+        slots(Date.new(2026, 9, day)).map {|time| source.prefix(time)}
       end
 
       assert_equal(bodies.sort, picked.uniq.sort)
