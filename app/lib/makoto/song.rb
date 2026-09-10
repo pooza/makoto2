@@ -148,16 +148,16 @@ module Makoto
       return @selector
     end
 
-    # 🔴 **`kind` ごとの前置きの選び手**（#293）。⚠⚠ **引くのは「共通 ＋ その `kind` の
-    # type」の和集合** — 🔴 **共通の前置きはどの曲にも合う文だけで書く**ので、**どの
-    # `kind` でも候補に入れてよい。**⚠ **種類別が 0 本なら共通だけになる**（**#293 より
-    # 前の形より悪くならない**）。
+    # 🔴 **`kind` ごとの前置きの選び手**（#293）。⚠ **その `kind` の type だけ**を引く。
     #
-    # ⚠ **書いていない `kind` はここに無い**（→ `SongSource#selector_for` が共通へ倒す）。
+    # ⚠⚠ **共通は混ぜない** — 🔴 **枠ごとに「共通」か「種類別」のどちらか一方から引く**
+    # （→ `SongSource#pool`・Codex の P2）。🔴 **共通の前置きはどの曲にも合う文だけで
+    # 書く**ので、**どの `kind` の枠でも共通の側に当たりうる。**⚠ **種類別が 0 本なら
+    # 共通だけになる**（**#293 より前の形より悪くならない**）。
+    #
+    # ⚠ **書いていない `kind` はここに無い**（＝共通だけ）。
     def kind_selectors
-      @kind_selectors ||= kind_types.to_h do |kind, name|
-        [kind, selector_of([type, name])]
-      end
+      @kind_selectors ||= kind_types.to_h {|kind, name| [kind, selector_of([name])]}
       return @kind_selectors
     end
 

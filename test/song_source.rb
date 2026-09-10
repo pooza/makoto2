@@ -208,6 +208,27 @@ module Makoto
       end
     end
 
+    # 🔴 **曲の `kind` が枠ごとに変わっても、同じ前置きが続けて出ない**（#293・Codex の P2）。
+    # ⚠⚠ **共通を種類別の束に混ぜると、束が変わった枠で同じ共通の前置きが別の位置から
+    # 選ばれ、隣り合う枠で続く。**🔴 **共通の前置きどうしの間隔も `Rotation` の保証
+    # （最短 n/2 枠）を下回らない。**
+    def test_switching_kinds_keeps_the_spacing
+      common = add_prefixes(4)
+      add_prefixes(4, type: 'song_bgm', label: '劇伴')
+      add_prefixes(4, type: 'song_vocal', label: '歌')
+      kinds = ['vocal', 'bgm', 'karaoke']
+      picked = month_of_slots.each_with_index.map do |time, i|
+        source.prefix(time, kind: kinds[i % kinds.size])
+      end
+
+      assert_equal([], picked.each_cons(2).select {|a, b| a == b})
+      common.each do |body|
+        gaps = picked.each_index.select {|i| picked[i] == body}.each_cons(2).map {|a, b| b - a}
+
+        assert(gaps.all? {|gap| gap >= common.size / 2}, "#{body}: #{gaps}")
+      end
+    end
+
     # 🔴 **本文の前置きは、引いた曲の `kind` の束から来る**（#293）。⚠⚠ **曲を引く前に
     # 前置きを選ぶと、ここが食い違う。**
     def test_compose_matches_the_prefix_to_the_drawn_kind

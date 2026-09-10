@@ -89,7 +89,7 @@ module Makoto
     # ⚠⚠ **同じ前置きが戻るまでの間隔は、その半分を下回らない。**
     #
     # 🔴 **`kind` ごとに候補の束が違う**（#293）ので、**束ごとに 1 行ずつ出す。**
-    # ⚠ **束 ＝ 共通 ＋ その `kind` の type**（→ `Song#kind_selectors`）。
+    # ⚠ **束は種類別だけ**（共通は混ぜない → `Song#kind_selectors`）。
     def dump_prefixes
       slots = song.timetable.size(today)
       common = song.selector.list(today).size
@@ -110,12 +110,14 @@ module Makoto
     end
 
     # ⚠ **束 1 つぶん。**🔴 **種類別が 0 本なら、そう書く**（**共通だけで回っている**）。
+    #
+    # ⚠ **一周は種類別の束の中だけで数える**（**共通とは混ぜずに、枠ごとに本数の比で
+    # どちらか一方から引く** → `SongSource#pool`）。
     def group_line(name, kinds, slots)
       own = type_size(name)
-      size = song.kind_selectors[kinds.first].list(today).size
       label = "  #{kinds.join(' / ')}: #{name} #{own} 本"
       return "#{label}（⚠ 共通だけ）" if own.zero?
-      return "#{label}（共通と合わせて #{size} 本・#{cycle_note(size, slots)}）"
+      return "#{label}（共通と本数の比で引き分け・#{cycle_note(own, slots)}）"
     end
 
     # その type だけの本数。

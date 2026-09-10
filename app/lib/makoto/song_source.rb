@@ -36,8 +36,9 @@ module Makoto
   # ## 🔴 前置きは曲の `kind` で書き分ける（#293）
   #
   # ⚠⚠ **抽選で出る曲の約 4 割は歌の無い曲**なので、**1 つの type だと「口ずさむ」の
-  # ような前置きが劇伴やカラオケに付く。**🔴 **候補は「共通（`/song/type`）＋ その
-  # `kind` の type（`/song/kind_types`）」の和集合**（→ `Song#kind_selectors` / `Prefixes`）。
+  # ような前置きが劇伴やカラオケに付く。**🔴 **枠ごとに「共通（`/song/type`）」か
+  # 「その `kind` の type（`/song/kind_types`）」のどちらか一方から引く**（本数の比で
+  # 決める → `#pool`）。⚠⚠ **1 つの束に混ぜない**（Codex の P2 → `#prefix_record`）。
   # ⚠ **共通はどの曲にも合う文だけで書く**ので、**種類別が 0 本でも壊れない。**
   #
   # ## 🔴 前置きは枠ごとに送る（#223 の規則を通す）
@@ -73,17 +74,18 @@ module Makoto
     # 1 か 2 だが、下見は `posted` を呼ばないので上限が要る。**
     PENDING_LIMIT = 8
 
-    # 🔴 **前置きの選び手の束**（#293）。**共通 ＋ `kind` ごと。**
+    # 🔴 **前置きの選び手の束**（#293）。**共通 ＋ `kind` ごと（その `kind` の type だけ）。**
     #
-    # ⚠ **書いていない `kind` は共通へ倒す。**⚠⚠ **日付の規則と記念日の予約は共通が
-    # 答える**（どの選び手も同じ設定を読むので、1 つに寄せる）。
+    # ⚠ **書いていない `kind` は種類別を持たない**（＝共通だけ）。⚠⚠ **日付の規則と
+    # 記念日の予約は共通が答える**（どの選び手も同じ設定を読むので、1 つに寄せる）。
     Prefixes = Data.define(:common, :by_kind) do
       def self.of(common, by_kind = nil)
         return new(common: common, by_kind: (by_kind || {}).transform_keys(&:to_s))
       end
 
-      def for(kind)
-        return by_kind.fetch(kind.to_s, common)
+      # その `kind` だけの選び手。⚠ **無ければ nil。**
+      def own(kind)
+        return by_kind[kind.to_s]
       end
     end
 
@@ -179,21 +181,21 @@ module Makoto
 
     # その枠の前置きの原稿そのもの。⚠ **下見とログのためにある**（→ `SongCommand`）。
     #
-    # 🔴 **順送りの通し番号は `kind` によらず枠で決まる**（#223）。⚠⚠ **`kind` ごとに
-    # 候補の束が違うだけ** — ⚠ **`Rotation` の「同じ前置きが戻るのは最短 n/2 枠」は
-    # 通し番号の距離の話なので、束ごとにそのまま成り立つ**（n はその束の本数）。
+    # 🔴 **順送りの通し番号は `kind` によらず枠で決まる**（#223）。
+    #
+    # 🔴 **共通と種類別は 1 つの束に混ぜない。枠ごとにどちらか一方から引く**（#293・
+    # Codex の P2）。⚠⚠ **混ぜると、共通の前置きがどの束にも入る** — **曲の `kind` が
+    # 変わった枠では別の束の別の位置から同じ共通の前置きが選ばれ、隣り合う枠で続く**
+    # （`Rotation` の「最短 n/2 枠」は **1 つの束の中**の話）。🔴 **束が互いに重ならなければ、
+    # どの前置きも自分の束の中でしか回らないので保証が保てる。**
     def prefix_record(time = nil, index = nil, kind: nil)
       time ||= Time.now
       index ||= @timetable.index_at(time)
       return nil unless index
-      records = selector_for(kind).list(time)
+      number = serial(time, index)
+      records = pool(@selector.list(time), own_records(kind, time), number)
       return nil if records.empty?
-      return Rotation.pick(records, serial(time, index))
-    end
-
-    # 🔴 **その `kind` の前置きを引く選び手**（#293）。⚠ **書いていない `kind` は共通。**
-    def selector_for(kind)
-      return @prefixes.for(kind)
+      return Rotation.pick(records, number)
     end
 
     # 曲 1 本ぶんの出力。⚠ **下見もここを通す**（#159 と同じ理由 — **「どう見えるか」の
@@ -232,6 +234,24 @@ module Makoto
     # オブジェクトで来る**（`call` と `posted` は `PostingJob` の別々の行から呼ばれる）。
     def key_of(slot)
       return slot.to_i
+    end
+
+    # その `kind` だけの前置き。⚠ **種類別を持たない `kind` は空。**
+    def own_records(kind, time)
+      selector = @prefixes.own(kind)
+      return selector ? selector.list(time) : []
+    end
+
+    # 🔴 **その枠が共通と種類別のどちらから引くか**（#293）。
+    #
+    # ⚠ **本数に比例させる**（**混ぜたときと同じ割合**）。⚠⚠ **状態を持たない**ので、
+    # **通し番号から決める**（**同じ枠なら何度呼んでも同じ**・下見と実機も同じ）。
+    # ⚠ **片方が 0 本なら、もう片方。**
+    def pool(common, own, number)
+      return common if own.empty?
+      return own if common.empty?
+      roll = Digest::SHA256.hexdigest("prefix-pool-#{number}").to_i(16) % (common.size + own.size)
+      return roll < own.size ? own : common
     end
 
     # 🔴 **その枠の通し番号。**⚠⚠ **日付だけだと同じ日の 2 本が同じ前置きになる。**
