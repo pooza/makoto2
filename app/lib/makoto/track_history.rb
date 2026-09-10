@@ -18,7 +18,7 @@ module Makoto
   # その枠が沈黙する**（→ `SongSource#draw`）ので、**重複を許すほうを採る。**
   #
   # ⚠ **実測では起きない。**🔴 **いちばん小さい `kind` は `instrumental` の 32 曲**で、
-  # **既定の窓（200 本）に入るのは出る割合から約 12 曲**（→ config/application.yaml）。
+  # **既定の窓（300 本・#292）に入るのは出る割合から約 18 曲**（→ config/application.yaml）。
   #
   # ## ⚠⚠ 進行位置ではない
   #
