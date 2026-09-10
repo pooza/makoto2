@@ -94,11 +94,10 @@ module Makoto
       slots = song.timetable.size(today)
       common = song.selector.list(today).size
       groups = prefix_groups
-      if common.zero? && groups.keys.all? {|name| type_size(name).zero?}
-        puts '前置きの原稿: 0 本（⚠ 曲だけを出します）'
-        return nil
-      end
-      note = common.zero? ? '⚠ 種類別の無い kind は曲だけ' : cycle_note(common, slots)
+      # 🔴 **種類別が 1 本でもあれば、共通も毎枠は引かれない**（→ `SongSource#pool`）。
+      exact = groups.keys.all? {|name| type_size(name).zero?}
+      return puts('前置きの原稿: 0 本（⚠ 曲だけを出します）') if common.zero? && exact
+      note = common.zero? ? '⚠ 種類別の無い kind は曲だけ' : cycle_note(common, slots, exact:)
       puts "前置きの原稿: 共通 #{common} 本（#{song.type}・#{note}）"
       groups.each {|name, kinds| puts group_line(name, kinds, slots)}
       return nil
@@ -111,13 +110,13 @@ module Makoto
 
     # ⚠ **束 1 つぶん。**🔴 **種類別が 0 本なら、そう書く**（**共通だけで回っている**）。
     #
-    # ⚠ **一周は種類別の束の中だけで数える**（**共通とは混ぜずに、枠ごとに本数の比で
-    # どちらか一方から引く** → `SongSource#pool`）。
+    # ⚠ **種類別の束は「その種類の曲が出た枠の、さらに一部」でしか引かれない**
+    # （→ `SongSource#pool`）ので、**一周の日数は出せない。下限だけを出す**（Codex の P2）。
     def group_line(name, kinds, slots)
       own = type_size(name)
       label = "  #{kinds.join(' / ')}: #{name} #{own} 本"
       return "#{label}（⚠ 共通だけ）" if own.zero?
-      return "#{label}（共通と本数の比で引き分け・#{cycle_note(own, slots)}）"
+      return "#{label}（共通と本数の比で引き分け・#{cycle_note(own, slots, exact: false)}）"
     end
 
     # その type だけの本数。
@@ -125,9 +124,15 @@ module Makoto
       return song.selector_of([name]).list(today).size
     end
 
-    def cycle_note(size, slots)
+    # 🔴 **「同じ前置きが戻るのは最短 n/2 枠」は、束が毎枠引かれなくても成り立つ**
+    # （**通し番号の距離の話**なので、**引かれない枠が挟まるほど間隔は延びるだけ**）。
+    #
+    # ⚠⚠ **一周の日数は、束が毎枠引かれるときにしか言えない**（Codex の P2）。
+    # ⚠ **`exact: false` なら下限だけを出す**（**一周は曲の種類の出方で延びる**）。
+    def cycle_note(size, slots, exact: true)
       cycle = ((size.to_f / slots) * 10).round / 10.0
-      return "一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日"
+      return "一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日" if exact
+      return "同じ前置きが戻るのは最短 #{cycle / 2} 日・⚠ 一周は曲の種類の出方で延びる"
     end
 
     # 🔴 **最近出した曲を避けているか**（#41）。⚠⚠ **設定を消せば止まる**ので、

@@ -125,7 +125,10 @@ module Makoto
       add_prefixes(2, type: 'song_bgm')
       output = capture {command.slot}
 
-      assert_include(output, '  bgm: song_bgm 2 本（共通と本数の比で引き分け・一周 0.7 日')
+      assert_include(output, '  bgm: song_bgm 2 本（共通と本数の比で引き分け・同じ前置きが戻るのは最短 0.35 日')
+      # 🔴 **種類別があると共通も毎枠は引かれない**ので、**一周の日数は出さない**（Codex の P2）。
+      assert_include(output, '前置きの原稿: 共通 4 本（song・同じ前置きが戻るのは最短 0.65 日')
+      assert_not_include(output, '一周 ')
       assert_include(output, '  instrumental / karaoke: song_inst 0 本（⚠ 共通だけ）')
       assert_include(output, '  tv_size / vocal: song_vocal 0 本（⚠ 共通だけ）')
     end
