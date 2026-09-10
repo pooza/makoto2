@@ -1,7 +1,7 @@
 GIT
   remote: https://github.com/pooza/ginseng-core.git
   revision: b6e736db820caca781890fb134b937e7e37ca61c
-  branch: main
+  tag: v1.23.7
   specs:
     ginseng-core (1.23.7)
       activesupport (>= 8.1.2.1)
@@ -34,8 +34,8 @@ GIT
 
 GIT
   remote: https://github.com/pooza/ginseng-fediverse.git
-  revision: bd2d558e22d41842f76a8dd7226f048c9d079651
-  branch: main
+  revision: f6e160a2794db2573b9210eea23ab7593dcc5123
+  tag: v1.8.31
   specs:
     ginseng-fediverse (1.8.31)
 
