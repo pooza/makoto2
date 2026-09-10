@@ -27,12 +27,17 @@ module Makoto
 
     # 前置きの原稿を足す。⚠ **季節も日付も持たないので段 5（無指定）に入る。**
     # ⚠ **戻り値は本文の一覧**（`create` は id を返す）。
-    def add_prefixes(count)
+    def add_prefixes(count, type: nil, label: '前置き')
       return Array.new(count) do |i|
-        body = "前置き #{i}"
-        @repository.create(type: config['/song/type'], body: body)
+        body = "#{label} #{i}"
+        @repository.create(type: type || config['/song/type'], body: body)
         body
       end
+    end
+
+    # 1 か月ぶんの枠（⚠ **束ごとの出方を見るのに十分な本数**）。
+    def month_of_slots
+      return (1..30).flat_map {|day| slots(Date.new(2026, 9, day))}
     end
 
     # 🔴 **引いただけでは履歴に書かない**（#41）。
@@ -169,6 +174,59 @@ module Makoto
       assert_equal(bodies.sort, picked.uniq.sort)
     end
 
+    # 🔴 **`kind` の前置きは「共通 ＋ その `kind` の type」から引く**（#293）。
+    # ⚠ **共通はどの曲にも合う文なので、種類別を書いた `kind` でも候補に残る。**
+    def test_a_kind_draws_from_the_common_and_its_own
+      common = add_prefixes(3)
+      scores = add_prefixes(3, type: 'song_bgm', label: '劇伴')
+      picked = month_of_slots.map {|time| source.prefix(time, kind: 'bgm')}
+
+      assert_empty(picked - common - scores)
+      assert(picked.intersect?(scores))
+      assert(picked.intersect?(common))
+    end
+
+    # ⚠⚠ **他の `kind` の前置きは付かない**（**劇伴の前置きが歌の曲に付かない**）。
+    def test_a_kind_never_draws_another_kinds_own
+      add_prefixes(3)
+      scores = add_prefixes(3, type: 'song_bgm', label: '劇伴')
+      picked = month_of_slots.map {|time| source.prefix(time, kind: 'vocal')}
+
+      refute(picked.intersect?(scores))
+    end
+
+    # 🔴 **種類別が 0 本なら共通だけ**（**書き分ける前の形より悪くならない**）。
+    # ⚠ **書いていない `kind` も共通だけ。**
+    def test_falls_back_to_the_common
+      common = add_prefixes(3)
+      add_prefixes(3, type: 'song_bgm', label: '劇伴')
+
+      ['karaoke', 'nosuch', nil].each do |kind|
+        picked = month_of_slots.map {|time| source.prefix(time, kind: kind)}
+
+        assert_empty(picked - common, kind.inspect)
+      end
+    end
+
+    # 🔴 **本文の前置きは、引いた曲の `kind` の束から来る**（#293）。⚠⚠ **曲を引く前に
+    # 前置きを選ぶと、ここが食い違う。**
+    def test_compose_matches_the_prefix_to_the_drawn_kind
+      add_prefixes(2)
+      add_prefixes(2, type: 'song_bgm', label: '劇伴')
+      add_prefixes(2, type: 'song_vocal', label: '歌')
+      allowed = {'song' => song.kind_types.keys, 'song_bgm' => ['bgm'],
+                 'song_vocal' => ['vocal', 'tv_size']}
+      entries = month_of_slots.filter_map {|time| source.compose(time)}
+
+      assert_false(entries.empty?)
+      entries.each do |entry|
+        type = entry[:prefix][:type]
+
+        assert_include(allowed.fetch(type), entry[:track][:kind].to_s, type)
+        assert(entry[:text].start_with?(entry[:prefix][:body]))
+      end
+    end
+
     # 🔴 **同じ枠なら何度呼んでも同じ前置き**（状態を持たない）。⚠ **落ちて戻って
     # きても・別の箱で下見しても同じ**（→ docs/CLAUDE.md）。
     def test_the_same_slot_gives_the_same_prefix
@@ -300,7 +358,7 @@ module Makoto
     def test_an_empty_pool_leaves_a_warning
       subject = SongSource.new(
         lottery: EmptyLottery.new,
-        selector: song.selector,
+        prefixes: SongSource::Prefixes.of(song.selector),
         timetable: song.timetable,
       )
       logged = []

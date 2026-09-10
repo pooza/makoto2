@@ -224,7 +224,30 @@ song:
   #
   # 🔴 前置きは通年で書く。⚠⚠ 季節指定を 1 本書くと、その月はその 1 本だけが回る
   # （朝挨拶の「月の中に散らす」は 1 日 1 本の枠だからできること → SongSource）。
+  #
+  # 🔴 これは「どの kind の曲にも付く共通の前置き」。⚠ どの曲にも合う文だけで書く（#293）。
   type: song
+  # 🔴 曲の kind ごとに前置きを書き分ける（#293・2026-09-10 オーナー判断）。kind → type。
+  #
+  # ⚠⚠ 抽選で出る曲の約 4 割は歌の無い曲（bgm 23.5% / karaoke・tv_size・instrumental
+  # 各 5.9%）。1 つの type だと「口ずさむ」のような前置きが劇伴やカラオケに付く。
+  #
+  # 🔴 引くのは「共通（上の type）＋ その kind の type」の和集合。⚠ 共通はどの曲にも
+  # 合う文なので、どの kind でも候補に入れてよい。⚠⚠ 種類別が 0 本なら共通だけになる
+  # （書き分ける前の形より悪くならない）。
+  #
+  # ⚠ 書いていない kind は共通だけ。⚠⚠ /track/weight に無い kind を書くと起動時に
+  # 落とす（綴りを間違えると、種類別の前置きが黙って 1 本も使われないため → Makoto::Song）。
+  # ⚠ ここの type も /message/anniversary に登録しないこと（上の type と同じ理由）。
+  #
+  # ⚠ 束ね方: tv_size は歌のある曲の短縮版なので vocal と同じ。karaoke と instrumental は
+  # どちらも「歌の無い歌の曲」なので同じ。bgm（劇伴）はアルバム名が主役なので単独。
+  kind_types:
+    vocal: song_vocal
+    tv_size: song_vocal
+    bgm: song_bgm
+    karaoke: song_inst
+    instrumental: song_inst
   # 🔴 アルバム名を主役にする kind（→ Makoto::TrackPresenter）。
   #
   # ⚠⚠ bgm の名義は作曲家（林ゆうき・高梨康治）で、どのシリーズの曲かは名義からは

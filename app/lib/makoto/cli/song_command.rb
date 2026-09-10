@@ -2,8 +2,9 @@ module Makoto
   # 曲紹介（#16）の下見。⚠ **投稿はしない。**
   #
   # ⚠⚠ **曲は抽選なので、下見は「次に何が出るか」を言い当てられない。**
-  # 🔴 **言い当てられるのは前置きだけ**（順送り → `SongSource`）。⚠ **したがってここが
-  # 見せるのは 2 つ** — **前置きの並び**と、**`kind` ごとに実際に組んだ本文。**
+  # 🔴 **前置きは順送りだが、候補は引いた曲の `kind` で変わる**（#293 → `SongSource`）。
+  # ⚠ **したがってここが見せるのは 2 つ** — **前置きの本数（`kind` ごと）**と、
+  # **`kind` ごとに実際に組んだ本文。**
   #
   # 🔴 **#16 の完了条件は「紹介文が `kind` に応じて破綻しないこと」**なので、
   # ⚠⚠ **`--kind` で 1 つずつ当てられるようにしてある。**
@@ -86,17 +87,45 @@ module Makoto
 
     # 🔴 **一周の長さ ＝ 前置きの本数 ÷ 1 日の本数**（#223 の規則を通す）。
     # ⚠⚠ **同じ前置きが戻るまでの間隔は、その半分を下回らない。**
+    #
+    # 🔴 **`kind` ごとに候補の束が違う**（#293）ので、**束ごとに 1 行ずつ出す。**
+    # ⚠ **束 ＝ 共通 ＋ その `kind` の type**（→ `Song#kind_selectors`）。
     def dump_prefixes
-      size = song.selector.list(today).size
       slots = song.timetable.size(today)
-      if size.zero?
+      common = song.selector.list(today).size
+      groups = prefix_groups
+      if common.zero? && groups.keys.all? {|name| type_size(name).zero?}
         puts '前置きの原稿: 0 本（⚠ 曲だけを出します）'
         return nil
       end
-      days = size.to_f / slots
-      cycle = (days * 10).round / 10.0
-      puts "前置きの原稿: #{size} 本（一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日）"
+      note = common.zero? ? '⚠ 種類別の無い kind は曲だけ' : cycle_note(common, slots)
+      puts "前置きの原稿: 共通 #{common} 本（#{song.type}・#{note}）"
+      groups.each {|name, kinds| puts group_line(name, kinds, slots)}
       return nil
+    end
+
+    # `{type => [kind, ...]}`。⚠ **複数の `kind` が同じ type を指す**ので、束ねて 1 行にする。
+    def prefix_groups
+      return song.kind_types.group_by(&:last).transform_values {|pairs| pairs.map(&:first)}
+    end
+
+    # ⚠ **束 1 つぶん。**🔴 **種類別が 0 本なら、そう書く**（**共通だけで回っている**）。
+    def group_line(name, kinds, slots)
+      own = type_size(name)
+      size = song.kind_selectors[kinds.first].list(today).size
+      label = "  #{kinds.join(' / ')}: #{name} #{own} 本"
+      return "#{label}（⚠ 共通だけ）" if own.zero?
+      return "#{label}（共通と合わせて #{size} 本・#{cycle_note(size, slots)}）"
+    end
+
+    # その type だけの本数。
+    def type_size(name)
+      return song.selector_of([name]).list(today).size
+    end
+
+    def cycle_note(size, slots)
+      cycle = ((size.to_f / slots) * 10).round / 10.0
+      return "一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日"
     end
 
     # 🔴 **最近出した曲を避けているか**（#41）。⚠⚠ **設定を消せば止まる**ので、
@@ -157,9 +186,10 @@ module Makoto
 
     # 🔴 **`kind` ごとに実際に本文を組む**（#16 の完了条件）。⚠ **前置きは今日の
     # 1 本目のものを使う**（**本文の形を見るのが目的**なので、順送りは動かさない）。
+    # ⚠ **前置きはその `kind` の束から引く**（#293）。
     def dump_samples(names, count)
-      prefix = song.source.prefix(first_slot)
       names.each do |kind|
+        prefix = song.source.prefix(first_slot, kind: kind)
         puts "=== #{kind} ==="
         song.lottery.candidates.where(kind: kind).order(Sequel.lit('RANDOM()'))
           .limit(count).each do |track|
@@ -177,16 +207,21 @@ module Makoto
         day = date + offset
         puts "#{day} (#{Date::ABBR_DAYNAMES[day.wday]})"
         next puts("  #{quiet_reason(day)}") if song.source.quiet?(day)
-        song.timetable.times(day).each do |time|
-          record = song.source.prefix_record(time)
-          label = record ? "[#{record[:id]}] #{record[:type]}" : '前置きはありません'
-          puts "  #{time.strftime('%H:%M')} #{label}"
-          # ⚠⚠ **曲は抽選なので、下見と実機は一致しない。**⚠ **形を見るためのもの。**
-          text = song.source.call(time)
-          next puts('    （曲を引けませんでした）') unless text
-          text.each_line {|line| puts "    #{line.chomp}"}
-        end
+        song.timetable.times(day).each {|time| dump_slot(time)}
       end
+    end
+
+    # ⚠⚠ **曲は抽選なので、下見と実機は一致しない。**⚠ **形を見るためのもの。**
+    # 🔴 **前置きは引いた曲の `kind` で決まる**（#293）ので、**曲を引いてから書く。**
+    def dump_slot(time)
+      clock = time.strftime('%H:%M')
+      entry = song.source.compose(time)
+      return puts("  #{clock} （曲を引けませんでした）") unless entry
+      record = entry[:prefix]
+      label = record ? "[#{record[:id]}] #{record[:type]}" : '前置きはありません'
+      puts "  #{clock} #{label}（#{entry[:track][:kind]}）"
+      entry[:text].each_line {|line| puts "    #{line.chomp}"}
+      return nil
     end
 
     # ⚠ **どの枠が持っている日かを名指しで書く**（**「出ません」だけだと理由が追えない**）。
