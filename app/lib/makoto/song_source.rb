@@ -9,8 +9,9 @@ module Makoto
   # https://music.apple.com/jp/album/girls-work/…   ← ⚠ プレビューカードはこれに任せる
   # ```
   #
-  # ⚠⚠ **曲は抽選、前置きは順送り。**🔴 **同じ投稿の中で 2 つの選び方が同居している**
-  # ので、⚠ **下見は前置きしか言い当てられない**（→ `SongCommand`）。
+  # ⚠⚠ **曲は抽選、前置きは順送り。**🔴 **同じ投稿の中で 2 つの選び方が同居している**。
+  # ⚠ **前置きの候補は引いた曲の `kind` で変わる**（#293）ので、**種類別の前置きを
+  # 書いた `kind` があると、下見は前置きも言い当てられなくなる**（→ `SongCommand`）。
   #
   # ## 🔴 曲は重み付き抽選（#11 → `TrackLottery`）＋ 最近出した曲は外す（#41）
   #
@@ -31,6 +32,14 @@ module Makoto
   # `MessageSelector#list` は勝った段だけを返す**ので、⚠⚠ **季節指定の前置きを 1 本
   # 書くと、その月はその 1 本だけが回る**（朝挨拶の「月の中に散らす」は #17 の枠が
   # 1 日 1 本だからできること）。⚠ **前置きは通年で書く。**
+  #
+  # ## 🔴 前置きは曲の `kind` で書き分ける（#293）
+  #
+  # ⚠⚠ **抽選で出る曲の約 4 割は歌の無い曲**なので、**1 つの type だと「口ずさむ」の
+  # ような前置きが劇伴やカラオケに付く。**🔴 **枠ごとに「共通（`/song/type`）」か
+  # 「その `kind` の type（`/song/kind_types`）」のどちらか一方から引く**（本数の比で
+  # 決める → `#pool`）。⚠⚠ **1 つの束に混ぜない**（Codex の P2 → `#prefix_record`）。
+  # ⚠ **共通はどの曲にも合う文だけで書く**ので、**種類別が 0 本でも壊れない。**
   #
   # ## 🔴 前置きは枠ごとに送る（#223 の規則を通す）
   #
@@ -65,14 +74,30 @@ module Makoto
     # 1 か 2 だが、下見は `posted` を呼ばないので上限が要る。**
     PENDING_LIMIT = 8
 
+    # 🔴 **前置きの選び手の束**（#293）。**共通 ＋ `kind` ごと（その `kind` の type だけ）。**
+    #
+    # ⚠ **書いていない `kind` は種類別を持たない**（＝共通だけ）。⚠⚠ **日付の規則と
+    # 記念日の予約は共通が答える**（どの選び手も同じ設定を読むので、1 つに寄せる）。
+    Prefixes = Data.define(:common, :by_kind) do
+      def self.of(common, by_kind = nil)
+        return new(common: common, by_kind: (by_kind || {}).transform_keys(&:to_s))
+      end
+
+      # その `kind` だけの選び手。⚠ **無ければ nil。**
+      def own(kind)
+        return by_kind[kind.to_s]
+      end
+    end
+
     # @param lottery [TrackLottery] 曲を引く口
-    # @param selector [MessageSelector] 前置きを引く口
+    # @param prefixes [Prefixes] 前置きを引く口（共通 ＋ `kind` ごと・#293）
     # @param timetable [Timetable] 枠。⚠ **通し番号を出すのに要る**
     # @param collection_kinds [Array<String>] アルバム名を出す kind（→ `TrackPresenter`）
     # @param quiet_types [Array<String>] ⚠ **この type が予約されている日は黙る**
-    def initialize(lottery:, selector:, timetable:, collection_kinds: nil, quiet_types: nil)
+    def initialize(lottery:, prefixes:, timetable:, collection_kinds: nil, quiet_types: nil)
       @lottery = lottery
-      @selector = selector
+      @prefixes = prefixes
+      @selector = prefixes.common
       @timetable = timetable
       @collection_kinds = Array(collection_kinds).map(&:to_s)
       @quiet_types = Array(quiet_types).map(&:to_s)
@@ -91,12 +116,27 @@ module Makoto
     # ⚠ **枠の外・ライブが持つ日・曲が引けなければ nil**（＝その枠は投稿しない）。
     def call(time = nil)
       time ||= Time.now
+      entry = compose(time)
+      return nil unless entry
+      remember(time, entry[:track])
+      return entry[:text]
+    end
+
+    # 🔴 **1 枠ぶんを組む**（曲 ＋ 前置き ＋ 本文）。⚠ **枠の外・黙る日・曲が引けなければ nil。**
+    #
+    # 🔴 **前置きは引いた曲の `kind` で決まる**（#293）ので、⚠⚠ **曲を引いてから前置きを
+    # 選ぶ。**⚠ **下見はこちらを使う**（**どの前置きを使ったか**まで見せるため → `SongCommand`）。
+    #
+    # ⚠⚠ **履歴には触らない**（`remember` は `call` だけ）。
+    def compose(time = nil)
+      time ||= Time.now
       return nil unless @timetable.index_at(time)
       return nil if quiet?(time)
       track = draw
       return nil unless track
-      remember(time, track)
-      return presenter(track, prefix(time)).to_s
+      record = prefix_record(time, kind: track[:kind])
+      text = presenter(track, record && record[:body]).to_s
+      return {track: track, prefix: record, text: text}
     end
 
     # 🔴 **その枠が実際に出たときだけ履歴に書く**（#41 → `PostingJob#notify`）。
@@ -128,23 +168,34 @@ module Makoto
     #
     # ⚠ **黙る日かどうかはここでは見ない**（🔴 **`call` の門はひとつ**）。⚠⚠ **下見は
     # 「黙る日」と「前置きが引けない日」を別々に見せる**（→ `SongCommand`）。
-    def prefix(time = nil)
+    #
+    # ⚠ **`kind` を渡さなければ共通だけ**（#293 より前の形）。
+    def prefix(time = nil, kind: nil)
       time ||= Time.now
       index = @timetable.index_at(time)
       return nil unless index
-      record = prefix_record(time, index)
+      record = prefix_record(time, index, kind: kind)
       return nil unless record
       return record[:body]
     end
 
     # その枠の前置きの原稿そのもの。⚠ **下見とログのためにある**（→ `SongCommand`）。
-    def prefix_record(time = nil, index = nil)
+    #
+    # 🔴 **順送りの通し番号は `kind` によらず枠で決まる**（#223）。
+    #
+    # 🔴 **共通と種類別は 1 つの束に混ぜない。枠ごとにどちらか一方から引く**（#293・
+    # Codex の P2）。⚠⚠ **混ぜると、共通の前置きがどの束にも入る** — **曲の `kind` が
+    # 変わった枠では別の束の別の位置から同じ共通の前置きが選ばれ、隣り合う枠で続く**
+    # （`Rotation` の「最短 n/2 枠」は **1 つの束の中**の話）。🔴 **束が互いに重ならなければ、
+    # どの前置きも自分の束の中でしか回らないので保証が保てる。**
+    def prefix_record(time = nil, index = nil, kind: nil)
       time ||= Time.now
       index ||= @timetable.index_at(time)
       return nil unless index
-      records = @selector.list(time)
+      number = serial(time, index)
+      records = pool(@selector.list(time), own_records(kind, time), number)
       return nil if records.empty?
-      return Rotation.pick(records, serial(time, index))
+      return Rotation.pick(records, number)
     end
 
     # 曲 1 本ぶんの出力。⚠ **下見もここを通す**（#159 と同じ理由 — **「どう見えるか」の
@@ -183,6 +234,24 @@ module Makoto
     # オブジェクトで来る**（`call` と `posted` は `PostingJob` の別々の行から呼ばれる）。
     def key_of(slot)
       return slot.to_i
+    end
+
+    # その `kind` だけの前置き。⚠ **種類別を持たない `kind` は空。**
+    def own_records(kind, time)
+      selector = @prefixes.own(kind)
+      return selector ? selector.list(time) : []
+    end
+
+    # 🔴 **その枠が共通と種類別のどちらから引くか**（#293）。
+    #
+    # ⚠ **本数に比例させる**（**混ぜたときと同じ割合**）。⚠⚠ **状態を持たない**ので、
+    # **通し番号から決める**（**同じ枠なら何度呼んでも同じ**・下見と実機も同じ）。
+    # ⚠ **片方が 0 本なら、もう片方。**
+    def pool(common, own, number)
+      return common if own.empty?
+      return own if common.empty?
+      roll = Digest::SHA256.hexdigest("prefix-pool-#{number}").to_i(16) % (common.size + own.size)
+      return roll < own.size ? own : common
     end
 
     # 🔴 **その枠の通し番号。**⚠⚠ **日付だけだと同じ日の 2 本が同じ前置きになる。**

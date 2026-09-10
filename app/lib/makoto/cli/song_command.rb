@@ -2,8 +2,9 @@ module Makoto
   # 曲紹介（#16）の下見。⚠ **投稿はしない。**
   #
   # ⚠⚠ **曲は抽選なので、下見は「次に何が出るか」を言い当てられない。**
-  # 🔴 **言い当てられるのは前置きだけ**（順送り → `SongSource`）。⚠ **したがってここが
-  # 見せるのは 2 つ** — **前置きの並び**と、**`kind` ごとに実際に組んだ本文。**
+  # 🔴 **前置きは順送りだが、候補は引いた曲の `kind` で変わる**（#293 → `SongSource`）。
+  # ⚠ **したがってここが見せるのは 2 つ** — **前置きの本数（`kind` ごと）**と、
+  # **`kind` ごとに実際に組んだ本文。**
   #
   # 🔴 **#16 の完了条件は「紹介文が `kind` に応じて破綻しないこと」**なので、
   # ⚠⚠ **`--kind` で 1 つずつ当てられるようにしてある。**
@@ -86,17 +87,52 @@ module Makoto
 
     # 🔴 **一周の長さ ＝ 前置きの本数 ÷ 1 日の本数**（#223 の規則を通す）。
     # ⚠⚠ **同じ前置きが戻るまでの間隔は、その半分を下回らない。**
+    #
+    # 🔴 **`kind` ごとに候補の束が違う**（#293）ので、**束ごとに 1 行ずつ出す。**
+    # ⚠ **束は種類別だけ**（共通は混ぜない → `Song#kind_selectors`）。
     def dump_prefixes
-      size = song.selector.list(today).size
       slots = song.timetable.size(today)
-      if size.zero?
-        puts '前置きの原稿: 0 本（⚠ 曲だけを出します）'
-        return nil
-      end
-      days = size.to_f / slots
-      cycle = (days * 10).round / 10.0
-      puts "前置きの原稿: #{size} 本（一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日）"
+      common = song.selector.list(today).size
+      groups = prefix_groups
+      # 🔴 **種類別が 1 本でもあれば、共通も毎枠は引かれない**（→ `SongSource#pool`）。
+      exact = groups.keys.all? {|name| type_size(name).zero?}
+      return puts('前置きの原稿: 0 本（⚠ 曲だけを出します）') if common.zero? && exact
+      note = common.zero? ? '⚠ 種類別の無い kind は曲だけ' : cycle_note(common, slots, exact:)
+      puts "前置きの原稿: 共通 #{common} 本（#{song.type}・#{note}）"
+      groups.each {|name, kinds| puts group_line(name, kinds, slots)}
       return nil
+    end
+
+    # `{type => [kind, ...]}`。⚠ **複数の `kind` が同じ type を指す**ので、束ねて 1 行にする。
+    def prefix_groups
+      return song.kind_types.group_by(&:last).transform_values {|pairs| pairs.map(&:first)}
+    end
+
+    # ⚠ **束 1 つぶん。**🔴 **種類別が 0 本なら、そう書く**（**共通だけで回っている**）。
+    #
+    # ⚠ **種類別の束は「その種類の曲が出た枠の、さらに一部」でしか引かれない**
+    # （→ `SongSource#pool`）ので、**一周の日数は出せない。下限だけを出す**（Codex の P2）。
+    def group_line(name, kinds, slots)
+      own = type_size(name)
+      label = "  #{kinds.join(' / ')}: #{name} #{own} 本"
+      return "#{label}（⚠ 共通だけ）" if own.zero?
+      return "#{label}（共通と本数の比で引き分け・#{cycle_note(own, slots, exact: false)}）"
+    end
+
+    # その type だけの本数。
+    def type_size(name)
+      return song.selector_of([name]).list(today).size
+    end
+
+    # 🔴 **「同じ前置きが戻るのは最短 n/2 枠」は、束が毎枠引かれなくても成り立つ**
+    # （**通し番号の距離の話**なので、**引かれない枠が挟まるほど間隔は延びるだけ**）。
+    #
+    # ⚠⚠ **一周の日数は、束が毎枠引かれるときにしか言えない**（Codex の P2）。
+    # ⚠ **`exact: false` なら下限だけを出す**（**一周は曲の種類の出方で延びる**）。
+    def cycle_note(size, slots, exact: true)
+      cycle = ((size.to_f / slots) * 10).round / 10.0
+      return "一周 #{cycle} 日・同じ前置きが戻るのは最短 #{cycle / 2} 日" if exact
+      return "同じ前置きが戻るのは最短 #{cycle / 2} 日・⚠ 一周は曲の種類の出方で延びる"
     end
 
     # 🔴 **最近出した曲を避けているか**（#41）。⚠⚠ **設定を消せば止まる**ので、
@@ -157,9 +193,10 @@ module Makoto
 
     # 🔴 **`kind` ごとに実際に本文を組む**（#16 の完了条件）。⚠ **前置きは今日の
     # 1 本目のものを使う**（**本文の形を見るのが目的**なので、順送りは動かさない）。
+    # ⚠ **前置きはその `kind` の束から引く**（#293）。
     def dump_samples(names, count)
-      prefix = song.source.prefix(first_slot)
       names.each do |kind|
+        prefix = song.source.prefix(first_slot, kind: kind)
         puts "=== #{kind} ==="
         song.lottery.candidates.where(kind: kind).order(Sequel.lit('RANDOM()'))
           .limit(count).each do |track|
@@ -177,16 +214,21 @@ module Makoto
         day = date + offset
         puts "#{day} (#{Date::ABBR_DAYNAMES[day.wday]})"
         next puts("  #{quiet_reason(day)}") if song.source.quiet?(day)
-        song.timetable.times(day).each do |time|
-          record = song.source.prefix_record(time)
-          label = record ? "[#{record[:id]}] #{record[:type]}" : '前置きはありません'
-          puts "  #{time.strftime('%H:%M')} #{label}"
-          # ⚠⚠ **曲は抽選なので、下見と実機は一致しない。**⚠ **形を見るためのもの。**
-          text = song.source.call(time)
-          next puts('    （曲を引けませんでした）') unless text
-          text.each_line {|line| puts "    #{line.chomp}"}
-        end
+        song.timetable.times(day).each {|time| dump_slot(time)}
       end
+    end
+
+    # ⚠⚠ **曲は抽選なので、下見と実機は一致しない。**⚠ **形を見るためのもの。**
+    # 🔴 **前置きは引いた曲の `kind` で決まる**（#293）ので、**曲を引いてから書く。**
+    def dump_slot(time)
+      clock = time.strftime('%H:%M')
+      entry = song.source.compose(time)
+      return puts("  #{clock} （曲を引けませんでした）") unless entry
+      record = entry[:prefix]
+      label = record ? "[#{record[:id]}] #{record[:type]}" : '前置きはありません'
+      puts "  #{clock} #{label}（#{entry[:track][:kind]}）"
+      entry[:text].each_line {|line| puts "    #{line.chomp}"}
+      return nil
     end
 
     # ⚠ **どの枠が持っている日かを名指しで書く**（**「出ません」だけだと理由が追えない**）。

@@ -79,6 +79,56 @@ module Makoto
       assert_equal([], song.collection_kinds)
     end
 
+    # 🔴 **`kind` ごとの前置きの type**（#293）。⚠ **`tv_size` は歌のある曲の短縮版なので
+    # `vocal` と、`karaoke` と `instrumental` は「歌の無い歌の曲」なので同じ束。**
+    def test_kind_types
+      assert_equal(
+        {
+          'bgm' => 'song_bgm',
+          'instrumental' => 'song_inst',
+          'karaoke' => 'song_inst',
+          'tv_size' => 'song_vocal',
+          'vocal' => 'song_vocal',
+        },
+        song.kind_types,
+      )
+      assert_equal(['song', 'song_bgm', 'song_inst', 'song_vocal'], song.prefix_types)
+    end
+
+    # ⚠⚠ **設定を消せば、全部の `kind` が共通だけになる**（#77・#293 より前の形）。
+    def test_kind_types_can_be_removed
+      config.keys('/song/kind_types').each {|kind| config.delete("/song/kind_types/#{kind}")}
+
+      assert_equal({}, song.kind_types)
+      assert_equal(Song::NAME, song.job.name)
+    end
+
+    # 🔴 **`kind` の綴りを間違えたら起動時に落とす**（#293）。⚠⚠ **その `kind` の曲は
+    # 1 曲も来ないので、種類別の前置きが黙って 1 本も使われない。**
+    def test_rejects_an_unknown_kind
+      config['/song/kind_types/vocl'] = 'song_vocal'
+
+      assert_raise(Ginseng::ConfigError) {song.job}
+    ensure
+      # ⚠⚠ **`config.reload` は足したキーを消さない**（ファイルの値で `update` し直す
+      # だけ）ので、**自分で消す。**⚠ 消し忘れると後のテストが全部この誤りで落ちる。
+      config.delete('/song/kind_types/vocl')
+    end
+
+    # ⚠ **type が空でも落とす**（**書いたつもりで共通だけになる**）。
+    def test_rejects_a_blank_kind_type
+      config['/song/kind_types/bgm'] = ''
+
+      assert_raise(Ginseng::ConfigError) {song.job}
+    end
+
+    # 🔴 **`kind` ごとの type も記念日に登録させない**（`/song/type` と同じ理由）。
+    def test_rejects_a_kind_type_registered_as_an_anniversary
+      config['/song/kind_types/bgm'] = config['/announcement/type']
+
+      assert_raise(Ginseng::ConfigError) {song.job}
+    end
+
     # ⚠ **黙る日の type**（→ `SongSource#quiet?`）。
     def test_quiet_types
       assert_equal(['live_eve', 'live_open', 'live_close'], song.quiet_types)

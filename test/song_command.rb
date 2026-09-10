@@ -31,8 +31,8 @@ module Makoto
       $stdout = original
     end
 
-    def add_prefixes(count)
-      count.times {|i| @repository.create(type: config['/song/type'], body: "前置き #{i}")}
+    def add_prefixes(count, type: nil)
+      count.times {|i| @repository.create(type: type || config['/song/type'], body: "前置き #{i}")}
     end
 
     # ⚠ 日付を渡した日から順に、1 日ぶんずつ出る。
@@ -113,9 +113,40 @@ module Makoto
 
       assert_include(output, "#{Song::NAME}: ")
       assert_include(output, '1 日 3 本（12:00 / 15:30 / 19:00）')
-      assert_include(output, '前置きの原稿: 4 本')
+      assert_include(output, '前置きの原稿: 共通 4 本（song・一周 1.3 日')
       assert_include(output, '抽選の母集合: ')
       assert_include(output, 'アルバム名を出す')
+    end
+
+    # 🔴 **前置きの本数は `kind` の束ごとに出す**（#293）。⚠⚠ **種類別が 0 本の束は
+    # 「共通だけ」と書く**（**書き忘れと、書き分けていないのが見分けられる**）。
+    def test_slot_shows_the_prefixes_by_kind
+      add_prefixes(4)
+      add_prefixes(2, type: 'song_bgm')
+      output = capture {command.slot}
+
+      assert_include(output, '  bgm: song_bgm 2 本（共通と本数の比で引き分け・同じ前置きが戻るのは最短 0.35 日')
+      # 🔴 **種類別があると共通も毎枠は引かれない**ので、**一周の日数は出さない**（Codex の P2）。
+      assert_include(output, '前置きの原稿: 共通 4 本（song・同じ前置きが戻るのは最短 0.65 日')
+      assert_not_include(output, '一周 ')
+      assert_include(output, '  instrumental / karaoke: song_inst 0 本（⚠ 共通だけ）')
+      assert_include(output, '  tv_size / vocal: song_vocal 0 本（⚠ 共通だけ）')
+    end
+
+    # ⚠ **種類別だけがあって共通が 0 本でも、「0 本」とは言わない。**
+    def test_slot_with_only_kind_prefixes
+      add_prefixes(2, type: 'song_bgm')
+      output = capture {command.slot}
+
+      assert_include(output, '前置きの原稿: 共通 0 本（song・⚠ 種類別の無い kind は曲だけ）')
+      assert_include(output, '  bgm: song_bgm 2 本')
+    end
+
+    # ⚠ **下見はどの `kind` の曲に付いたかを出す**（#293・前置きの束が `kind` で決まるため）。
+    def test_preview_shows_the_kind
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_match(/\A {2}\d{2}:\d{2} .+（(#{song.kind_types.keys.join('|')})）\z/, output.lines[1].chomp)
     end
 
     # 🔴 **重みが付いているのに 1 曲も無い kind を 0% と出す**（Codex の P2）。
