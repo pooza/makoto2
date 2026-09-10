@@ -39,6 +39,22 @@ module Makoto
       end
     end
 
+    # 🔴 **`kind` ごとの前置きの type は空でない文字列だけ**（#293・Codex の P2）。
+    # ⚠⚠ **配列や空を書くと、種類別の前置きが黙って 1 本も使われない**（`to_s` で
+    # 存在しない type になる）ので、**`rake config:lint` で弾く。**
+    def test_schema_rejects_a_malformed_kind_type
+      schema = YAML.load_file(File.join(Makoto.dir, 'config/schema/base.yaml'))
+      valid = config.merged_raw.deep_dup
+
+      assert_empty(JSON::Validator.fully_validate(schema, valid))
+      [['song_vocal'], '', 3].each do |value|
+        payload = valid.deep_dup
+        payload['song']['kind_types']['vocal'] = value
+
+        assert_not_empty(JSON::Validator.fully_validate(schema, payload), value.inspect)
+      end
+    end
+
     # ⚠⚠ **運用上必須の設定が、消しても `rake config:lint` を通らないこと。**
     # ⚠ **「親キーだけを required にしても、中身が欠けた設定は通り抜ける」**という
     # 逆も見る（→ docs/CLAUDE.md のコーディング規約）。

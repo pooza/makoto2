@@ -300,6 +300,16 @@ properties:
         type: array
         items:
           type: string
+      # 🔴 kind ごとの前置きの type（#293・省略可）。kind → type。
+      #
+      # ⚠⚠ 値は空でない文字列だけ。配列などを書くと Song#kind_types の to_s で存在しない
+      # type になり、種類別の前置きが黙って 1 本も使われない（Codex の P2）。
+      # ⚠ kind の綴り（/track/weight にあるか）は起動時に Makoto::Song が見る。
+      kind_types:
+        type: object
+        additionalProperties:
+          type: string
+          minLength: 1
       # 🔴 この type が予約されている日は黙る（省略可）。⚠⚠ 空にすると 11/3 / 11/4 に
       # ライブと正面からぶつかる。⚠ 予約されていない type を書くと起動時に落ちる。
       quiet_types:
