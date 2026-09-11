@@ -41,6 +41,15 @@ module Makoto
   # 決める → `#pool`）。⚠⚠ **1 つの束に混ぜない**（Codex の P2 → `#prefix_record`）。
   # ⚠ **共通はどの曲にも合う文だけで書く**ので、**種類別が 0 本でも壊れない。**
   #
+  # ## 🔴 語りのトラックには共通だけ（#298）
+  #
+  # ⚠⚠ **ボイスドラマ・朗読劇は供給元が `vocal` で返す**ので、**歌向けの前置きが付きうる。**
+  # 🔴 **表（`SpokenTracks`）に書いた曲は `kind` を見ずに共通から引く** — ⚠ **共通は
+  # どの曲にも合う文なので、判定に迷う曲はこちらへ倒せば外さない。**
+  #
+  # ⚠⚠ **表が読めなければ、全部の曲を共通だけにする**（`#spoken?`）。⚠ **逆に倒すと
+  # 語りのトラックに歌向けの前置きが付く**が、**共通だけならどの曲にも外さない。**
+  #
   # ## 🔴 前置きは枠ごとに送る（#223 の規則を通す）
   #
   # ⚠⚠ **日付だけで送ると、同じ日の 3 本（12:00 / 15:30 / 19:00）が同じ前置きになる。**
@@ -78,14 +87,23 @@ module Makoto
     #
     # ⚠ **書いていない `kind` は種類別を持たない**（＝共通だけ）。⚠⚠ **日付の規則と
     # 記念日の予約は共通が答える**（どの選び手も同じ設定を読むので、1 つに寄せる）。
-    Prefixes = Data.define(:common, :by_kind) do
-      def self.of(common, by_kind = nil)
-        return new(common: common, by_kind: (by_kind || {}).transform_keys(&:to_s))
+    #
+    # ⚠ **`spoken` は語りのトラックの表を返す口**（#298 → `SpokenTracks`）。🔴 **呼ぶたびに
+    # 作り直す**（#275 — メモすると常駐の中で凍る）。⚠ **無ければ語りのトラックは無い。**
+    Prefixes = Data.define(:common, :by_kind, :spoken) do
+      def self.of(common, by_kind = nil, spoken: nil)
+        return new(common: common, by_kind: (by_kind || {}).transform_keys(&:to_s), spoken: spoken)
       end
 
       # その `kind` だけの選び手。⚠ **無ければ nil。**
       def own(kind)
         return by_kind[kind.to_s]
+      end
+
+      # 🔴 **語りのトラックか。**⚠ **表が読めなければ例外**（倒す向きは `SongSource#spoken?`）。
+      def spoken?(track)
+        return false unless spoken
+        return spoken.call.include?(track)
       end
     end
 
@@ -128,15 +146,29 @@ module Makoto
     # 選ぶ。**⚠ **下見はこちらを使う**（**どの前置きを使ったか**まで見せるため → `SongCommand`）。
     #
     # ⚠⚠ **履歴には触らない**（`remember` は `call` だけ）。
+    #
+    # 🔴 **語りのトラックは `kind` を渡さない**（＝共通だけ・#298）。
     def compose(time = nil)
       time ||= Time.now
       return nil unless @timetable.index_at(time)
       return nil if quiet?(time)
       track = draw
       return nil unless track
-      record = prefix_record(time, kind: track[:kind])
+      spoken = spoken?(track)
+      record = prefix_record(time, kind: spoken ? nil : track[:kind])
       text = presenter(track, record && record[:body]).to_s
-      return {track: track, prefix: record, text: text}
+      return {track: track, prefix: record, text: text, spoken: spoken}
+    end
+
+    # 🔴 **語りのトラックか**（#298 → `SpokenTracks`）。⚠ **表が無ければ false**（`Prefixes#spoken?`）。
+    #
+    # ⚠⚠ **表が読めなければ true**（＝共通だけ）。🔴 **1 枠の異常で投稿を止めない**が、
+    # **倒す向きは「どの曲にも外さない」側**（→ 冒頭「語りのトラックには共通だけ」）。
+    def spoken?(track)
+      return @prefixes.spoken?(track)
+    rescue Ginseng::ValidateError => e
+      logger.warn(post: Song::NAME, message: 'spoken table unreadable', error: error_message(e))
+      return true
     end
 
     # 🔴 **その枠が実際に出たときだけ履歴に書く**（#41 → `PostingJob#notify`）。

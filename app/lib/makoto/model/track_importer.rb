@@ -85,6 +85,7 @@ module Makoto
         mark_live
       end
       report_unused_aliases
+      report_unused_spoken
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
     end
@@ -147,6 +148,18 @@ module Makoto
       unused = aliases.keys.reject {|key| present.include?(key)}
       return nil if unused.empty?
       logger.warn(track: 'alias', state: 'unused', key: unused)
+      return unused
+    end
+
+    # 🔴 **語りのトラックの表で、1 行も当たらない名前を残す**（#298 → `SpokenTracks`）。
+    # ⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、その曲に歌向けの前置きが
+    # 付いていても気づけない**（**書き間違いは「表に書いたのに効いていない」**）。
+    def report_unused_spoken
+      spoken = SpokenTracks.new(@dir, aliases: aliases)
+      return nil if spoken.empty?
+      unused = spoken.unused(@db[:track].select_map(:dedupe_key).to_set)
+      return nil if unused.empty?
+      logger.warn(track: 'spoken', state: 'unused', name: unused)
       return unused
     end
 

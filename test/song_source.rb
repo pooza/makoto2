@@ -1,3 +1,5 @@
+require 'tmpdir'
+
 module Makoto
   # 曲紹介の本文（#16）。🔴 **完了条件の「紹介文が `kind` に応じて破綻しない」を
   # ここで見る**（⚠ **各 `kind` のサンプルで確認する**）。
@@ -248,6 +250,51 @@ module Makoto
       end
     end
 
+    # 🔴 **語りのトラックには共通だけ**（#298）。⚠⚠ **種類が `vocal` でも歌向けは付かない。**
+    # ⚠ **語りでない曲はこれまでどおり種類別にも当たる。**
+    def test_a_spoken_track_draws_from_the_common_only
+      common = add_prefixes(3)
+      add_prefixes(3, type: 'song_vocal', label: '歌')
+      add_prefixes(3, type: 'song_bgm', label: '劇伴')
+      subject = spoken_source(-> {SpokenStub.new {|track| track[:kind] == 'vocal'}})
+      entries = month_of_slots.filter_map {|time| subject.compose(time)}
+      spoken, others = entries.partition {|entry| entry[:spoken]}
+
+      assert_false(spoken.empty?)
+      spoken.each do |entry|
+        assert_equal('vocal', entry[:track][:kind])
+        assert_include(common, entry[:prefix][:body])
+      end
+      assert(others.any? {|entry| entry[:prefix][:type] == 'song_bgm'})
+    end
+
+    # 🔴 **実物の表で当たること**（`dedupe_key` の突き合わせ ＝ **盤違いも同じ曲**）。
+    # ⚠ フィクスチャの `しまうまグルグル` は 2 行（1001 / 1002）。
+    def test_the_table_matches_the_drawn_row
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, SpokenTracks::FILE), [{'name' => 'しまうまグルグル'}].to_yaml)
+        subject = spoken_source(-> {SpokenTracks.new(dir)})
+
+        [1001, 1002].each {|id| assert_true(subject.spoken?(@tracks.dataset.first(id: id)))}
+        assert_false(subject.spoken?(@tracks.dataset.first(id: 1003)))
+      end
+    end
+
+    # ⚠⚠ **表が読めなければ全部を共通だけにする**（**どの曲にも外さない側へ倒す**）。
+    # 🔴 **投稿は止めない**が、**警告は残す。**
+    def test_an_unreadable_table_falls_to_the_common
+      common = add_prefixes(3)
+      add_prefixes(3, type: 'song_vocal', label: '歌')
+      subject = spoken_source(-> {raise Ginseng::ValidateError, 'broken'})
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      entry = subject.compose(jst(9, 1))
+
+      assert_true(entry[:spoken])
+      assert_include(common, entry[:prefix][:body])
+      assert_equal('spoken table unreadable', logged.first[:message])
+    end
+
     # 🔴 **同じ枠なら何度呼んでも同じ前置き**（状態を持たない）。⚠ **落ちて戻って
     # きても・別の箱で下見しても同じ**（→ docs/CLAUDE.md）。
     def test_the_same_slot_gives_the_same_prefix
@@ -387,6 +434,29 @@ module Makoto
 
       assert_nil(subject.call(jst(9, 1)))
       assert_equal([{post: 'song', message: 'no track to introduce'}], logged)
+    end
+
+    # 語りのトラックの表を差し替えた本物の組み立て（#298）。
+    def spoken_source(spoken)
+      subject = song
+      return SongSource.new(
+        lottery: subject.lottery,
+        prefixes: SongSource::Prefixes.of(subject.selector, subject.kind_selectors, spoken: spoken),
+        timetable: subject.timetable,
+        collection_kinds: subject.collection_kinds,
+        quiet_types: subject.quiet_types,
+      )
+    end
+
+    # ⚠ **どの曲を語りとみなすかだけを差し替える**（`SpokenTracks#include?` と同じ口）。
+    class SpokenStub
+      def initialize(&block)
+        @block = block
+      end
+
+      def include?(track)
+        return @block.call(track)
+      end
     end
 
     # 曲を 1 つも持たない抽選。⚠ **母集合が空**（設定の誤りは `TrackLottery` が例外）。
