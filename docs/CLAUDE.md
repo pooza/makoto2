@@ -613,6 +613,8 @@ https://music.apple.com/jp/album/girls-work/…   ← ⚠ プレビューカー�
 
 ⚠ **種類別の原稿（#251）を入れるまでは起きない**（いまは共通しか無い）。🔴 **だから #251 の投入より先に入れる。**
 
+🔴 **同じ形がもう 1 つあった**（#304）— ⚠⚠ **歌の無い `(オリジナル・メロディ・インスト)` 6 曲が `vocal` に分類されていた。**⚠ **こちらは語りではなく分類の外れ**なので、**取り込みのときに `kind` を `instrumental` へ正す**（[`seed/track_kinds.yaml`](../seed/track_kinds.yaml) → [track-corpus.md](track-corpus.md)「外れた `kind` は…」）。
+
 ⚠ **原稿を書くのは #251**（**正本は `makoto-scripts`**）。⚠⚠ **4 つの type とも `makoto-scripts` に書く**ので、**`/message/scripted_types` へ足すのは原稿を移すときに揃えて**（→ 上記「朝挨拶の原稿の正本は `makoto-scripts`」の順番）。
 
 #### ⚠ 前置きが 0 件でも壊れない
@@ -657,7 +659,7 @@ https://music.apple.com/jp/album/girls-work/…   ← ⚠ プレビューカー�
 
 #### 🔴 同じ曲が続けて出ることは、まだ避けられない
 
-**投稿履歴による重複回避は #41。**⚠ **母数の小さい `kind`（`instrumental` は 32 曲）は 1 曲あたりの露出が `vocal` の約 20 倍**になるので、⚠⚠ **それが入るまでは重みを低く保つ**（→ track-corpus.md）。
+**投稿履歴による重複回避は #41。**⚠ **母数の小さい `kind`（`instrumental` は 38 曲・#304）は 1 曲あたりの露出が `bgm` の約 14 倍**（⚠ **長く「`vocal` の約 20 倍」と書いていたが、それは `bgm` との比だった** → track-corpus.md）になるので、⚠⚠ **それが入るまでは重みを低く保つ**（→ track-corpus.md）。
 
 #### ⚠ 前置きの type を記念日に登録しない
 
