@@ -449,9 +449,14 @@ message:
   #
   # 🔴 移送より先にここへ書かない。順番は「書き出す → 取り込む → corpus import」
   # （→ docs/CLAUDE.md「朝挨拶の原稿の正本」）。
+  #
+  # ⚠ song（曲紹介の前置き・#251）は旧ダンプに 1 行も無いので、書き出しを経ずに
+  # 最初から makoto-scripts の song.yaml が正本。ここに書くのは
+  # `makoto message add --type=song`（slug の無い行を作り、次の corpus import で消える）を塞ぐため。
   scripted_types:
     - morning
     - holiday
+    - song
   anniversary:
     # ⚠ 引用符を外さない。`11-04` は YAML が数値・日付と取り違えうる書き方。
     #
