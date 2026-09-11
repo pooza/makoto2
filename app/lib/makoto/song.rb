@@ -59,7 +59,7 @@ module Makoto
   # なので、**下見は履歴を汚さない。**
   #
   # ⚠⚠ **`/song/history/size` を消せば止まる**（#77）。⚠ **母数の小さい `kind`
-  # （`instrumental` は 32 曲）は 1 曲あたりの露出が `vocal` の約 20 倍**なので、
+  # （`instrumental` は 38 曲）は 1 曲あたりの露出が `bgm` の約 14 倍**なので、
   # **窓の広さは母集合のいちばん小さい `kind` で決まる**（→ track-corpus.md）。
   class Song
     include Package
