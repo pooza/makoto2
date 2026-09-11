@@ -1434,11 +1434,14 @@ HTTP: GET 200 = 1 回 / POST 200 = 162 回
 🔴 **ただし `19:00:30` は「枠を拾える時間が終わった」であって「19:00 の投稿が終わった」ではない**（Codex の P2・2 巡目）。⚠⚠ **投稿 1 本には wall-clock の上限が無い**（→ #92）ので、**遅い応答や再送で 19:00 の投稿がまだ飛んでいるうちに止めると、その 1 通が消える** — ⚠ **新しい常駐は `tolerance` を過ぎた枠を拾わず、欠落は詰めない。**🔴 **レシピの前に、19:00 の枠の結末がログに出たことを確かめる**:
 
 ```sh
-# ⚠ 成功なら {"post":"song","slot":"<当日>T10:00:00Z","status_id":"…"}、失敗なら error の行
+# ⚠ 成功なら status_id、失敗なら error を持つ行が 1 行出る（どちらも post と slot を持つ
+#   → PostingJob#post / #create_text）。⚠⚠ 何も出なければ、まだ飛んでいる
 # ⚠⚠ --since に日付や時刻を書かない（箱のローカル時刻で読まれる・Codex の P2）。
 #    相対の窓で拾い、枠は UTC の slot の文字列で絞る
+# ⚠⚠ error 一般では拾わない（無関係な行を「19:00 の失敗」と読んで早く止めてしまう・Codex の P2）
 slot="$(TZ=Asia/Tokyo date +%F)T10:00:00Z"
-ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' | grep -F -e "\"slot\":\"$slot\"" -e '"level":"error"'
+ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
+  | grep -F "\"slot\":\"$slot\"" | grep -F '"post":"song"'
 ```
 
 ⚠ **門を時刻だけで書く形は、この版に限らない**（→ #279 の一般化）。
