@@ -13,6 +13,8 @@
 #   instrumental  曲名に「インスト」（⚠ 語の途中は除く — 「ツインストリーム」）/「Instrumental」
 #                 ⚠ 「オリジナル・メロディ・インスト」も含む（#304 で vocal に入っていた形）
 #   bgm           アルバム名に「サウンドトラック」「Soundtrack」「サントラ」「音楽集」
+#   instrumental  曲名に「8bit」「SFC COVER」「MD COVER」「BGM COVER」「オルゴール」（歌の無いカバー盤・#307）
+#                 ⚠ bgm の後 — サントラの中のオルゴール曲は劇伴
 #   vocal         それ以外
 #
 # ⚠ 旧分類との食い違いは `python3 seed/track_kind.py --check` で見る（既存の行は変えないので、
@@ -33,6 +35,9 @@ RULES = [
     ('instrumental', 'name',
      re.compile(r'Instrumental|インストゥルメンタル|インスト(ヴァ|バ)ージョン|インスト(?![ァ-ヶー])', re.I)),
     ('bgm', 'collection', re.compile(r'サウンドトラック|Soundtrack|サントラ|音楽集', re.I)),
+    # 🔴 歌の無いカバー盤（#307）。⚠ アルバム名の規則より後 — サントラの中のオルゴール曲
+    #   （`クローバーオルゴール`）は劇伴なので bgm のまま。
+    ('instrumental', 'name', re.compile(r'8\s*bit|8ビット|SFC COVER|MD COVER|BGM COVER|オルゴール', re.I)),
 ]
 
 
