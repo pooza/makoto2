@@ -1,3 +1,5 @@
+require 'tmpdir'
+
 module Makoto
   # 曲紹介の本文（#16）。🔴 **完了条件の「紹介文が `kind` に応じて破綻しない」を
   # ここで見る**（⚠ **各 `kind` のサンプルで確認する**）。
@@ -20,14 +22,24 @@ module Makoto
       return Time.new(year, month, day, hour, 0, 0, '+09:00')
     end
 
+    # その日の枠の列。⚠ **枠の本数と時刻は設定が正本**なので、テストに焼かない。
+    def slots(date)
+      return song.timetable.times(date)
+    end
+
     # 前置きの原稿を足す。⚠ **季節も日付も持たないので段 5（無指定）に入る。**
     # ⚠ **戻り値は本文の一覧**（`create` は id を返す）。
-    def add_prefixes(count)
+    def add_prefixes(count, type: nil, label: '前置き')
       return Array.new(count) do |i|
-        body = "前置き #{i}"
-        @repository.create(type: config['/song/type'], body: body)
+        body = "#{label} #{i}"
+        @repository.create(type: type || config['/song/type'], body: body)
         body
       end
+    end
+
+    # 1 か月ぶんの枠（⚠ **束ごとの出方を見るのに十分な本数**）。
+    def month_of_slots
+      return (1..30).flat_map {|day| slots(Date.new(2026, 9, day))}
     end
 
     # 🔴 **引いただけでは履歴に書かない**（#41）。
@@ -129,19 +141,21 @@ module Makoto
       assert_equal('♪', lines[2][0])
     end
 
-    # 🔴 **同じ日の 2 本が同じ前置きにならない**（#16 の枠は 1 日 2 本）。
-    # ⚠⚠ **日付だけで送るとここが揃う。**
-    def test_the_two_slots_of_a_day_differ
+    # 🔴 **同じ日の枠どうしが同じ前置きにならない**（#292 で 1 日 3 本）。
+    # ⚠⚠ **日付だけで送るとここが揃う。**⚠ **枠は設定から取る**（本数を焼かない）。
+    def test_the_slots_of_a_day_differ
       add_prefixes(6)
+      prefixes = slots(Date.new(2026, 9, 1)).map {|time| source.prefix(time)}
 
-      assert_not_equal(source.prefix(jst(9, 1, 12)), source.prefix(jst(9, 1, 19)))
+      assert_equal(3, prefixes.size)
+      assert_equal(prefixes.size, prefixes.uniq.size)
     end
 
     # ⚠ **連日でも続かない**（通し番号が枠ごとに 1 進む）。
     def test_no_repeat_across_consecutive_slots
       add_prefixes(6)
       prefixes = (1..7).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
+        slots(Date.new(2026, 9, day)).map {|time| source.prefix(time)}
       end
 
       assert_equal([], prefixes.each_cons(2).select {|a, b| a == b})
@@ -156,10 +170,129 @@ module Makoto
     def test_every_prefix_comes_up
       bodies = add_prefixes(6)
       picked = (1..6).flat_map do |day|
-        [source.prefix(jst(9, day, 12)), source.prefix(jst(9, day, 19))]
+        slots(Date.new(2026, 9, day)).map {|time| source.prefix(time)}
       end
 
       assert_equal(bodies.sort, picked.uniq.sort)
+    end
+
+    # 🔴 **`kind` の前置きは「共通 ＋ その `kind` の type」から引く**（#293）。
+    # ⚠ **共通はどの曲にも合う文なので、種類別を書いた `kind` でも候補に残る。**
+    def test_a_kind_draws_from_the_common_and_its_own
+      common = add_prefixes(3)
+      scores = add_prefixes(3, type: 'song_bgm', label: '劇伴')
+      picked = month_of_slots.map {|time| source.prefix(time, kind: 'bgm')}
+
+      assert_empty(picked - common - scores)
+      assert(picked.intersect?(scores))
+      assert(picked.intersect?(common))
+    end
+
+    # ⚠⚠ **他の `kind` の前置きは付かない**（**劇伴の前置きが歌の曲に付かない**）。
+    def test_a_kind_never_draws_another_kinds_own
+      add_prefixes(3)
+      scores = add_prefixes(3, type: 'song_bgm', label: '劇伴')
+      picked = month_of_slots.map {|time| source.prefix(time, kind: 'vocal')}
+
+      refute(picked.intersect?(scores))
+    end
+
+    # 🔴 **種類別が 0 本なら共通だけ**（**書き分ける前の形より悪くならない**）。
+    # ⚠ **書いていない `kind` も共通だけ。**
+    def test_falls_back_to_the_common
+      common = add_prefixes(3)
+      add_prefixes(3, type: 'song_bgm', label: '劇伴')
+
+      ['karaoke', 'nosuch', nil].each do |kind|
+        picked = month_of_slots.map {|time| source.prefix(time, kind: kind)}
+
+        assert_empty(picked - common, kind.inspect)
+      end
+    end
+
+    # 🔴 **曲の `kind` が枠ごとに変わっても、同じ前置きが続けて出ない**（#293・Codex の P2）。
+    # ⚠⚠ **共通を種類別の束に混ぜると、束が変わった枠で同じ共通の前置きが別の位置から
+    # 選ばれ、隣り合う枠で続く。**🔴 **共通の前置きどうしの間隔も `Rotation` の保証
+    # （最短 n/2 枠）を下回らない。**
+    def test_switching_kinds_keeps_the_spacing
+      common = add_prefixes(4)
+      add_prefixes(4, type: 'song_bgm', label: '劇伴')
+      add_prefixes(4, type: 'song_vocal', label: '歌')
+      kinds = ['vocal', 'bgm', 'karaoke']
+      picked = month_of_slots.each_with_index.map do |time, i|
+        source.prefix(time, kind: kinds[i % kinds.size])
+      end
+
+      assert_equal([], picked.each_cons(2).select {|a, b| a == b})
+      common.each do |body|
+        gaps = picked.each_index.select {|i| picked[i] == body}.each_cons(2).map {|a, b| b - a}
+
+        assert(gaps.all? {|gap| gap >= common.size / 2}, "#{body}: #{gaps}")
+      end
+    end
+
+    # 🔴 **本文の前置きは、引いた曲の `kind` の束から来る**（#293）。⚠⚠ **曲を引く前に
+    # 前置きを選ぶと、ここが食い違う。**
+    def test_compose_matches_the_prefix_to_the_drawn_kind
+      add_prefixes(2)
+      add_prefixes(2, type: 'song_bgm', label: '劇伴')
+      add_prefixes(2, type: 'song_vocal', label: '歌')
+      allowed = {'song' => song.kind_types.keys, 'song_bgm' => ['bgm'],
+                 'song_vocal' => ['vocal', 'tv_size']}
+      entries = month_of_slots.filter_map {|time| source.compose(time)}
+
+      assert_false(entries.empty?)
+      entries.each do |entry|
+        type = entry[:prefix][:type]
+
+        assert_include(allowed.fetch(type), entry[:track][:kind].to_s, type)
+        assert(entry[:text].start_with?(entry[:prefix][:body]))
+      end
+    end
+
+    # 🔴 **語りのトラックには共通だけ**（#298）。⚠⚠ **種類が `vocal` でも歌向けは付かない。**
+    # ⚠ **語りでない曲はこれまでどおり種類別にも当たる。**
+    def test_a_spoken_track_draws_from_the_common_only
+      common = add_prefixes(3)
+      add_prefixes(3, type: 'song_vocal', label: '歌')
+      add_prefixes(3, type: 'song_bgm', label: '劇伴')
+      subject = spoken_source(-> {SpokenStub.new {|track| track[:kind] == 'vocal'}})
+      entries = month_of_slots.filter_map {|time| subject.compose(time)}
+      spoken, others = entries.partition {|entry| entry[:spoken]}
+
+      assert_false(spoken.empty?)
+      spoken.each do |entry|
+        assert_equal('vocal', entry[:track][:kind])
+        assert_include(common, entry[:prefix][:body])
+      end
+      assert(others.any? {|entry| entry[:prefix][:type] == 'song_bgm'})
+    end
+
+    # 🔴 **実物の表で当たること**（`dedupe_key` の突き合わせ ＝ **盤違いも同じ曲**）。
+    # ⚠ フィクスチャの `しまうまグルグル` は 2 行（1001 / 1002）。
+    def test_the_table_matches_the_drawn_row
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, SpokenTracks::FILE), [{'name' => 'しまうまグルグル'}].to_yaml)
+        subject = spoken_source(-> {SpokenTracks.new(dir)})
+
+        [1001, 1002].each {|id| assert_true(subject.spoken?(@tracks.dataset.first(id: id)))}
+        assert_false(subject.spoken?(@tracks.dataset.first(id: 1003)))
+      end
+    end
+
+    # ⚠⚠ **表が読めなければ全部を共通だけにする**（**どの曲にも外さない側へ倒す**）。
+    # 🔴 **投稿は止めない**が、**警告は残す。**
+    def test_an_unreadable_table_falls_to_the_common
+      common = add_prefixes(3)
+      add_prefixes(3, type: 'song_vocal', label: '歌')
+      subject = spoken_source(-> {raise Ginseng::ValidateError, 'broken'})
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      entry = subject.compose(jst(9, 1))
+
+      assert_true(entry[:spoken])
+      assert_include(common, entry[:prefix][:body])
+      assert_equal('spoken table unreadable', logged.first[:message])
     end
 
     # 🔴 **同じ枠なら何度呼んでも同じ前置き**（状態を持たない）。⚠ **落ちて戻って
@@ -293,7 +426,7 @@ module Makoto
     def test_an_empty_pool_leaves_a_warning
       subject = SongSource.new(
         lottery: EmptyLottery.new,
-        selector: song.selector,
+        prefixes: SongSource::Prefixes.of(song.selector),
         timetable: song.timetable,
       )
       logged = []
@@ -301,6 +434,29 @@ module Makoto
 
       assert_nil(subject.call(jst(9, 1)))
       assert_equal([{post: 'song', message: 'no track to introduce'}], logged)
+    end
+
+    # 語りのトラックの表を差し替えた本物の組み立て（#298）。
+    def spoken_source(spoken)
+      subject = song
+      return SongSource.new(
+        lottery: subject.lottery,
+        prefixes: SongSource::Prefixes.of(subject.selector, subject.kind_selectors, spoken: spoken),
+        timetable: subject.timetable,
+        collection_kinds: subject.collection_kinds,
+        quiet_types: subject.quiet_types,
+      )
+    end
+
+    # ⚠ **どの曲を語りとみなすかだけを差し替える**（`SpokenTracks#include?` と同じ口）。
+    class SpokenStub
+      def initialize(&block)
+        @block = block
+      end
+
+      def include?(track)
+        return @block.call(track)
+      end
     end
 
     # 曲を 1 つも持たない抽選。⚠ **母集合が空**（設定の誤りは `TrackLottery` が例外）。

@@ -24,6 +24,11 @@ module Makoto
     # 収集スクリプトの側を直すと「気づいた順に足す」形が成立しない。
     CORRECTIONS = 'track_corrections.yaml'.freeze
 
+    # 🔴 **`kind` の分類を正す表**（#304）。⚠⚠ **曲名の訂正表とは別物** — **あちらは
+    # 供給元の誤記、こちらは収集側の分類の外れ**（`kind` は iTunes 由来ではない）。
+    # ⚠ **分類の段がリポジトリに無い**（#294）ので、JSON を手で直すと収集で戻る。
+    KINDS = 'track_kinds.yaml'.freeze
+
     # 🔴 **同じ曲だが表記が違うものの表**（#123 → `TrackAliases`）。⚠⚠ **訂正表とは
     # 別物**で、**あちらは片方が誤記、こちらはどちらも正しい。**
 
@@ -85,6 +90,7 @@ module Makoto
         mark_live
       end
       report_unused_aliases
+      report_unused_spoken
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
     end
@@ -124,7 +130,7 @@ module Makoto
           url: row[:trackViewUrl],
           preview_url: row[:previewUrl],
           artwork_url: row[:artworkUrl100],
-          kind: row[:kind],
+          kind: corrected_kind(row),
           live: false,
           # ⚠ **鍵は訂正後の曲名から作る**（#58）。訂正前で作ると重複がたたまれない。
           dedupe_key: self.class.dedupe_key(name, aliases),
@@ -147,6 +153,18 @@ module Makoto
       unused = aliases.keys.reject {|key| present.include?(key)}
       return nil if unused.empty?
       logger.warn(track: 'alias', state: 'unused', key: unused)
+      return unused
+    end
+
+    # 🔴 **語りのトラックの表で、1 行も当たらない名前を残す**（#298 → `SpokenTracks`）。
+    # ⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、その曲に歌向けの前置きが
+    # 付いていても気づけない**（**書き間違いは「表に書いたのに効いていない」**）。
+    def report_unused_spoken
+      spoken = SpokenTracks.new(@dir, aliases: aliases)
+      return nil if spoken.empty?
+      unused = spoken.unused(@db[:track].select_map(:dedupe_key).to_set)
+      return nil if unused.empty?
+      logger.warn(track: 'spoken', state: 'unused', name: unused)
       return unused
     end
 
@@ -176,6 +194,49 @@ module Makoto
     def correction_state(name, correction)
       return 'fixed' if name == correction[:to]
       return 'unknown'
+    end
+
+    # 分類の表を当てた `kind`（→ 上記 `KINDS`・#304）。
+    #
+    # ⚠⚠ **訂正表と同じ規則** — **`from` が一致したときだけ正し**、一致しなくなったら
+    # **正さずに警告を残す**（`fixed` ＝ 分類が直った / `unknown` ＝ 別の分類に変わった）。
+    # 🔴 **どちらも「この行は消せる」合図なので黙らせない。**
+    def corrected_kind(row)
+      entry = kinds[row[:trackId]]
+      # ⚠ **表に無い行は素のまま**（`nil` も `nil` のまま入れる）。
+      return row[:kind] unless entry
+      kind = row[:kind].to_s
+      return entry[:to] if kind == entry[:from]
+      logger.warn(track: 'kind', id: row[:trackId], state: correction_state(kind, entry),
+        expected: entry[:from], actual: kind)
+      return kind
+    end
+
+    # ⚠ 分類の表は無くてもよい（あとから足せる）。
+    def kinds
+      @kinds ||= load_kinds.to_h {|entry| [entry[:id], entry]}
+      return @kinds
+    end
+
+    def load_kinds
+      return [] unless File.exist?(path(KINDS))
+      entries = Array(YAML.safe_load_file(path(KINDS),
+        permitted_classes: [Date], symbolize_names: true))
+      return entries.map {|entry| validate_kind(entry)}
+    rescue Psych::Exception => e
+      raise Ginseng::ValidateError, "#{KINDS}: YAML を読めません: #{error_message(e)}"
+    end
+
+    # 🔴 **`to` は抽選の重みがある `kind` だけ。**⚠⚠ **重みの無い `kind` に正すと、
+    # その曲は抽選で永久に出ない**（`TrackLottery` は警告を出すだけ）。
+    def validate_kind(entry)
+      raise Ginseng::ValidateError, "#{KINDS}: 行が Hash ではありません（#{entry.inspect}）" unless
+        entry.is_a?(Hash)
+      entry = entry.merge(from: entry[:from].to_s, to: entry[:to].to_s)
+      return entry if config.keys(TrackLottery::WEIGHT_PREFIX).map(&:to_s).include?(entry[:to])
+      raise Ginseng::ValidateError,
+        "#{KINDS}: id #{entry[:id]} の to '#{entry[:to]}' は" \
+          " #{TrackLottery::WEIGHT_PREFIX} に無い kind です"
     end
 
     # ⚠ 訂正表は無くてもよい（あとから足せる）。
