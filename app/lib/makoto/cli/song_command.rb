@@ -60,6 +60,7 @@ module Makoto
       puts "実況の窓: #{CommentaryWindow.new}"
       dump_quiet_days
       dump_prefixes
+      dump_spoken
       dump_history
       dump_pool
     rescue Ginseng::ConfigError => e
@@ -117,6 +118,21 @@ module Makoto
       label = "  #{kinds.join(' / ')}: #{name} #{own} 本"
       return "#{label}（⚠ 共通だけ）" if own.zero?
       return "#{label}（共通と本数の比で引き分け・#{cycle_note(own, slots, exact: false)}）"
+    end
+
+    # 🔴 **語りのトラック**（#298 → `SpokenTracks`）。⚠ **共通の前置きだけが付く。**
+    #
+    # ⚠⚠ **母集合に当たらない名前も出す**（書き間違い・配信終了）— 🔴 **当たらない行は
+    # 「表に書いたのに効いていない」**ので、**歌向けの前置きが付いていても気づけない。**
+    def dump_spoken
+      spoken = song.spoken_tracks
+      return puts('語りのトラック: 無し') if spoken.empty?
+      unused = spoken.unused(song.lottery.candidates.select_map(:dedupe_key).to_set)
+      line = "語りのトラック: #{spoken.names.size} 本（共通の前置きだけ）"
+      line = "#{line} 🔴 母集合に当たらない: #{unused.join(' / ')}" unless unused.empty?
+      puts line
+    rescue Ginseng::ValidateError => e
+      puts "語りのトラック: 🔴 表を読めません（⚠ 全部の曲を共通だけにします）: #{error_message(e)}"
     end
 
     # その type だけの本数。
@@ -193,13 +209,13 @@ module Makoto
 
     # 🔴 **`kind` ごとに実際に本文を組む**（#16 の完了条件）。⚠ **前置きは今日の
     # 1 本目のものを使う**（**本文の形を見るのが目的**なので、順送りは動かさない）。
-    # ⚠ **前置きはその `kind` の束から引く**（#293）。
+    # ⚠ **前置きはその `kind` の束から引く**（#293）。⚠ **語りのトラックは共通から**（#298）。
     def dump_samples(names, count)
       names.each do |kind|
-        prefix = song.source.prefix(first_slot, kind: kind)
         puts "=== #{kind} ==="
         song.lottery.candidates.where(kind: kind).order(Sequel.lit('RANDOM()'))
           .limit(count).each do |track|
+          prefix = song.source.prefix(first_slot, kind: song.source.spoken?(track) ? nil : kind)
           puts song.source.presenter(track, prefix).to_s.each_line.map {|line| "  #{line}"}.join
           puts
         end
@@ -226,7 +242,9 @@ module Makoto
       return puts("  #{clock} （曲を引けませんでした）") unless entry
       record = entry[:prefix]
       label = record ? "[#{record[:id]}] #{record[:type]}" : '前置きはありません'
-      puts "  #{clock} #{label}（#{entry[:track][:kind]}）"
+      # ⚠ **語りのトラックはそう書く**（#298）。**種類が `vocal` なのに共通が付く理由**。
+      kind = entry[:spoken] ? "#{entry[:track][:kind]}・語り" : entry[:track][:kind]
+      puts "  #{clock} #{label}（#{kind}）"
       entry[:text].each_line {|line| puts "    #{line.chomp}"}
       return nil
     end

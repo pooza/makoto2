@@ -123,6 +123,29 @@ module Makoto
       end
     end
 
+    # 🔴 **語りのトラックの表で、曲データに当たらない名前を残す**（#298）。
+    # ⚠⚠ **書き間違いは「表に書いたのに効いていない」**ので、黙らせない。
+    def test_an_unused_spoken_track_is_reported
+      with_aliases([]) do |dir|
+        spoken = [{'name' => 'しまうまグルグル'}, {'name' => 'そんなドラマは無い'}]
+        File.write(File.join(dir, SpokenTracks::FILE), spoken.to_yaml)
+        warnings = import_with_warnings(dir, empty_db, 'spoken')
+
+        assert_equal(1, warnings.size)
+        assert_equal('unused', warnings.first[:state])
+        assert_equal(['そんなドラマは無い'], warnings.first[:name])
+      end
+    end
+
+    # ⚠ **全部当たっていれば黙る。**
+    def test_a_used_spoken_track_is_not_reported
+      with_aliases([]) do |dir|
+        File.write(File.join(dir, SpokenTracks::FILE), [{'name' => 'しまうまグルグル'}].to_yaml)
+
+        assert_empty(import_with_warnings(dir, empty_db, 'spoken'))
+      end
+    end
+
     # 🔴 **`seed/track_aliases.yaml` の 2 組が実際に寄ること**（#123 の実データ）。
     #
     # ⚠⚠ **`Setlist#version_key` はこのクラスメソッドを通る**ので、**ここが寄れば

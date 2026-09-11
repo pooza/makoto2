@@ -172,10 +172,16 @@ module Makoto
       return @lottery
     end
 
+    # 🔴 **語りのトラックの表**（#298）。⚠⚠ **呼ぶたびに作り直す**（#275 — メモすると
+    # 常駐が起動したときの表のまま凍る）。⚠ **YAML を 1 日 3 回読むだけ。**
+    def spoken_tracks
+      return SpokenTracks.new
+    end
+
     def source
       @source ||= SongSource.new(
         lottery: lottery,
-        prefixes: SongSource::Prefixes.of(selector, kind_selectors),
+        prefixes: SongSource::Prefixes.of(selector, kind_selectors, spoken: method(:spoken_tracks)),
         timetable: timetable,
         collection_kinds: collection_kinds,
         quiet_types: quiet_types,
