@@ -1435,7 +1435,10 @@ HTTP: GET 200 = 1 回 / POST 200 = 162 回
 
 ```sh
 # ⚠ 成功なら {"post":"song","slot":"<当日>T10:00:00Z","status_id":"…"}、失敗なら error の行
-ssh rubicon 'journalctl -u makoto2 --since "today 18:59" --no-pager -o cat' | grep -E '"post":"song"|"level":"error"'
+# ⚠⚠ --since に日付や時刻を書かない（箱のローカル時刻で読まれる・Codex の P2）。
+#    相対の窓で拾い、枠は UTC の slot の文字列で絞る
+slot="$(TZ=Asia/Tokyo date +%F)T10:00:00Z"
+ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' | grep -F -e "\"slot\":\"$slot\"" -e '"level":"error"'
 ```
 
 ⚠ **門を時刻だけで書く形は、この版に限らない**（→ #279 の一般化）。
