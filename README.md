@@ -4,7 +4,9 @@ Mastodon サーバー「[キュアスタ！](https://precure.ml)」で稼働す�
 
 旧実装 [pooza/makoto](https://github.com/pooza/makoto)（アーカイブ済み）のコードは引き継がず、機能を 4 つ（曲紹介 / 朝挨拶 / チャットボット / 11 月 4 日のバースデーライブ）に絞って作り直す。
 
-**[v0.2.2](https://github.com/pooza/makoto2/releases/tag/v0.2.2) をリリース済み**（11 月 4 日バースデーライブと、無人で動かすための土台）。✅ **本番で稼働中。**⚠ **日常運用の 2 機能（曲紹介・朝挨拶）とチャットボットは未実装。**
+**[最新のリリース](https://github.com/pooza/makoto2/releases/latest) を本番で稼働中。**✅ **11 月 4 日のバースデーライブと、日常運用の 2 機能（曲紹介・朝挨拶）が動いている。**⚠ **チャットボットは未実装。**
+
+⚠ 版の履歴は [リリース一覧](https://github.com/pooza/makoto2/releases) を見る（ここに版を書かない）。
 
 - [docs/CLAUDE.md](docs/CLAUDE.md) — 開発ガイド（プロジェクトのルール・運用手順の正本）
 - [docs/makoto-persona.md](docs/makoto-persona.md) — 剣崎真琴の人物設定と、MAKOTO が語ってよい範囲
