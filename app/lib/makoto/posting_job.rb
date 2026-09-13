@@ -215,11 +215,26 @@ module Makoto
     # **その曲を「出した」とは数えない。**
     #
     # ⚠ **ここで落ちても投稿の側を巻き込まない**（`record` と同じ判断）。
+    #
+    # 🔴 **履歴が伸びたかをログだけで言えるようにする**（#284）。⚠⚠ **`posted` が nil を
+    # 返すのは「覚えなかった」** — **履歴を切ってある（`/song/history/size` が 0）か、
+    # その枠の曲を持っていない**。⚠ **投稿そのものは成功しているので、失敗としては
+    # 1 行も出ない** ＝ 🔴 **#41 の重複回避が無言で切れていても気づけなかった。**
+    #
+    # ⚠ **`posted` を持たない source では 1 行も出さない**（朝挨拶・ライブの 160 枠）。
+    # ⚠⚠ **「持たない」と「持っているのに覚えなかった」は別の状態**なので、
+    # **前者を毎回ログに出すと後者が埋もれる。**
     def notify(slot)
       return nil unless @source.respond_to?(:posted)
-      return @source.posted(slot)
+      recorded = @source.posted(slot)
+      logger.info(post: @name, slot: format_slot(slot), phase: 'notify',
+        recorded: !recorded.nil?)
+      return recorded
     rescue => e
-      logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **投稿の失敗と同じキーで出さない**（#284）。⚠⚠ **意味が正反対** —
+      # **こちらは「投稿は成功したが、履歴の通知で落ちた」。**⚠ **`TrackHistory#record`
+      # が内側で全部握るのでほぼ発火しない**が、🔴 **発火した日に読み違える。**
+      logger.error(post: @name, slot: format_slot(slot), phase: 'notify', error: e)
       return nil
     end
 

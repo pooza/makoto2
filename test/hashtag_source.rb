@@ -183,6 +183,63 @@ module Makoto
       assert_equal(Encoding::Windows_31J, source(body).call.encoding)
     end
 
+    # 🔴 **包んだ先の `posted` を届けること**（#281）。
+    #
+    # ⚠⚠ **`PostingJob#notify` は `@source.respond_to?(:posted)` で分岐する。**
+    # ⚠ **包んだ時点でそれが false になる**ので、🔴 **曲紹介にタグを 1 つ足した瞬間に
+    # `track_history` が黙って伸びなくなる** ＝ **#41 の重複回避が無言で切れる。**
+    def test_delegates_posted_to_the_wrapped_source
+      stub = Struct.new(:posted_slots) do
+        def call(_time = nil)
+          return '本文'
+        end
+
+        def posted(slot)
+          posted_slots.push(slot)
+          return slot
+        end
+      end.new([])
+      subject = HashtagSource.new(source: stub, hashtag: '#TAG')
+
+      assert_true(subject.respond_to?(:posted))
+      assert_equal('2026-11-04', subject.posted('2026-11-04'))
+      assert_equal(['2026-11-04'], stub.posted_slots)
+    end
+
+    # 🔴 **持たない先を包んだら「持たない」と答えること**（#281）。
+    #
+    # ⚠⚠ **常に true を返すと、`posted` を持たないライブの 160 枠でも `notify` が
+    # 呼ばれる** — ⚠ **「委譲を足したが常に nil」と「持っているのに覚えなかった」が
+    # 見分けられなくなる**（→ `PostingJob#notify` の `recorded`・#284）。
+    def test_does_not_claim_posted_when_the_wrapped_source_lacks_it
+      stub = Object.new
+      def stub.call(_time = nil)
+        return '本文'
+      end
+      subject = HashtagSource.new(source: stub, hashtag: '#TAG')
+
+      assert_false(subject.respond_to?(:posted))
+      assert_raise(NoMethodError) {subject.posted('2026-11-04')}
+    end
+
+    # ⚠ **何でも通さない**（#281）。🔴 **`PostingJob` が source に求めるのは `call` と
+    # `posted` の 2 つだけ** — ⚠⚠ **広く通すと「包んだせいで別のメソッドが生えた」形の
+    # 事故を後から作る。**
+    def test_does_not_delegate_anything_else
+      stub = Object.new
+      def stub.call(_time = nil)
+        return '本文'
+      end
+
+      def stub.quiet?(_time = nil)
+        return true
+      end
+      subject = HashtagSource.new(source: stub, hashtag: '#TAG')
+
+      assert_false(subject.respond_to?(:quiet?))
+      assert_raise(NoMethodError) {subject.quiet?}
+    end
+
     # ⚠ 枠の頭の時刻はそのまま渡す。
     def test_passes_the_slot_through
       stub = Object.new

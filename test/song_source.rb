@@ -64,6 +64,49 @@ module Makoto
       assert_equal([expected[:dedupe_key]], subject.history.recent_keys)
     end
 
+    # 🔴 **どの曲を出したかがログに残ること**（#284）。
+    #
+    # ⚠⚠ **投稿のログは `status_id` しか持たない**ので、**「履歴がその曲で伸びたか」を
+    # ログだけでは言えなかった。**⚠ **鍵は `track_history` に書く値と同じ `dedupe_key`**
+    # なので、🔴 **ログの行と表の行を突き合わせられる。**
+    def test_posted_logs_the_track
+      expected = Song.new(repository: @repository, tracks: @tracks, random: Random.new(20_261_104))
+        .lottery.draw
+      payloads = []
+      logger = Object.new
+      [:info, :warn, :debug, :error].each do |name|
+        logger.define_singleton_method(name) do |payload|
+          payloads.push(payload) if name == :info
+          return nil
+        end
+      end
+      subject = song.source
+      subject.instance_variable_set(:@logger, logger)
+      subject.call(jst(9, 1))
+      subject.posted(jst(9, 1))
+
+      assert_equal([expected[:dedupe_key]], payloads.map {|payload| payload[:dedupe_key]})
+    end
+
+    # ⚠ **引いていない枠では何も出さない**（#284）。🔴 **「出した」と読める行を
+    # 出さないこと自体が、`posted` の約束**（→ 下記）。
+    def test_posted_logs_nothing_for_a_slot_it_did_not_draw
+      payloads = []
+      logger = Object.new
+      [:info, :warn, :debug, :error].each do |name|
+        logger.define_singleton_method(name) do |payload|
+          payloads.push(payload) if name == :info
+          return nil
+        end
+      end
+      subject = song.source
+      subject.instance_variable_set(:@logger, logger)
+      subject.call(jst(9, 1))
+      subject.posted(jst(9, 2))
+
+      assert_empty(payloads)
+    end
+
     # ⚠ **枠が食い違えば書かない。**⚠⚠ **`tick` は重なりうる**ので、**`call` と
     # `posted` のあいだに別の枠が割り込むことがある** — 🔴 **1 本書き漏らすほうが、
     # 違う曲を「出した」と覚えるより害が小さい。**
