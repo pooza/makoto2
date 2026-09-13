@@ -1640,6 +1640,63 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 🔴 **待たずに出す判断**（2026-08-29・オーナー）— ⚠ **`config/application.yaml` が 7 件を列挙しているので実運用では踏まず**、**#213 が `0.5` の受け皿になるので `0.4` の箱は空にできる。**
 
+### 🔴 `0.6` に着手した（2026-09-13）
+
+⚠ **`0.5.1` を出したのと同じ日の夜。**✅ **着手時に `0.6.0` へバンプ済み**（PR #323・`config/application.yaml`）。
+
+#### ✅ 投稿の口を「200 なら成功」から外した（#272）
+
+🔴 **投稿は 1 通も出ていないのに、監視は緑・履歴は消費済みになる形**があった。⚠⚠ **httparty は対応していない Content-Type ではボディを String のまま返し、`HTTParty::Response#[]` は `parsed_response` に委譲する** — ⚠ **200 の HTML が返ると `response['id']` は `String#[]('id')`** ＝ **HTML に `id` の 2 文字があれば `"id"`、無ければ `nil`。**🔴 **どちらも例外にならない。**
+
+⚠ **同じ形を一度経験している**（#124 — **モロヘイヤを通っていないことに 3 週間気付かなかったのは、投稿が 200 で返りログにも成功としか出ていなかったから**）。
+
+✅ **`parsed_response` が Hash かつ `id` を持つことを確かめ、外れたら `GatewayError`**（先例は `CureApiService#valid_records?`・#105）。
+
+- 🔴 **`Hash` かどうかだけでは足りない** — ⚠⚠ **200 で `{"status":"maintenance"}` を返す前段を通す。**⚠ **`id` は `status_id` としてログに出る値であり、`notify` が履歴を進める根拠でもある**
+- ⚠ **本文はログに載せない**（HTML が丸ごと syslog へ出る）。**型と経路だけ**
+- 🔴 **型を例外メッセージの末尾に置かない**（Codex の P2 への備え） — ⚠⚠ **`GatewayError#source_status` は `message` の末尾 3 桁を上流のステータスとして読む**ので、**末尾に数字が来る書き方をすると `classify` の分類が化ける**
+- 🔴 **本文が読めないことも同じに倒す**（Codex の P2）— ⚠⚠ **`Content-Type` が `application/json` なら httparty は `JSON.parse` を通す**ので、**素のテキストは `JSON::ParserError`**（実測）。⚠ **`post_status` は `GatewayError` しか rescue しない**ので、**分類も警告も通らずに外へ出ていた。**⚠⚠ **パーサの例外クラスを並べない** — **httparty が `Content-Type` を 1 つ足した日に、並べた側が黙って古くなる**
+
+##### ⚠ 実測（2026-09-13・`bydo`）
+
+| `Content-Type` | 本文 | `parsed_response` |
+| --- | --- | --- |
+| `application/json` | `not json at all` | 🔴 **`JSON::ParserError`** |
+| `application/json` | `{"id": "114`（切れている） | ⚠ `String`（`quirks_mode` で通る） |
+| `text/html` | `<html id=x></html>` | ⚠ `String` |
+
+#### ✅ 履歴の通知を委譲し、投稿ログを読み分けられるようにした（#281 / #284）
+
+🔴 **`HashtagSource` が `posted` を委譲していなかった**（#281）。⚠⚠ **曲紹介にタグを 1 つ足した瞬間に `track_history` が黙って伸びなくなる** ＝ **#41 の重複回避が無言で切れる。**✅ **`respond_to_missing?` ＋ `method_missing` で `posted` だけを委譲した。**
+
+⚠ **`posted` を素のメソッドとして生やさない** — 🔴 **`respond_to?` が常に true になり、`posted` を持たないライブの 160 枠でも `notify` が呼ばれる。**⚠⚠ **「委譲を足したが常に nil」と「持っているのに覚えなかった」が見分けられなくなる。**
+
+✅ **投稿ログ**（#284）: **`notify` の失敗に `phase: 'notify'`**（⚠ **投稿そのものの失敗には付けない**）／**成功時に `recorded:`**（履歴が伸びたか）／**`SongSource#posted` が `dedupe_key` と `kind`**（🔴 **`track_history` に書く値と同じ鍵なので、ログの行と表の行を突き合わせられる**）。
+
+##### 🔴 ログの書式を変えるときは「そのログを読むもの」を全部たどる
+
+⚠⚠ **`docs` の門（19:00 の枠の結末を確かめるコマンド）は「1 行出る」前提を直したのに、同じログを読む `RehearsalReport` を見落としていた**（Codex の P2）。
+
+🔴 **`consume` は `post` と `slot` の両方を持つ行を `exec` 1 回として数える** — ⚠ **`phase:"notify"` の行も両方持つ**ので、**成功した 1 枠が exec 2 回になり `anomalous_slots` に落ちて赤**になるところだった（⚠⚠ **毎リリースの結合テスト ＝ リリース手順 4 が、正常な回で落ちる**）。
+
+⚠ **通知の失敗は赤のまま残した** — 🔴 **この行が無かった頃も `failed` に数えられて `red?` に掛かっていた**ので、**区別を足したついでに見逃す形にしない。**
+
+**読むものの一覧**: `docs` のコマンド ／ `RehearsalReport` ／ 監視。
+
+#### ✅ 実機で当てた（2026-09-13・`bydo` = `8fe4457` / `0.6.0`）
+
+| | 結果 |
+| --- | --- |
+| ✅ **通す側** | **実際の Mastodon の応答で `status_id` / `url` が出た**（⚠⚠ **見立てが違っていたら毎日の投稿が全部失敗する**ので、ここがいちばん大事） |
+| ✅ **拒む側** | 🔴 **200 で HTML を返す箱を立てて `GatewayError` になることを確認**（⚠ `{"mastodon":"post","message":"unexpected response shape","type":"String"}`・**成功の行は 1 行も出ず・POST は 1 回だけ**） |
+| ⚠ **撤収** | **プロセス・ファイル・ポートとも確認**（→ #174 と同じ考え方） |
+
+🔴 **使い捨ての箱は `working_dir` の差し替えではなく `MastodonService.new(uri, token)` で作った** — ⚠⚠ **投稿の口だけを差し替えれば足りる**（#257 の実機確認より軽い）。
+
+⚠ **#284 はモンキーテスト待ちで open** — 🔴 **`phase:"notify"` の行が出るのは `posted` を持つ曲紹介の枠だけ**なので、**次に出るのは 2026-09-14 12:00 JST**（⚠ **`bin/makoto post` は `PostingJob` を通らない**）。
+
+⚠ **#281 は実機では当てられない**（🔴 **`song` は `HashtagSource` に包まれていないので、通る経路が 1 本も無い**）。⚠⚠ **「モンキーテスト待ち」にしても実機は何も答えない**ので、**テストに預けてクローズした。**
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。
