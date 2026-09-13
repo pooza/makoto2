@@ -72,11 +72,12 @@ module Makoto
       body = {status: text.to_s}
       body[:visibility] = visibility.to_s if visibility
       response = post(body, {headers: {'Idempotency-Key' => idempotency_key}})
+      status = validate_status(response)
       logger.info(
         mastodon: 'post',
-        status_id: response['id'],
-        url: response['url'],
-        visibility: response['visibility'],
+        status_id: status['id'],
+        url: status['url'],
+        visibility: status['visibility'],
         length: text.to_s.length,
         # 🔴 **経路をログに出す**（#124）。⚠⚠ **「モロヘイヤを通っていない」ことに
         # 3 週間気付かなかったのは、投稿が 200 で返り、ログにも成功としか出ていな
@@ -89,6 +90,64 @@ module Makoto
     end
 
     private
+
+    # 🔴 **200 で status でないものが返る形を弾く**（#272）。
+    #
+    # ⚠⚠ **httparty は対応していない Content-Type ではボディを String のまま返す。**
+    # ⚠ **`HTTParty::Response#[]` は `parsed_response` に委譲する**ので、**200 の HTML が
+    # 返ると `response['id']` は `String#[]('id')`** ＝ **HTML の中に `id` の 2 文字が
+    # あれば `"id"`、無ければ `nil`。**🔴 **どちらも例外にならない。**
+    #
+    # ⚠⚠ **その先で `PostingJob` が `record(:success)` と `notify` まで進む** —
+    # **投稿は 1 通も出ていないのに、監視は緑・履歴は消費済み**（#41）。
+    #
+    # 🔴 **踏むのは前段が 200 で非 JSON を返す形**（モロヘイヤ／nginx のメンテページ、
+    # vhost の誤ルーティング）。⚠ **502 / 503 は `GatewayError` になるので対象外。**
+    #
+    # ⚠ **同じ形を一度経験している**（#124）— **投稿が 200 で返り、ログにも成功と
+    # しか出ていなかったので、モロヘイヤを通っていないことに 3 週間気付かなかった。**
+    #
+    # ⚠⚠ **`id` まで見る。**🔴 **`Hash` かどうかだけでは、200 で
+    # `{"status":"maintenance"}` を返す前段を通してしまう** — ⚠ **`id` は
+    # `PostingJob` が `status_id` としてログに書き、`notify` が履歴を進める根拠でもある。**
+    def validate_status(response)
+      parsed = parsed_response(response)
+      return parsed if parsed.is_a?(Hash) && parsed['id'].present?
+      raise_unexpected(parsed.class.to_s)
+    end
+
+    # 🔴 **本文が読めないことも「status ではない」に倒す**（#272・Codex の P2）。
+    #
+    # ⚠⚠ **`Content-Type` が `application/json` なら httparty は `JSON.parse` を通す**
+    # ので、**切れた本文や素のテキストは `JSON::ParserError` になる**（実測）。
+    # ⚠ **`post_status` は `Ginseng::GatewayError` しか rescue しない**ので、
+    # 🔴 **その例外は分類も警告も通らずに外へ出ていた** — ⚠⚠ **`bin/makoto post` の
+    # rescue も素通りする**（`PostingJob` は `rescue => e` で受けるので枠は落ちるだけ）。
+    #
+    # ⚠ **パーサの例外クラスを並べない**（`JSON` / `MultiXml` / `CSV`）。🔴 **httparty が
+    # `Content-Type` を 1 つ足した日に、並べた側が黙って古くなる。**⚠⚠ **ここは
+    # `response.parsed_response` を 1 回呼ぶだけのメソッド**なので、**取りこぼす
+    # 例外のほうが害が大きい。**
+    #
+    # ⚠ **握り潰さない** — 🔴 **例外のクラスを `type` に出す**ので、**ログには
+    # `String` ではなく `JSON::ParserError` と残る。**
+    def parsed_response(response)
+      return response.parsed_response
+    rescue => e
+      raise_unexpected(e.class.to_s)
+    end
+
+    # ⚠ **本文は載せない**（HTML が丸ごとログに出る）。⚠⚠ **型だけで十分に区別できる**
+    # （→ `CureApiService#report_malformed`・#105 で決めた形）。
+    # ⚠ **経路も出す** — 🔴 **誤ルーティングはモロヘイヤの側で起きる**（#124）。
+    def raise_unexpected(type)
+      logger.warn(mastodon: 'post', message: 'unexpected response shape',
+        type: type, mulukhiya: mulukhiya_enable?)
+      # ⚠⚠ **型を例外メッセージの末尾に置かない。**🔴 **`GatewayError#source_status` は
+      # `message` の末尾 3 桁を上流のステータスとして読む**ので、**末尾に数字が来る
+      # 書き方をすると `classify` の分類が化ける。**⚠ **型はログの側に出してある。**
+      raise Ginseng::GatewayError, 'mastodon returned an unexpected shape'
+    end
 
     # モロヘイヤを迂回して Mastodon 本体を直に叩くためのヘッダ。
     #
