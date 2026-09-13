@@ -266,6 +266,46 @@ module Makoto
       assert_equal(502, error.source_status)
     end
 
+    # 🔴 **本文が読めないときも失敗として上げること**（#272・Codex の P2）。
+    #
+    # ⚠⚠ **`Content-Type` が `application/json` なら httparty は `JSON.parse` を通す**
+    # ので、**素のテキストは `JSON::ParserError`**（実測）。⚠ **`post_status` は
+    # `Ginseng::GatewayError` しか rescue しない**ので、🔴 **分類も警告も通らずに
+    # 外へ出ていた** — ⚠⚠ **`bin/makoto post` の rescue も素通りする。**
+    def test_post_status_rejects_a_body_that_cannot_be_parsed
+      stub_request(:post, @url).to_return(
+        status: 200,
+        headers: {'Content-Type' => 'application/json'},
+        body: 'ただいまメンテナンス中です',
+      )
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+    end
+
+    # ⚠ **何で落ちたのかがログに残ること**（#272）。🔴 **`String` ではなく
+    # `JSON::ParserError` と出る** — ⚠⚠ **「200 で HTML」と「200 で壊れた JSON」は
+    # 切り分け先が違う**（前者は vhost、後者は前段が本文を切っている）。
+    def test_post_status_logs_the_parse_failure
+      stub_request(:post, @url).to_return(
+        status: 200,
+        headers: {'Content-Type' => 'application/json'},
+        body: 'ただいまメンテナンス中です',
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      begin
+        service.post_status('こんにちは')
+      rescue Ginseng::GatewayError
+        nil
+      end
+
+      assert_equal(['JSON::ParserError'], messages.map {|message| message[:type]})
+      assert_not_include(messages.first.to_json, 'メンテナンス')
+    end
+
     private
 
     # ⚠ **Mastodon が実際に返す形**（`POST /api/v1/statuses` は必ず `id` を持つ Status）。

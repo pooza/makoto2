@@ -111,13 +111,38 @@ module Makoto
     # `{"status":"maintenance"}` を返す前段を通してしまう** — ⚠ **`id` は
     # `PostingJob` が `status_id` としてログに書き、`notify` が履歴を進める根拠でもある。**
     def validate_status(response)
-      parsed = response.parsed_response
+      parsed = parsed_response(response)
       return parsed if parsed.is_a?(Hash) && parsed['id'].present?
-      # ⚠ **本文は載せない**（HTML が丸ごとログに出る）。⚠⚠ **型だけで十分に区別できる**
-      # （→ `CureApiService#report_malformed`・#105 で決めた形）。
-      # ⚠ **経路も出す** — 🔴 **誤ルーティングはモロヘイヤの側で起きる**（#124）。
+      raise_unexpected(parsed.class.to_s)
+    end
+
+    # 🔴 **本文が読めないことも「status ではない」に倒す**（#272・Codex の P2）。
+    #
+    # ⚠⚠ **`Content-Type` が `application/json` なら httparty は `JSON.parse` を通す**
+    # ので、**切れた本文や素のテキストは `JSON::ParserError` になる**（実測）。
+    # ⚠ **`post_status` は `Ginseng::GatewayError` しか rescue しない**ので、
+    # 🔴 **その例外は分類も警告も通らずに外へ出ていた** — ⚠⚠ **`bin/makoto post` の
+    # rescue も素通りする**（`PostingJob` は `rescue => e` で受けるので枠は落ちるだけ）。
+    #
+    # ⚠ **パーサの例外クラスを並べない**（`JSON` / `MultiXml` / `CSV`）。🔴 **httparty が
+    # `Content-Type` を 1 つ足した日に、並べた側が黙って古くなる。**⚠⚠ **ここは
+    # `response.parsed_response` を 1 回呼ぶだけのメソッド**なので、**取りこぼす
+    # 例外のほうが害が大きい。**
+    #
+    # ⚠ **握り潰さない** — 🔴 **例外のクラスを `type` に出す**ので、**ログには
+    # `String` ではなく `JSON::ParserError` と残る。**
+    def parsed_response(response)
+      return response.parsed_response
+    rescue => e
+      raise_unexpected(e.class.to_s)
+    end
+
+    # ⚠ **本文は載せない**（HTML が丸ごとログに出る）。⚠⚠ **型だけで十分に区別できる**
+    # （→ `CureApiService#report_malformed`・#105 で決めた形）。
+    # ⚠ **経路も出す** — 🔴 **誤ルーティングはモロヘイヤの側で起きる**（#124）。
+    def raise_unexpected(type)
       logger.warn(mastodon: 'post', message: 'unexpected response shape',
-        type: parsed.class.to_s, mulukhiya: mulukhiya_enable?)
+        type: type, mulukhiya: mulukhiya_enable?)
       # ⚠⚠ **型を例外メッセージの末尾に置かない。**🔴 **`GatewayError#source_status` は
       # `message` の末尾 3 桁を上流のステータスとして読む**ので、**末尾に数字が来る
       # 書き方をすると `classify` の分類が化ける。**⚠ **型はログの側に出してある。**
