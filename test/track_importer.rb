@@ -123,6 +123,29 @@ module Makoto
       end
     end
 
+    # 🔴 **語りのトラックの表で、曲データに当たらない名前を残す**（#298）。
+    # ⚠⚠ **書き間違いは「表に書いたのに効いていない」**ので、黙らせない。
+    def test_an_unused_spoken_track_is_reported
+      with_aliases([]) do |dir|
+        spoken = [{'name' => 'しまうまグルグル'}, {'name' => 'そんなドラマは無い'}]
+        File.write(File.join(dir, SpokenTracks::FILE), spoken.to_yaml)
+        warnings = import_with_warnings(dir, empty_db, 'spoken')
+
+        assert_equal(1, warnings.size)
+        assert_equal('unused', warnings.first[:state])
+        assert_equal(['そんなドラマは無い'], warnings.first[:name])
+      end
+    end
+
+    # ⚠ **全部当たっていれば黙る。**
+    def test_a_used_spoken_track_is_not_reported
+      with_aliases([]) do |dir|
+        File.write(File.join(dir, SpokenTracks::FILE), [{'name' => 'しまうまグルグル'}].to_yaml)
+
+        assert_empty(import_with_warnings(dir, empty_db, 'spoken'))
+      end
+    end
+
     # 🔴 **`seed/track_aliases.yaml` の 2 組が実際に寄ること**（#123 の実データ）。
     #
     # ⚠⚠ **`Setlist#version_key` はこのクラスメソッドを通る**ので、**ここが寄れば
@@ -152,6 +175,66 @@ module Makoto
         end
         File.write(File.join(dir, TrackImporter::CORRECTIONS), entries.to_yaml)
         yield dir
+      end
+    end
+
+    # ⚠ **分類の表だけを足した一時ディレクトリで見る**（#304・`with_corrections` と同じ形）。
+    def with_kinds(entries)
+      Dir.mktmpdir do |dir|
+        [TrackImporter::DAILY, TrackImporter::LIVE].each do |name|
+          FileUtils.cp(File.join(track_fixture_dir, name), File.join(dir, name))
+        end
+        File.write(File.join(dir, TrackImporter::KINDS), entries.to_yaml)
+        yield dir
+      end
+    end
+
+    def kind_entry(id, from, to)
+      return {'id' => id, 'from' => from, 'to' => to, 'noticed' => Date.new(2026, 9, 11), 'reason' => 'テスト'}
+    end
+
+    # 🔴 **`kind` だけを正す**（#304）。⚠⚠ **曲名は変えない**（訂正表とは別物）。
+    def test_kind_is_corrected
+      with_kinds([kind_entry(1003, 'vocal', 'instrumental')]) do |dir|
+        db = empty_db
+        TrackImporter.new(dir, db: db).exec
+
+        assert_equal('instrumental', db[:track][id: 1003][:kind])
+        assert_equal('テストのうた My True Love!', db[:track][id: 1003][:name])
+        assert_equal('vocal', db[:track][id: 1001][:kind])
+      end
+    end
+
+    # ⚠ **`from` が一致しなければ正さず、消せる合図を残す**（訂正表の `fixed` / `unknown` と同じ）。
+    def test_a_stale_kind_entry_is_reported
+      with_kinds([kind_entry(1003, 'karaoke', 'vocal'), kind_entry(1001, 'bgm', 'instrumental')]) do |dir|
+        db = empty_db
+        warnings = import_with_warnings(dir, db, 'kind')
+
+        assert_equal({1003 => 'fixed', 1001 => 'unknown'}, warnings.to_h {|w| [w[:id], w[:state]]})
+        assert_equal('vocal', db[:track][id: 1003][:kind])
+      end
+    end
+
+    # 🔴 **重みの無い `kind` へは正させない**（⚠⚠ **その曲が抽選で永久に出なくなる**）。
+    def test_an_unweighted_kind_is_an_error
+      with_kinds([kind_entry(1003, 'vocal', 'drama')]) do |dir|
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: empty_db).exec}
+      end
+    end
+
+    # 🔴 **配っている表の全行が、いまの普段用の曲データにそのまま当たること**
+    # （⚠ **当たらない行は「表に書いたのに効いていない」**）。
+    def test_the_shipped_kind_table_applies
+      dir = File.join(Environment.dir, config['/track/dir'])
+      rows = JSON.parse(File.read(File.join(dir, TrackImporter::DAILY)), symbolize_names: true)
+        .to_h {|row| [row[:trackId], row]}
+      entries = YAML.safe_load_file(File.join(dir, TrackImporter::KINDS),
+        permitted_classes: [Date], symbolize_names: true)
+
+      assert_false(entries.empty?)
+      entries.each do |entry|
+        assert_equal(entry[:from], rows.fetch(entry[:id])[:kind], entry[:id])
       end
     end
 

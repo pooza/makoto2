@@ -17,3 +17,6 @@ Desktop.ini
 # ⚠ tools/ の Python が作る中間ファイル。走らせるたびに diff に出る（2026-09-06 に追跡から外した）
 __pycache__/
 *.pyc
+
+# ⚠ seed/itunes_corpus.py が出す収集の報告（#294）。中身は PR に貼る。走らせるたびに作り直す
+track_report.md

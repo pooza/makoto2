@@ -1,0 +1,181 @@
+# `kind` の分類を正す表（#304 / #307）
+#
+# ⚠⚠ **曲名の訂正表（track_corrections.yaml）とは別物。**
+#
+#   訂正表       供給元（iTunes）が曲名を間違えている → **曲名を直す**
+#   🔴 この表    収集側の分類（`kind`）が外れている   → **`kind` だけを直す**（曲名は変えない）
+#
+# ⚠ `kind` は iTunes 由来のフィールドではなく、収集のときにこちらが付けた分類
+#   （→ docs/track-corpus.md）。⚠⚠ **分類の段はいまリポジトリに無い**（#294）ので、
+#   収集を流し直すと外れた分類が戻る。🔴 **だから `seed/` の JSON を手で直さず、
+#   取り込みのときに当てる。**
+#
+# 🔴 **曲紹介の前置きは `kind` で書き分ける**（#293）ので、⚠ **歌の無い曲が `vocal` に
+#   入っていると歌向けの前置き（`song_vocal`）が付く。**
+#
+# ## 書き方
+#
+#   - id:      iTunes の trackId（⚠ **分類は行ごと**なので、曲名ではなく行で当てる）
+#     from:    いまの分類。⚠ **一致しなければ正さない**
+#     to:      正しい分類（⚠ `/track/weight` にある `kind` だけ）
+#     noticed: 気づいた日
+#     reason:  ⚠ **なぜ外れていると判断したか。**これが無いと、後から見て消せない
+#
+# ⚠ `from` が一致しなくなったら、**この行はもう消せる**。取り込みが警告を出す
+#   （`track: kind`。訂正表と同じく `fixed` / `unknown`）。
+
+- id: 1334632827
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    『キラキラ☆プリキュアアラモード ボーカルアルバム2 苺坂物語』の
+    `CAT MEETS SWEETS (オリジナル・メロディ・インスト)` ＝ 歌の無い版（名義は作編曲家）。
+    ⚠ 曲名が英語の Instrumental ではないので、分類の規則を素通りしていた。
+
+- id: 1334632828
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `ショコラ・エトワール (オリジナル・メロディ・インスト)`。上と同じアルバムの歌の無い版。
+
+- id: 1334632824
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `ダイスキにベリーを添えて (オリジナル・メロディ・インスト)`。上と同じアルバムの歌の無い版。
+
+- id: 1334632825
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `プティ*パティ∞サイエンス (オリジナル・メロディ・インスト)`。上と同じアルバムの歌の無い版。
+
+- id: 1334632829
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `虹色エスポワール (オリジナル・メロディ・インスト)`。上と同じアルバムの歌の無い版。
+
+- id: 1334632826
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `青空Alright (オリジナル・メロディ・インスト)`。上と同じアルバムの歌の無い版。
+
+- id: 1576142817
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `DANZEN! ふたりはプリキュア ～アニメ「ふたりはプリキュア」 主題歌～(オルゴール)`（オルゴールサウンド J-POP）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1696917203
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `ひろがるスカイ!プリキュア 〜Hero Girls～[ひろがるスカイ!プリキュア]より ORIGINAL COVER (8bitバージョン)`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1696917715
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `ヒロガリズム[ひろがるスカイ!プリキュア]より ORIGINAL COVER (8bitバージョン)`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1745061153
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `わんだふるぷりきゅあ!evolution!![わんだふるぷりきゅあ!]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1751406728
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `FUN☆FUN☆わんだふるDAYS![わんだふるぷりきゅあ!]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1821794443
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `キミとアイドルプリキュア♪ Light Up![キミとアイドルプリキュア♪]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1821804216
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `Trio Dreams[キミとアイドルプリキュア♪]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1824155012
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `キミとアイドルプリキュア♪ Light Up![キミとアイドルプリキュア♪]より SFC COVER`（SFC Works）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1825522896
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `Trio Dreams[キミとアイドルプリキュア♪]より SFC COVER`（SFC Works）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1843000579
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `まばたきの五線譜 ～アニメ「キミとアイドルプリキュア♪」(オルゴール)`（オルゴールサウンド J-POP）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1843522993
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `まばたきの五線譜[キミとアイドルプリキュア♪]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1843801942
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `まばたきの五線譜[キミとアイドルプリキュア♪]より MD COVER`（MD GENESIS）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1847223619
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `まばたきの五線譜[キミとアイドルプリキュア♪]より SFC COVER`（SFC Works）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 1848786085
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `キミとルララ ～「キミとアイドルプリキュア♪」後期エンディング主題歌(オルゴール)`（オルゴールサウンド J-POP）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 6763230251
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `ハートにヒント!名探偵プリキュア![名探偵プリキュア!]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。
+
+- id: 6763997818
+  from: vocal
+  to: instrumental
+  noticed: 2026-09-11
+  reason: |-
+    `なぜ?謎?!ANSWER[名探偵プリキュア!]より 8bit COVER`（Studio Megaane）。歌の無いカバー盤（pooza/makoto2#307）。

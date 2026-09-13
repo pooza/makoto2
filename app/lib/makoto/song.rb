@@ -9,17 +9,18 @@ module Makoto
   #
   # | 枠 | 時刻 | 中身 |
   # | --- | --- | --- |
-  # | `song` | 12:00 / 19:00 | 前置き（`song` の原稿）＋ 抽選した 1 曲（→ `SongSource`） |
+  # | `song` | 12:00 / 15:30 / 19:00 | 前置き（`song` の原稿）＋ 抽選した 1 曲（→ `SongSource`） |
   #
-  # ⚠ **1 日 2 本**（2026-09-04・オーナー判断）。⚠⚠ **朝挨拶と合わせて 3 本/日**で、
-  # **旧アカウントの平常時 5〜7 投稿/日 より控えめ** — 🔴 **寡黙な真琴の register に
+  # ⚠ **1 日 3 本**（2026-09-10・オーナー判断・#292）。⚠⚠ **朝挨拶と合わせて 4 本/日**で、
+  # **旧アカウントの平常時 5〜7 投稿/日 よりはまだ控えめ** — 🔴 **寡黙な真琴の register に
   # 合わせた**（応答可の平均 12.4 字 → [makoto-persona.md](../../../docs/makoto-persona.md)）。
+  # ⚠ **かつては 1 日 2 本（12:00 / 19:00・2026-09-04）。**昼と夜は据え置き、間に 1 本足した。
   #
-  # 🔴 **12:00 / 19:00 は、朝挨拶（08:00）・予告（10:00）・ニチアサ実況の窓
+  # 🔴 **12:00 / 15:30 / 19:00 は、朝挨拶（08:00）・予告（10:00）・ニチアサ実況の窓
   # （日曜 08:30〜09:00）のどれとも重ならない。**⚠⚠ **窓の検査は `Scheduler#register`**
   # （**自分から出す投稿すべてに掛ける** → `CommentaryWindow`）。
   #
-  # ## 🔴 2 本目が 19:00 なのは、20:00 が夜実況だから（#254）
+  # ## 🔴 最後の枠が 19:00 なのは、20:00 が夜実況だから（#254）
   #
   # ⚠⚠ **キュアスタ！の実況は 1 つではない。**⚠ **ニチアサ実況（日曜 08:30〜09:00）と
   # 夜実況（概ね毎晩 20:00〜）があり、🔴 性格はまったく同じで、違うのは強さだけ**
@@ -34,7 +35,7 @@ module Makoto
   # ## 🔴 ライブが持つ日は黙る
   #
   # ⚠⚠ **11/3 / 11/4 は枠が正面からぶつかる**（`live-open` が 12:00、`live-eve` が
-  # 11/3 の 12:00〜20:00 毎正時なので 19:00 にも当たる）。⚠ **時刻をずらしても解けない** — 🔴 **ライブの進行
+  # 11/3 の 12:00〜20:00 毎正時なので 19:00 にも当たる。15:30 もライブの 8 時間の中）。⚠ **時刻をずらしても解けない** — 🔴 **ライブの進行
   # そのものが 8 時間**なので、**その日に日常の曲を出せば、どの時刻でも割り込む**
   # （→ `SongSource` の「ライブが持つ日は黙る」）。
   #
@@ -58,7 +59,7 @@ module Makoto
   # なので、**下見は履歴を汚さない。**
   #
   # ⚠⚠ **`/song/history/size` を消せば止まる**（#77）。⚠ **母数の小さい `kind`
-  # （`instrumental` は 32 曲）は 1 曲あたりの露出が `vocal` の約 20 倍**なので、
+  # （`instrumental`）は 1 曲あたりの露出が大きい**（→ track-corpus.md）ので、
   # **窓の広さは母集合のいちばん小さい `kind` で決まる**（→ track-corpus.md）。
   class Song
     include Package
@@ -81,9 +82,27 @@ module Makoto
       @history = history
     end
 
-    # 前置きに使う原稿の type。
+    # 前置きに使う原稿の type。🔴 **どの `kind` の曲にも付く共通の前置き**（#293）。
     def type
       return config["#{PREFIX}/type"].to_s
+    end
+
+    # 🔴 **`kind` ごとの前置きの type**（#293）。`{kind => type}`。
+    #
+    # ⚠⚠ **抽選で出る曲の約 4 割は歌の無い曲**（`bgm` 23.5% / `karaoke` / `tv_size` /
+    # `instrumental` 各 5.9%）なので、**1 つの type だと「口ずさむ」のような前置きが
+    # 劇伴やカラオケに付く。**
+    #
+    # ⚠ **設定が無ければ空**（＝全部の `kind` が共通だけ ＝ #293 より前の形 → #77）。
+    # ⚠ **複数の `kind` が同じ type を指してよい**（`vocal` と `tv_size` など）。
+    def kind_types
+      prefix = "#{PREFIX}/kind_types"
+      return config.keys(prefix).to_h {|kind| [kind.to_s, config["#{prefix}/#{kind}"].to_s]}
+    end
+
+    # 前置きに使う type の全部（共通 ＋ `kind` ごと）。⚠ **検査と下見のためにある。**
+    def prefix_types
+      return ([type] + kind_types.values).reject(&:empty?).uniq
     end
 
     # 🔴 **アルバム名を主役にする `kind`**（→ `TrackPresenter` の「劇伴は…」）。
@@ -129,16 +148,40 @@ module Makoto
       return @selector
     end
 
+    # 🔴 **`kind` ごとの前置きの選び手**（#293）。⚠ **その `kind` の type だけ**を引く。
+    #
+    # ⚠⚠ **共通は混ぜない** — 🔴 **枠ごとに「共通」か「種類別」のどちらか一方から引く**
+    # （→ `SongSource#pool`・Codex の P2）。🔴 **共通の前置きはどの曲にも合う文だけで
+    # 書く**ので、**どの `kind` の枠でも共通の側に当たりうる。**⚠ **種類別が 0 本なら
+    # 共通だけになる**（**#293 より前の形より悪くならない**）。
+    #
+    # ⚠ **書いていない `kind` はここに無い**（＝共通だけ）。
+    def kind_selectors
+      @kind_selectors ||= kind_types.to_h {|kind, name| [kind, selector_of([name])]}
+      return @kind_selectors
+    end
+
+    # ⚠ **指定した type だけの選び手。**下見が type ごとの本数を数えるための口。
+    def selector_of(types)
+      return MessageSelector.new(Array(types).uniq, repository: @repository)
+    end
+
     def lottery
       # ⚠ **`random` の既定は `TrackLottery` 側の `Random.new`** と同じもの。
       @lottery ||= TrackLottery.new(@tracks, random: @random || Random.new, history: history)
       return @lottery
     end
 
+    # 🔴 **語りのトラックの表**（#298）。⚠⚠ **呼ぶたびに作り直す**（#275 — メモすると
+    # 常駐が起動したときの表のまま凍る）。⚠ **YAML を 1 日 3 回読むだけ。**
+    def spoken_tracks
+      return SpokenTracks.new
+    end
+
     def source
       @source ||= SongSource.new(
         lottery: lottery,
-        selector: selector,
+        prefixes: SongSource::Prefixes.of(selector, kind_selectors, spoken: method(:spoken_tracks)),
         timetable: timetable,
         collection_kinds: collection_kinds,
         quiet_types: quiet_types,
@@ -164,9 +207,28 @@ module Makoto
     end
 
     def validate
+      validate_kind_types
       validate_type
       validate_quiet_types
       return nil
+    end
+
+    # 🔴 **`kind` の綴りを間違えたら落とす**（#293）。⚠⚠ **`/track/weight` に無い `kind`
+    # を書いても、その `kind` の曲は 1 曲も来ない** — ⚠ **種類別の前置きが黙って
+    # 1 本も使われず、共通だけが出続ける**（**投稿は毎日出ているので誰も気づけない**
+    # ＝ `validate_type` と同じ壊れ方）。
+    #
+    # ⚠ **type が空なのも同じく落とす**（**書いたつもりで共通だけになる**）。
+    def validate_kind_types
+      unknown = kind_types.keys - lottery.weights.keys
+      unless unknown.empty?
+        raise Ginseng::ConfigError,
+          "song: kind '#{unknown.join(', ')}' in #{PREFIX}/kind_types is not a track kind"
+      end
+      blank = kind_types.select {|_, name| name.empty?}.keys
+      return if blank.empty?
+      raise Ginseng::ConfigError,
+        "song: kind '#{blank.join(', ')}' has no type in #{PREFIX}/kind_types"
     end
 
     # 🔴 **黙る日の type が実際に予約されていなければ落とす**（Codex の P1）。
@@ -190,10 +252,14 @@ module Makoto
     # 🔴 **朝挨拶（#17）より静かに壊れる。**⚠⚠ **あちらは原稿が引けなければ投稿その
     # ものが無くなる**が、⚠ **こちらは曲だけが出続ける** — **投稿は毎日出ているので、
     # 前置きが消えたことに誰も気づけない。**⚠⚠ **だから設定の側で止める。**
+    #
+    # ⚠ **`kind` ごとの type も同じ**（#293）— **登録すると、その `kind` の種類別の
+    # 前置きだけが黙って消える。**
     def validate_type
-      return unless selector.reserved_types.include?(type)
+      reserved = prefix_types & selector.reserved_types
+      return if reserved.empty?
       raise Ginseng::ConfigError,
-        "song: type '#{type}' must not be registered in /message/anniversary"
+        "song: type '#{reserved.join(', ')}' must not be registered in /message/anniversary"
     end
   end
 end
