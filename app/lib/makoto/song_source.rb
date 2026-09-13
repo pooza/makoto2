@@ -181,6 +181,13 @@ module Makoto
     def posted(slot)
       track = @drawn_mutex.synchronize {@drawn.delete(key_of(slot))}
       return nil unless track
+      # 🔴 **どの曲を出したかをログに残す**（#284）。⚠⚠ **投稿のログは `status_id` しか
+      # 持たない**ので、**「履歴がその曲で伸びたか」をログだけでは言えなかった。**
+      # ⚠ **鍵は `track_history` に書く値と同じ `dedupe_key`**（→ `TrackHistory#record`）
+      # なので、🔴 **ログの行と表の行を突き合わせられる。**
+      # ⚠⚠ **`id` ではなく `dedupe_key`** — **`id` は DB ごとの採番なので箱をまたぐと
+      # 意味が変わる**（#223 で並べ替えの鍵から外したのと同じ理由）。
+      logger.info(post: Song::NAME, dedupe_key: track[:dedupe_key], kind: track[:kind])
       # ⚠ **履歴を持っているのは `TrackLottery`**（**外す側と覚える側を 1 つにする**）。
       return @lottery.record(track)
     end

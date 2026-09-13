@@ -12,9 +12,58 @@ module Makoto
     TRAVEL = '{"time_travel":{"start":"2026-11-04T11:55:00+09:00","scale":10,"mastodon":"st2.precure.ml"}}'.freeze
     # ⚠ **`slot` を持たないので exec には数えない。**
     REGISTER = '{"scheduler":"register","post":"live","timetable":"12:02-20:00/180s (Asia/Tokyo)"}'.freeze
+    # 🔴 **`post` と `slot` を両方持つが `exec` ではない**（#284 → `PostingJob#notify`）。
+    NOTIFY = '{"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify","recorded":true}'.freeze
+    NOTIFY_MISS = '{"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify","recorded":false}'.freeze
+    NOTIFY_ERROR = '{"error":{"message":"boom"},"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify"}'.freeze
 
     def report(*lines)
       return RehearsalReport.new(lines)
+    end
+
+    # 🔴 **履歴の通知を `exec` として数えないこと**（#284・Codex の P2）。
+    #
+    # ⚠⚠ **この行も `post` と `slot` を両方持つ**ので、⚠ **素で数えると成功した 1 枠が
+    # exec 2 回になり、`anomalous_slots` に落ちて赤になる** — 🔴 **毎リリースの結合
+    # テストが、正常な回で落ちることになる**（→ docs のリリース手順 4）。
+    def test_a_notify_entry_is_not_an_exec
+      subject = report(SUCCESS, NOTIFY)
+
+      assert_equal(1, subject.slots.size)
+      assert_equal(1, subject.slots.values.first[:execs])
+      assert_equal(1, subject.posted)
+      assert_empty(subject.anomalous_slots)
+      assert_false(subject.red?)
+    end
+
+    # ⚠ **覚えなかった回も投稿の失敗ではない**（#284）。🔴 **履歴を切ってあれば毎回出る。**
+    def test_a_notify_miss_is_not_a_failure
+      subject = report(SUCCESS, NOTIFY_MISS)
+
+      assert_equal(0, subject.failed)
+      assert_false(subject.red?)
+    end
+
+    # 🔴 **通知が落ちた回は赤のまま**（#284）。
+    #
+    # ⚠⚠ **この行が無かった頃は `post` と `slot` と `error` を持つ 1 行として `failed` に
+    # 数えられ、`red?` に掛かっていた** — ⚠ **区別を足したついでに見逃す形にしない**
+    # （**投稿は出たのに履歴が伸びていない** ＝ **#41 の重複回避が切れている**）。
+    def test_a_notify_failure_is_still_red
+      subject = report(SUCCESS, NOTIFY_ERROR)
+
+      assert_equal(1, subject.notify_failures)
+      assert_true(subject.red?)
+      # ⚠ **投稿の失敗としては数えない**（投稿そのものは出ている）。
+      assert_equal(0, subject.failed)
+      assert_equal(1, subject.slots.values.first[:execs])
+    end
+
+    # ⚠⚠ **赤にした理由を本文にも書く**（#127 と同じ）。
+    def test_a_notify_failure_is_named_in_the_report
+      assert_include(report(SUCCESS, NOTIFY_ERROR).to_s, '通知が落ちた')
+      # 🔴 **1 行も無いのが普通**（`posted` を持つのは曲紹介だけ）なので、節ごと出さない。
+      assert_not_include(report(SUCCESS).to_s, '履歴の通知')
     end
 
     def test_counts_one_exec_per_line

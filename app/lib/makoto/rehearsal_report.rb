@@ -23,6 +23,12 @@ module Makoto
   # （成功は `status_id`、失敗は `error`、本文が無ければ `message`）。
   # ⚠⚠ **`{"scheduler":"register","post":…}` は `slot` を持たない**ので混ざらない。
   #
+  # 🔴 **`phase` を持つ行は `exec` ではない**（#284・Codex の P2）。⚠⚠ **履歴の通知は
+  # 投稿が成功した**後**に出る行**で、**`post` と `slot` を両方持つ** — ⚠ **素で数えると
+  # **1 枠の exec が 2 回**になり、**成功した回が `anomalous_slots` に落ちて赤になる。**
+  # 🔴 **失敗の側も同じ** — **`error` を持つので「投稿が落ちた」1 回として数えられるが、
+  # 落ちたのは履歴の通知で、投稿そのものは出ている。**
+  #
   # ## ⚠⚠ 数えられないもの
   #
   # 🔴 **沈黙した枠の exec 回数は数えられない。**⚠ **本文が無いときの 1 行は
@@ -34,9 +40,12 @@ module Makoto
     # 枠あたりの想定 exec 回数。⚠ **これ以外は赤にする。**
     EXPECTED_EXECS = 1
 
+    # 🔴 **`exec` ではない行の目印**（#284 → `PostingJob#notify`）。
+    NOTIFY_PHASE = 'notify'.freeze
+
     # ⚠ 人が読む順。**赤の判定に関わるものを上に置く。**
     SECTIONS = [
-      :header, :execs, :posts, :http, :heartbeat, :blind
+      :header, :execs, :posts, :notify, :http, :heartbeat, :blind
     ].freeze
 
     # @param lines [Enumerable<String>] ログの行。⚠ **JSON でない行は捨てる**
@@ -49,10 +58,13 @@ module Makoto
       @versions = Set.new
       @travel = nil
       @lines = 0
+      @notifies = 0
+      @notify_failures = 0
       lines.each {|line| consume(parse(line))}
     end
 
-    attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines
+    attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
+      :notify_failures
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -116,6 +128,7 @@ module Makoto
     # 中身を知っている側だけ**（→ #114 が入るまでこの集計には現れない）。
     def red?
       return true if anomalous_slots.any? || duplicated_slots.any?
+      return true if @notify_failures.positive?
       return http_errors.positive? || failed.positive?
     end
 
@@ -138,6 +151,9 @@ module Makoto
     def consume(entry)
       return nil unless entry.is_a?(Hash)
       @lines += 1
+      # 🔴 **`count_slot` より先に見る**（#284）。⚠⚠ **この行も `post` と `slot` を
+      # 両方持つ**ので、**後ろに置くと `exec` として数えられてしまう。**
+      return count_notify(entry) if entry[:phase] == NOTIFY_PHASE
       return count_slot(entry) if entry[:post] && entry[:slot]
       return count_http(entry) if entry[:method] && entry[:url]
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
@@ -155,6 +171,18 @@ module Makoto
       slot[:failures] += 1 if entry[:error]
       slot[:silences] += 1 if entry[:message]
       return slot
+    end
+
+    # 🔴 **履歴の通知は投稿ではない**（#284）。⚠ **`exec` にも投稿の成否にも数えない。**
+    #
+    # ⚠⚠ **ただし落ちたことは赤のまま残す。**🔴 **この行が無かった頃は `post` と `slot` と
+    # `error` を持つ 1 行として `failed` に数えられており、`red?` に掛かっていた** —
+    # ⚠ **区別を足したついでに見逃す形にしない**（**投稿は出たのに履歴が伸びていない** ＝
+    # **#41 の重複回避が切れている**）。
+    def count_notify(entry)
+      @notifies += 1
+      @notify_failures += 1 if entry[:error]
+      return @notifies
     end
 
     # ⚠ **応答が返った行と、落ちた試行の行を分ける。**⚠⚠ **後者は `count` を持ち、
@@ -213,6 +241,17 @@ module Makoto
       duplicated_slots.each do |(name, slot), row|
         out.push("🔴 #{name} #{slot} が #{row[:posts].uniq.size} 件の status を作った（重複投稿）")
       end
+      return out.join("\n")
+    end
+
+    # ⚠ **履歴の通知**（#284）。🔴 **1 行も無いのが普通**（`posted` を持つのは曲紹介だけ）
+    # なので、**出ていないこと自体は異常ではない。**
+    def format_notify
+      return nil if @notifies.zero?
+      out = ['', "履歴の通知: #{@notifies} 回 / 失敗 #{@notify_failures} 回"]
+      # ⚠⚠ **赤にした理由を本文にも書く**（#127 と同じ）。
+      out.push("🔴 #{@notify_failures} 回の通知が落ちた（投稿は出ているが履歴が伸びていない）") \
+        if @notify_failures.positive?
       return out.join("\n")
     end
 

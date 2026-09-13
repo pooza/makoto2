@@ -96,6 +96,57 @@ module Makoto
       assert_nothing_raised {job.exec(jst(12, 0))}
     end
 
+    # 🔴 **履歴が伸びたかをログだけで言えること**（#284）。
+    #
+    # ⚠⚠ **`posted` が nil を返すのは「覚えなかった」** — **履歴を切ってあるか、
+    # その枠の曲を持っていない。**⚠ **投稿そのものは成功しているので、失敗としては
+    # 1 行も出ない** ＝ 🔴 **#41 の重複回避が無言で切れていても気づけなかった。**
+    def test_notify_logs_whether_the_history_advanced
+      stub_post
+
+      assert_equal([true], notify_payloads(1).map {|payload| payload[:recorded]})
+      assert_equal([false], notify_payloads(nil).map {|payload| payload[:recorded]})
+    end
+
+    # ⚠ **`posted` を持たない source では 1 行も出さない**（朝挨拶・ライブの 160 枠）。
+    # ⚠⚠ **「持たない」と「持っているのに覚えなかった」は別の状態**なので、
+    # 🔴 **前者を毎回ログに出すと後者が埋もれる。**
+    def test_a_source_without_the_hook_logs_nothing_at_notify
+      stub_post
+
+      assert_empty(notify_payloads(:unsupported))
+    end
+
+    # 🔴 **履歴の通知の失敗を、投稿の失敗と区別できること**（#284）。
+    #
+    # ⚠⚠ **意味が正反対** — **こちらは「投稿は成功したが、履歴の通知で落ちた」。**
+    # ⚠ **`TrackHistory#record` が内側で全部握るのでほぼ発火しない**が、
+    # 🔴 **発火した日に読み違える。**
+    def test_a_notify_failure_is_distinguishable_from_a_post_failure
+      stub_post
+      source = Object.new
+      def source.call(_time = nil)
+        return 'いくよ！'
+      end
+
+      def source.posted(_slot)
+        raise 'boom'
+      end
+      errors = error_payloads(source)
+
+      assert_equal(['notify'], errors.map {|payload| payload[:phase]})
+    end
+
+    # ⚠ **投稿そのものの失敗には `phase` を付けない**（#284）。🔴 **付けると
+    # 「どちらも notify」に見える** — ⚠⚠ **区別を足したつもりで消すことになる。**
+    def test_a_post_failure_has_no_phase
+      stub_request(:post, @url).to_return(status: 500)
+      errors = error_payloads(proc {'いくよ！'})
+
+      assert_not_empty(errors)
+      assert_equal([nil], errors.map {|payload| payload[:phase]}.uniq)
+    end
+
     def test_posts_at_the_top_of_a_slot
       stub_post
       job.exec(jst(12, 0))
@@ -462,6 +513,45 @@ module Makoto
       ensure
         Heartbeat.define_singleton_method(:record_success, original)
       end
+    end
+
+    private
+
+    # `notify` が出した info の行だけを集める。⚠ **`recorded` は `posted` の戻り値。**
+    #
+    # ⚠ **`:unsupported` を渡すと `posted` を持たない source**（ライブ・朝挨拶）。
+    def notify_payloads(recorded)
+      source = Object.new
+      def source.call(_time = nil)
+        return 'いくよ！'
+      end
+      source.define_singleton_method(:posted) {|_slot| recorded} unless recorded == :unsupported
+      payloads = []
+      subject = job(source)
+      subject.instance_variable_set(:@logger, recorder(:info, payloads))
+      subject.exec(jst(12, 0))
+      return payloads.select {|payload| payload[:phase] == 'notify'}
+    end
+
+    # 12:00 の枠を 1 回通し、`error` の行だけを集める。
+    def error_payloads(source)
+      payloads = []
+      subject = job(source)
+      subject.instance_variable_set(:@logger, recorder(:error, payloads))
+      subject.exec(jst(12, 0))
+      return payloads
+    end
+
+    # ⚠ **見たい severity だけを拾い、残りは黙って捨てる。**
+    def recorder(severity, payloads)
+      logger = Object.new
+      [:info, :warn, :debug, :error].each do |name|
+        logger.define_singleton_method(name) do |payload|
+          payloads.push(payload) if name == severity
+          return nil
+        end
+      end
+      return logger
     end
   end
 end

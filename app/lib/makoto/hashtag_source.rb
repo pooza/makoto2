@@ -30,6 +30,9 @@ module Makoto
   class HashtagSource
     include Package
 
+    # 🔴 **包んだ先へ渡すもの**（#281）。⚠ **`call` はここが自分で持つので入れない。**
+    DELEGATED = [:posted].freeze
+
     # @param source [#call] 包む `source`
     # @param hashtag [String, nil] 足すハッシュタグ。⚠ **空なら何もしない**
     def initialize(source:, hashtag: nil)
@@ -39,6 +42,30 @@ module Makoto
 
     def call(time = nil)
       return tag(@source.call(time))
+    end
+
+    # 🔴 **包んだ先が持つものだけを、持っていると答える**（#281）。
+    #
+    # ⚠⚠ **`PostingJob#notify` は `@source.respond_to?(:posted)` で分岐する。**
+    # ⚠ **包んだ時点でそれが false になる**ので、🔴 **曲紹介にタグを 1 つ足した瞬間に
+    # `posted` が届かなくなり、`track_history` が黙って伸びなくなる** ＝ **#41 の
+    # 重複回避が無言で切れる**（⚠⚠ **ログにも痕跡が出ない**）。
+    #
+    # ⚠ **`posted` を素のメソッドとして生やさない。**🔴 **そうすると `respond_to?` が
+    # 常に true になり、`posted` を持たない source を包んだライブの 160 枠でも
+    # `notify` が呼ばれる** — ⚠⚠ **「委譲を足したが常に nil」という、検知したかった
+    # 状態と見分けの付かない形になる**（→ `PostingJob#notify` の `recorded`・#284）。
+    def respond_to_missing?(name, include_private = false)
+      return true if DELEGATED.include?(name) && @source.respond_to?(name, include_private)
+      return super
+    end
+
+    # ⚠ **何でも通さない**（#281）。🔴 **`PostingJob` が source に求めるのは `call` と
+    # `posted` の 2 つだけ** — ⚠⚠ **広く通すと「包んだせいで別のメソッドが生えた」形の
+    # 事故を後から作る**（**包む側は本文にタグを足すだけのもので、中身の代わりではない**）。
+    def method_missing(name, ...)
+      return super unless DELEGATED.include?(name) && @source.respond_to?(name)
+      return @source.public_send(name, ...)
     end
 
     # 本文にタグを足す。
