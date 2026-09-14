@@ -1662,7 +1662,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠ **手順 8.3 で拾った。**🔴 **[`ginseng-fediverse#273`](https://github.com/pooza/ginseng-fediverse/issues/273)（こちらが 2026-09-08 に切り出した設計検討）が [`4bc0d96`](https://github.com/pooza/ginseng-fediverse/commit/4bc0d96) で決着し、`Service.sanitize_status` が「実際にリンク化する `#` / `@` だけ」に区切りを入れる形になった**（2026-09-13）。
 
-⚠⚠ **こちらの [`Makoto::StatusText`](../blob/develop/app/lib/makoto/status_text.rb) とまったく同じ方向。**⚠ **判定に使う正本だけが違う**（🔴 **上流は gem 自身の `Parser` のパターン、こちらは投稿先の正規表現の写し**）。
+⚠⚠ **こちらの [`Makoto::StatusText`](../app/lib/makoto/status_text.rb) とまったく同じ方向。**⚠ **判定に使う正本だけが違う**（🔴 **上流は gem 自身の `Parser` のパターン、こちらは投稿先の正規表現の写し**）。
 
 ##### ⚠⚠ ただし、いま返すと保護が 1 段落ちる
 
@@ -2239,6 +2239,7 @@ bin/makoto corpus stat     # 件数を確認する
 - **IP の表記**: 単独で使わず「IP アドレス」
 - **ボットの呼称**: 英名ではなく日本語の役割名を使う
 - **ファイル参照**: サンプルファイルやテンプレートへの参照はマークダウンリンクにする
+  - 🔴 **リポジトリ内は `../app/...` の形**（2026-09-15・Codex の P3）。⚠⚠ **`../blob/develop/...` は Issue の本文でなら正しい**（あちらは `/pooza/makoto2/issues/N` から解決する）が、**`docs/CLAUDE.md` は `/blob/<revision>/docs/` にあるので `blob` が 2 つ付いて 404** — ⚠ **Issue に書いた文をそのまま docs へ移すと壊れる。**
 - 🔴 **増えていく数を地の文に書かない**（2026-09-13・Codex の P2）— ⚠⚠ **「6 回リハーサルした並び」は 7 回目を足したその PR の中で古くなった**（`0.5.1` / `0.9` の行と [track-corpus.md](track-corpus.md) の 3 箇所）。⚠ **数ではなく数え方を置く**（「当日通しリハーサルを重ねた並び」・回数は各回の節が正本）
 
 ## セッション開始時の同期手順
