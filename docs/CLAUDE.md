@@ -2789,9 +2789,22 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
    ⚠⚠ **この手順の 3.（ピン留めの現在地）が唯一の気づき口だった** — 🔴 **`gh release view` は `v1.8.31` としか言わない**ので、**リリースだけを見ていると「追いついている」に読める。**⚠ **`gh api repos/<r>/compare/<ピン>...main` まで引いて、`lib/` が動いているかを見る。**
    ```sh
    # ⚠ リリースではなく main との差分を見る（タグの打たれていない変更は release に出ない）
-   gh api "repos/pooza/$r/compare/$pin...main" --jq '"ahead=\(.ahead_by)"'
-   gh api "repos/pooza/$r/compare/$pin...main" --jq '.files|map("\(.filename) +\(.additions)/-\(.deletions)")|join("\n")'
+   # 🔴 ピンは Gemfile.lock から拾う（3 つを手で書き写さない）
+   awk '
+     /^  remote: https:\/\/github.com\/pooza\/ginseng-/ {
+       split($2, u, "/"); r = u[5]; sub(/\.git$/, "", r); pin = ""; next
+     }
+     r && /^  revision: / {pin = $2; next}
+     r && /^  tag: /      {pin = $2; next}
+     r && /^  specs:/     {print r, pin; r = ""}
+   ' Gemfile.lock | while read -r r pin; do
+     gh api "repos/pooza/$r/compare/$pin...main" >| "/tmp/cmp-$r.json" || exit 1
+     echo "=== $r（$pin）==="
+     jq -r '"ahead=\(.ahead_by)", (.files // [] | map("  \(.filename) +\(.additions)/-\(.deletions)") | .[])' "/tmp/cmp-$r.json"
+   done
    ```
+   🔴 **`tag:` があるほうを取る**（2026-09-15 に踏んだ）。⚠⚠ **`Gemfile.lock` の `revision:` は、注釈付きタグでは**タグオブジェクトの SHA**であって commit の SHA ではない** — ⚠ **`ginseng-fediverse` の `f6e160a` がそれで、`compare` に渡すと `422 No commit found for SHA`**（実測。**commit は `8b23e09`**）。⚠⚠ **`ginseng-core` の `b6e736d` は素通りした**ので、**1 つで試して「動いた」と決めない。**
+   ⚠ **`ginseng-style` は `ref:` 固定なので `tag:` の行が無く、`revision:` が commit の SHA そのもの**（→ 上記「タグではなく SHA で固定する」）。🔴 **だから `tag:` があれば `tag:`、無ければ `revision:` の順で取る。**
    ⚠ **`ginseng-style` も 5 commits 先だったが、動いたのはスキル化まわり**（`docs/skills.md` / `plugins/`）で、🔴 **`config/rubocop.yml` は不変 ＝ `inherit_gem` の判定は変わらない**（→ #300 / `1.0`）。
    ✅ **2026-09-08 も同じ**（**3 つとも上流が 1 コミットも動いていない**）。⚠ **`ginseng-core` は `b6e736d` で `main` の HEAD、`ginseng-fediverse` は `8d6d1fa` まで 2 commits・`ginseng-style` は `c22ac39` まで 3 commits 先で、いずれも前日と同じ差分。**⚠⚠ **`request` ラベルの open Issue も open PR も 3 リポジトリ合わせて 0 件**（**こちらから出した依頼は全部片付いている**）。
 
