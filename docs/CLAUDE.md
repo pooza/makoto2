@@ -2830,7 +2830,7 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
    ⚠ **2026-09-13 の夜も引く理由は無い** — 🔴 **`ginseng-core` はピン（v1.23.7 ＝ `b6e736d`）が `main` の HEAD そのもの。**⚠ **`ginseng-fediverse` は 2 → 5 commits に伸びたが、動いたのは `.github/workflows/{release,test}.yml` と `Gemfile` の 3 ファイルだけで `lib/` は不変**（⚠⚠ **距離が伸びても中身の性格は前回と同じ** — 🔴 **「何 commits 離れたか」ではなく「何が動いたか」で決める**）。⚠ **`ginseng-style` は 3 → 4 commits で、増えたのは [`68b06e1a`](https://github.com/pooza/ginseng-style/commit/68b06e1a)（`#106`・スキルの雛形）**。**`config/rubocop.yml` は依然として不変**なので `inherit_gem` の判定は変わらない（→ **#300**・4. も参照）。
 
-   ⚠⚠ **`request` の open は 3 件**（`ginseng-fediverse#273`・`ginseng-style#104` / `#105`）。🔴 **[`ginseng-style#105`](https://github.com/pooza/ginseng-style/pull/105) は `CLEAN` / ruby 3.3・3.4・4.0 の 3 つとも緑のまま、起票（2026-09-11）から 2 日以上眠っている** — ⚠ **同じ日の午前に催促済みなので、夜の同期では状態の確認だけにとどめた**（🔴 **分界は催促まで** → 上記）。⚠⚠ **この PR が入らないと、`tag:` で固定した makoto2 が上流の新版に気づく口が無いまま**（#291・Dependabot は `open-pull-requests-limit: 0`）。
+   ⚠⚠ **`request` の open は 3 件**（`ginseng-fediverse#273`・`ginseng-style#104` / `#105`）。🔴 **[`ginseng-style#105`](https://github.com/pooza/ginseng-style/pull/105) は `CLEAN` / ruby 3.3・3.4・4.0 の 3 つとも緑のまま、起票（2026-09-11）から 2 日以上眠っている** — ⚠ **同じ日の午前に催促済みなので、夜の同期では状態の確認だけにとどめた**（🔴 **分界は催促まで** → 上記）。⚠⚠ ~~この PR が入らないと、`tag:` で固定した makoto2 が上流の新版に気づく口が無いまま~~（#291・Dependabot は `open-pull-requests-limit: 0`）。🔴 **2026-09-15 に上流に訂正された** — ⚠⚠ **`#105`（`consumers`）が見るのは「利用側が古いタグに刺さっている」だけで、「そもそもタグが出ていない変更」は `releases` ジョブの側**（→ 上記「催促に添えた理由づけのほうが間違っていた」）。⚠ **催促自体は正しく、`bc26670` でマージされた。**
 
    🔴 **催促は「1 日 1 回まで」ではなく「状態が動いていないことを確かめてから」** — ⚠⚠ **同じ日に 2 度書いても相手の側では何も変わらない**ので、⚠ **押し直すのは日が変わってからでよい。**
 
