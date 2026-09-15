@@ -412,5 +412,51 @@ module Makoto
       3.times {|i| @repository.create(type: 'morning', body: "11 月の原稿 #{i}", seasons: [11])}
       return nil
     end
+
+    # 🔴 **ASCII-8BIT の原稿でも、その朝が消えない**（#280）。
+    #
+    # ⚠⚠ **`Sequel` / SQLite は非 ASCII を ASCII-8BIT で返しうる**（#124 / #79）ので、
+    # ⚠ **定型挨拶と繋いだ瞬間に `Encoding::CompatibilityError`** — 🔴 **受けるのは
+    # `PostingJob#create_text` の `rescue`** ＝ **その朝は 1 文字も出ない**
+    # （#192 が `HashtagSource` だけを塞いだ形）。
+    #
+    # ⚠ **DB へ入れて読み直すと UTF-8 で返る**ので、⚠⚠ **供給元の側を差し替えて当てる**
+    # （**実データは全行 UTF-8 なので実機では踏めない** → #280 の「確度」）。
+    def test_a_binary_script_still_makes_a_body
+      body = '昨日は、前髪を切りに行きました！さっぱり。'.dup.force_encoding(Encoding::ASCII_8BIT)
+      source = MorningSource.new(
+        selector: StubSelector.new(body),
+        greeting: greeting,
+        greeted_types: ['morning'],
+      )
+      text = source.call(jst(6, 1))
+
+      assert_equal("#{greeting}\n昨日は、前髪を切りに行きました！さっぱり。", text)
+      assert_equal(Encoding::UTF_8, text.encoding)
+    end
+
+    # 🔴 **通年の段から 1 本だけ返す供給元**（#280）。⚠ **段の規則は `MessageSelector`
+    # が正本**なので、**ここでは符号化だけを見る。**
+    class StubSelector
+      def initialize(body)
+        @body = body
+      end
+
+      def date_of(time)
+        return time.to_date
+      end
+
+      def dated_list(_date)
+        return []
+      end
+
+      def season_list(_date)
+        return []
+      end
+
+      def undated_list(_date)
+        return [{id: 1, slug: 'stub', type: 'morning', body: @body}]
+      end
+    end
   end
 end
