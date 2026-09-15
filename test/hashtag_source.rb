@@ -121,7 +121,8 @@ module Makoto
     # それを `?` にしていた** — ⚠⚠ **既に本文にあるタグを取りこぼし、同じタグを
     # もう 1 つ足していた。**✅ **上流が入口で `encode` するので中身が保たれる。**
     #
-    # ⚠ **本文そのものは変換しない**（投稿するのは元の文字列）。
+    # ⚠ **タグを足さない枝は本文に触らない**（#280）— 🔴 **寄せるのは連結する
+    # ときだけ**なので、**足すものが無ければ元の文字列がそのまま返る。**
     def test_a_shift_jis_body_keeps_its_tag_out
       body = 'すでに #TAG がある本文'.encode('Windows-31J')
 
@@ -145,18 +146,25 @@ module Makoto
       assert_equal("本文\n#キュアスタライブ", subject.call)
     end
 
-    # 🔴 **直せない本文は、タグを諦めて投稿を守る**（#192）。
+    # ✅ **Shift_JIS の本文にも非 ASCII のタグが足せる**（#280）。
     #
-    # ⚠⚠ **Shift_JIS は妥当な UTF-8 ではない**ので、⚠ **ラベルを貼り替えられない**
-    # （**貼り替えれば中身が壊れたまま UTF-8 を名乗る** → `create_tags` のコメント）。
-    # ⚠ **`create_tags` / `blank?` と同じ倒し方で、本文をそのまま返す。**
-    def test_a_shift_jis_body_keeps_the_post_when_the_tag_is_non_ascii
+    # 🔴 **ここは #192 の時点では「タグを諦めて投稿を守る」だった** — ⚠⚠ **当時の
+    # `utf8` はラベルを貼り替えるだけ**で、**Shift_JIS は妥当な UTF-8 ではないので
+    # 触れず**（**貼り替えれば中身が壊れたまま UTF-8 を名乗る**）、**連結が
+    # `Encoding::CompatibilityError` になって `rescue` がタグを落としていた。**
+    #
+    # ⚠ **諦めていたのは「寄せられないから」ではなく「寄せる手立てを持っていなかった
+    # から」** — ✅ **`Text.utf8` は `encode` するので中身を保ったまま寄せられる。**
+    # ⚠⚠ **本文の文字は 1 つも変わらない**（下の `test_does_not_reinterpret_...`）。
+    #
+    # 🔴 **ライブの 160 枠では、これが「タグの付かない投稿」になっていた形。**
+    def test_a_shift_jis_body_gains_a_non_ascii_tag
       body = 'すでにタグの無い本文'.encode('Windows-31J')
       subject = source(body, hashtag: '#キュアスタライブ')
 
       assert_nothing_raised {subject.call}
-      assert_equal(body, subject.call)
-      assert_equal(Encoding::Windows_31J, subject.call.encoding)
+      assert_equal("すでにタグの無い本文\n#キュアスタライブ", subject.call)
+      assert_equal(Encoding::UTF_8, subject.call.encoding)
     end
 
     # ⚠ **不正なバイト列は `create_tags` が先に握る**ので、連結までは来ない（#171）。
@@ -169,18 +177,22 @@ module Makoto
       assert_equal(body, subject.call)
     end
 
-    # 🔴 **Shift_JIS の本文を UTF-8 として読み替えない**（Codex の P2・#192）。
+    # 🔴 **Shift_JIS の本文を UTF-8 として読み替えない**（Codex の P2・#192 / #280）。
     #
     # ⚠⚠ **`valid_encoding?` は「そう読めるか」であって「そうである」ではない** —
     # ⚠ **`'凜々'.encode('Windows-31J')` のバイト列 `EA A3 81 58` は妥当な UTF-8
     # でもある**ので、**ラベルを貼り替えると `ꣁX` として投稿される。**
     #
+    # 🔴 **守りたいのは「文字が変わらないこと」であって、符号化を据え置くことではない**
+    # （#280）。⚠⚠ **`Text.utf8` は `encode` するので `凜々` のまま寄る** —
+    # ⚠ **貼り替えていたらここが `ꣁX` になって落ちる。**
+    #
     # 🔴 **タグが ASCII だけでも通る経路**なので、**いまの設定でも踏む。**
     def test_does_not_reinterpret_a_shift_jis_body_as_utf8
       body = '凜々'.encode('Windows-31J')
 
-      assert_equal("#{body}\n#TAG", source(body).call)
-      assert_equal(Encoding::Windows_31J, source(body).call.encoding)
+      assert_equal("凜々\n#TAG", source(body).call)
+      assert_not_equal('ꣁX', source(body).call.lines.first.chomp)
     end
 
     # 🔴 **包んだ先の `posted` を届けること**（#281）。
