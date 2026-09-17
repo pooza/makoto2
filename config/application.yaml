@@ -339,6 +339,12 @@ corpus:
   # 旧 DB から取り出したコーパスの置き場（`makoto corpus import` の取り込み元）。
   # ⚠ var/ はコミットしない。台詞は第三者の著作物のため（.gitignore 参照）。
   dir: var/corpus
+sentry:
+  # 🔴 **例外の集約**（#28）。⚠⚠ **DSN は config/local.yaml に置く**（置き場の正本は chubo2 の
+  # docs/infra-services.md）。⚠ **空なら初期化しない**（開発機・CI・テストは送らない）。
+  dsn: null
+  # ⚠ **トレースは送らない**（spans の枠は errors と別だが、要らないものを送らない）。
+  traces_sample_rate: 0
 track:
   # 曲データ（iTunes Search API の収集物）の置き場。⚠ 台詞と違って git 管理下に
   # あるので、clone すればそのまま `makoto track import` が通る。
@@ -375,6 +381,8 @@ logger:
     - api_key
     - authorization
     - code
+    # ⚠ **Sentry の DSN**（#28）。⚠ **送信専用の鍵だが、`makoto config` とログには出さない。**
+    - dsn
 mastodon:
   # 🔴 **モロヘイヤ（投稿プロキシ）を経由するか**（#124）。⚠⚠ **`url` / `acct` /
   # `token` は秘密情報なので config/local.yaml に置く。**ここは経路だけ。

@@ -60,6 +60,15 @@ module Makoto
       return error.message.dup.force_encoding(Encoding::UTF_8).scrub
     end
 
+    # 🔴 **Sentry へ例外を送る**（#28）。⚠ **初期化されていなければ何もしない。**
+    # ⚠⚠ **送れなくても呼び出し側を巻き込まない**（ここは rescue の内側から呼ばれる）。
+    def report_error(error, **tags)
+      return nil unless defined?(Sentry) && Sentry.initialized?
+      return Sentry.capture_exception(error, tags: tags)
+    rescue
+      return nil
+    end
+
     def self.name
       return 'makoto2'
     end

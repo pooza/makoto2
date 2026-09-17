@@ -417,6 +417,19 @@ properties:
         type: string
     required:
       - db
+  # 例外の集約（#28）。⚠ dsn が null なら送らない。
+  sentry:
+    type: object
+    properties:
+      dsn:
+        type:
+          - string
+          - 'null'
+        pattern: '^https://'
+      traces_sample_rate:
+        type: number
+        minimum: 0
+        maximum: 1
   track:
     type: object
     properties:
