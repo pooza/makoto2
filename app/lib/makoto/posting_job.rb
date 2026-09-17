@@ -100,9 +100,10 @@ module Makoto
     end
 
     def budget_seconds
-      limit = config['/http/retry/limit'].to_i
-      waits = config['/http/retry/seconds'].to_f * (limit - 1)
-      return (config['/http/timeout/seconds'].to_f * limit) + waits
+      # ⚠ **`limit` が 0（再送しない）でも最初の 1 回は飛ぶ**（Codex の P2）。
+      attempts = [config['/http/retry/limit'].to_i, 1].max
+      waits = config['/http/retry/seconds'].to_f * (attempts - 1)
+      return (config['/http/timeout/seconds'].to_f * attempts) + waits
     end
 
     # ⚠ **枠の頭の時刻そのものから作る。**プロセスをまたいでも同じ枠なら同じ値。

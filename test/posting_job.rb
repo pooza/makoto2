@@ -84,6 +84,13 @@ module Makoto
       assert_in_delta(92.0, subject.budget_seconds)
     end
 
+    # ⚠ **再送しない設定（`limit: 0`）でも予算は負にならない**（Codex の P2）。
+    def test_the_budget_without_retries
+      config['/http/retry/limit'] = 0
+
+      assert_in_delta(config['/http/timeout/seconds'].to_f, job.budget_seconds)
+    end
+
     # 🔴 **出せたことを `source` に伝える**（#41 → `SongSource#posted`）。
     #
     # ⚠⚠ **これがあるのは「下見が実機を動かさない」ため** — ⚠ **下見は `PostingJob` を
