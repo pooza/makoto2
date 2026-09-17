@@ -174,6 +174,19 @@ module Makoto
       assert_equal(['no prefix'], logged.map {|payload| payload[:message]})
     end
 
+    # ⚠⚠ **行が引けても本文が空なら鳴らす**（Codex の P2）。🔴 **`makoto message add` は
+    # 空の本文を弾かない**ので、**投稿は曲だけになる。**
+    def test_a_blank_prefix_is_logged_as_missing
+      @repository.create(type: config['/song/type'], body: '')
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      text = subject.call(jst(9, 1))
+
+      assert_equal('♪', text.lines.first[0])
+      assert_equal(['no prefix'], logged.map {|payload| payload[:message]})
+    end
+
     # ⚠ **前置きが引ければ何も出さない**（平常日に鳴らない）。
     def test_a_prefix_logs_nothing
       add_prefixes(4)

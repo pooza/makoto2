@@ -141,7 +141,9 @@ module Makoto
       # 分からなかった**（9/8〜9/10 の「ひとことが出ていない」）。✅ **共通の原稿が入った
       # 後（#251）は平常日に出ない**ので、**出たら type の綴り違いか原稿の消失。**
       # ⚠ **`compose` ではなくここ** — **下見（`song preview`）は何十枠も組むので、ログを汚さない。**
-      warn_no_prefix(entry) unless entry[:prefix]
+      # ⚠⚠ **行が引けても本文が空なら同じ**（Codex の P2）。🔴 **`makoto message add` は
+      # 空の本文を弾かず、`TrackPresenter` は空を「前置き無し」として出す。**
+      warn_no_prefix(entry) if entry[:prefix].nil? || entry[:prefix][:body].blank?
       remember(time, entry[:track])
       return entry[:text]
     end
