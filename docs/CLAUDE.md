@@ -1966,6 +1966,8 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠ **取り方は「起動時に `git rev-parse --short HEAD` を 1 回読んでプロセスの中で固定」**（`Package.revision`）。⚠⚠ **デプロイ時に焼き込む形は chubo2 のレシピを動かすので採らなかった** — **`git` が無い・チェックアウトでない置き方では `nil`（`(unknown)`）になる。**⚠ **旧い痕跡（#242 より前の常駐）でも `status` は落ちない**（本数だけ出す）。
 
+🔴 **`revision` と枠の名前は、痕跡を書いた `pid` が pid ファイルの常駐と一致するときだけ出す**（Codex の P2）。⚠⚠ **痕跡のファイルは 1 つを共有する**ので、**再起動の直後**（`record_start` は前のハートビートを残し、`touch` は `Scheduler#exec` まで走らない）や**孤児がまだ書いているとき**に、**新しい PID と古い `revision` を並べてしまう** — 🔴 **「動いているもの」を言う行が、取り違えを隠す形になる。**⚠ **再起動の直後の数秒は `revision (unknown)` が正常。**
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。
