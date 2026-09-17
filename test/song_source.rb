@@ -485,6 +485,34 @@ module Makoto
       assert_nil(source.call(jst(11, 4, 19)))
     end
 
+    # 🔴 **正しく黙ったことがログに残る**（#277）。⚠ **どの type で黙ったかまで。**
+    def test_a_quiet_day_is_logged
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.call(jst(11, 4, 12))
+      subject.call(jst(11, 3, 19))
+
+      assert_equal(['quiet day', 'quiet day'], logged.map {|payload| payload[:message]})
+      assert_equal('2026-11-04T03:00:00Z', logged.first[:slot])
+      assert_equal('quiet', logged.first[:phase])
+      assert_equal(['live_open', 'live_close'], logged.first[:types])
+      assert_equal(['live_eve'], logged.last[:types])
+    end
+
+    # ⚠ **平常日・枠の外・下見では鳴らさない。**
+    def test_an_ordinary_day_logs_no_quiet_day
+      add_prefixes(3)
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.call(jst(9, 1, 12))
+      subject.call(jst(11, 4, 9))
+      subject.compose(jst(11, 4, 12))
+
+      assert_empty(logged)
+    end
+
     # ⚠ **前日増量の日も黙る**（`live-eve` が 12:00〜20:00 の毎正時）。
     def test_silent_on_the_eve
       assert_true(source.quiet?(jst(11, 3, 12)))
@@ -571,6 +599,10 @@ module Makoto
       end
 
       def warn(payload)
+        return @logged.push(payload)
+      end
+
+      def info(payload)
         return @logged.push(payload)
       end
     end

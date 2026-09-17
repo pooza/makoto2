@@ -1939,6 +1939,20 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠⚠ **塞いでいない形が 1 つ残る**: **`song` に季節つきの行が 1 本入ると、その月はその 1 本が 3 枠とも出る**（→ 上記「前置きが 0 件でも壊れない」）。🔴 **前置きは引けている（`nil` ではない）ので `warn` は鳴らない。**
 
+#### ✅ 11/3・11/4 に曲紹介が「正しく黙った」ことをログに残す（2026-09-17・#277）
+
+🔴 **黙る判断が効いた枠も、別の理由で黙った枠も、出力は同じ「何も無い」だった** — ⚠⚠ **`PostingJob` の「本文なし」は `debug` なので、`info` では 1 行も残らない。**
+
+✅ **`SongSource#call` が黙る日の枠で `info` を 1 行出す**（**年 6 行 ＝ 2 日 × 3 枠**・平常日には出ない）:
+
+```
+{"post":"song","slot":"2026-11-04T03:00:00Z","phase":"quiet","message":"quiet day","types":["live_open","live_close"]}
+```
+
+🔴 **`phase` を付けたのは `RehearsalReport` のため** — ⚠⚠ **`post` と `slot` を両方持つ行は `exec` 1 回に数えられる**（#284 の `notify` で踏んだ形）ので、**黙る日そのものを回す 11/3・11/4 のリハーサルで曲紹介が exec 2 回に見えてしまう。**✅ **`RehearsalReport#consume` は `notify` 以外の `phase` も `exec` に数えないようにした**（テストあり）。⚠ **リリース手順の門（`status_id` か `error` が出たか）はこの行で誤判定しない。**
+
+⚠ **`compose`（下見）では鳴らさない**（#313 の `no prefix` と同じ）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

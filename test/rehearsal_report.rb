@@ -17,6 +17,9 @@ module Makoto
     NOTIFY_MISS = '{"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify","recorded":false}'.freeze
     NOTIFY_ERROR = '{"error":{"message":"boom"},"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify"}'.freeze
 
+    # 🔴 **黙る日に黙ったことの 1 行**（#277 → `SongSource#log_quiet_day`）。⚠ **これも `exec` ではない。**
+    QUIET = '{"post":"song","slot":"2026-11-04T03:00:00Z","phase":"quiet","message":"quiet day","types":["live_open","live_close"]}'.freeze
+
     def report(*lines)
       return RehearsalReport.new(lines)
     end
@@ -32,6 +35,16 @@ module Makoto
       assert_equal(1, subject.slots.size)
       assert_equal(1, subject.slots.values.first[:execs])
       assert_equal(1, subject.posted)
+      assert_empty(subject.anomalous_slots)
+      assert_false(subject.red?)
+    end
+
+    # 🔴 **黙る日の 1 行も `exec` に数えない**（#277）。⚠⚠ **11/3・11/4 を回すリハーサルで、
+    # 曲紹介の枠が「exec があるのに投稿されていない」に見えないこと。**
+    def test_a_quiet_entry_is_not_an_exec
+      subject = report(SUCCESS, QUIET)
+
+      assert_equal(1, subject.slots.size)
       assert_empty(subject.anomalous_slots)
       assert_false(subject.red?)
     end

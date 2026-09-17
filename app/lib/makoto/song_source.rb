@@ -134,6 +134,7 @@ module Makoto
     # ⚠ **枠の外・ライブが持つ日・曲が引けなければ nil**（＝その枠は投稿しない）。
     def call(time = nil)
       time ||= Time.now
+      log_quiet_day(time)
       entry = compose(time)
       return nil unless entry
       # 🔴 **前置きが引けなかったことを残す**（#313）。⚠⚠ **曲だけの本文でも投稿は成功に
@@ -330,6 +331,25 @@ module Makoto
     # ⚠ **例外は上げない。**1 枠の異常で常駐を落とさない（→ docs/CLAUDE.md
     # 「投稿の欠落は詰めない」）。⚠⚠ **設定の誤りは `TrackLottery` が例外にする**ので、
     # **ここが受けるのは「母集合が空」だけ。**
+    # 🔴 **黙る日に黙ったことを残す**（#277）。⚠⚠ **`PostingJob` の「本文なし」は `debug`**
+    # なので、**11/3・11/4 に曲紹介が正しく黙っているかを、ログで確かめられなかった**
+    # （**別の理由で黙っても出力は同じ「何も無い」**）。⚠ **`info` で年 6 行**（2 日 × 3 枠）—
+    # 🔴 **平常日には出ない**ので #80 の黄 9（平常日に 171 行）にはならない。
+    # ⚠ **`call` だけ**（下見の `compose` は鳴らさない → `warn_no_prefix` と同じ）。
+    #
+    # 🔴 **`phase` を付ける。**⚠⚠ **`post` と `slot` を両方持つ行は、`RehearsalReport` が
+    # `exec` 1 回として数える**（#284 の `notify` で踏んだ形）— ⚠ **黙る日そのものを回す
+    # 11/3・11/4 のリハーサルで、曲紹介の枠が exec 2 回に見えてしまう。**
+    def log_quiet_day(time)
+      return unless @timetable.index_at(time)
+      return unless quiet?(time)
+      types = @selector.reserved_types_on(@selector.date_of(time)) & @quiet_types
+      logger.info(
+        post: Song::NAME, slot: time.getutc.iso8601, phase: 'quiet',
+        message: 'quiet day', types: types
+      )
+    end
+
     def warn_no_prefix(entry)
       logger.warn(
         post: Song::NAME, message: 'no prefix', kind: entry[:track][:kind], spoken: entry[:spoken],

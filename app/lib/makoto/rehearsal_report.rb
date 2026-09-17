@@ -154,6 +154,8 @@ module Makoto
       # 🔴 **`count_slot` より先に見る**（#284）。⚠⚠ **この行も `post` と `slot` を
       # 両方持つ**ので、**後ろに置くと `exec` として数えられてしまう。**
       return count_notify(entry) if entry[:phase] == NOTIFY_PHASE
+      # ⚠⚠ **他の `phase` も `exec` ではない**（#277 の `quiet` — 黙る日に黙ったことの 1 行）。
+      return nil if entry[:phase]
       return count_slot(entry) if entry[:post] && entry[:slot]
       return count_http(entry) if entry[:method] && entry[:url]
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
