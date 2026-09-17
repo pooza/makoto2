@@ -75,24 +75,34 @@ module Makoto
     def exec(time = nil)
       slot = claim(due_slot(time))
       return nil unless slot
-      text = create_text(slot)
-      # ⚠ **nil は `source` が落ちたことを指す**（`create_text` が記録済み）。
-      # ⚠⚠ **空文字と混ぜない** — 混ぜると #77 の「設定を消すと枠の中で例外が上がる」
-      # 形が「原稿の無い日」に化けて、**160 枠が沈黙しても健全に見える。**
-      return nil if text.nil?
-      if text.blank?
-        # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
-        # ⚠⚠ **成功にも失敗にも数えない。**→ `Heartbeat` 冒頭の表。
-        #
-        # ⚠ **`debug` なのは、これが平常日に 171 行出るから**（#80 の黄 9）。
-        # ⚠⚠ **ライブの 4 枠は毎日空回りする設計**なので、これを `info` に置くと
-        # **11/4 に壊れて何も出なかった日のログが、平常日と 1 文字も変わらない。**
-        # ⚠ **「出るべき日に出なかった」を言えるのは中身を知っている側だけ**なので、
-        # **そちらが `warn` を出す**（→ `LiveProgram#call`）。
-        logger.debug(post: @name, slot: format_slot(slot), message: 'no text')
-        return nil
-      end
-      return post(text, slot)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return exec_slot(slot)
+    ensure
+      warn_slow(slot, started) if started
+    end
+
+    # 🔴 **設定した予算を超えて長くかかった枠を 1 行残す**（#92）。
+    #
+    # ⚠⚠ **打ち切らない。**🔴 **`Timeout.timeout` などで切ると、非同期に上がる例外が「受理された
+    # 直後」に当たり、再送で同じ投稿がもう 1 本出る**（二重投稿の入口 → #92 の本文）。⚠ **この箱
+    # （`0.6`）は観測を厚くする版**なので、**「予算の外で掴まれていた」ことに気づけるところまで。**
+    #
+    # ⚠ **予算は `/http` の設定から出す**（タイムアウト × 再送 ＋ 待ち）— ⚠⚠ **HTTParty の
+    # `timeout` は socket 操作ごと**なので、**これを超えたら slow-drip で掴まれている合図。**
+    # ⚠ **`phase` を付ける**（`RehearsalReport` が `exec` に数えない → #277）。
+    def warn_slow(slot, started)
+      seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      return if seconds <= budget_seconds
+      logger.warn(post: @name, slot: format_slot(slot), phase: 'slow',
+        seconds: seconds.round(1), budget: budget_seconds)
+    rescue => e
+      logger.error(post: @name, phase: 'slow', error: e)
+    end
+
+    def budget_seconds
+      limit = config['/http/retry/limit'].to_i
+      waits = config['/http/retry/seconds'].to_f * (limit - 1)
+      return (config['/http/timeout/seconds'].to_f * limit) + waits
     end
 
     # ⚠ **枠の頭の時刻そのものから作る。**プロセスをまたいでも同じ枠なら同じ値。
@@ -116,6 +126,27 @@ module Makoto
     end
 
     private
+
+    def exec_slot(slot)
+      text = create_text(slot)
+      # ⚠ **nil は `source` が落ちたことを指す**（`create_text` が記録済み）。
+      # ⚠⚠ **空文字と混ぜない** — 混ぜると #77 の「設定を消すと枠の中で例外が上がる」
+      # 形が「原稿の無い日」に化けて、**160 枠が沈黙しても健全に見える。**
+      return nil if text.nil?
+      if text.blank?
+        # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
+        # ⚠⚠ **成功にも失敗にも数えない。**→ `Heartbeat` 冒頭の表。
+        #
+        # ⚠ **`debug` なのは、これが平常日に 171 行出るから**（#80 の黄 9）。
+        # ⚠⚠ **ライブの 4 枠は毎日空回りする設計**なので、これを `info` に置くと
+        # **11/4 に壊れて何も出なかった日のログが、平常日と 1 文字も変わらない。**
+        # ⚠ **「出るべき日に出なかった」を言えるのは中身を知っている側だけ**なので、
+        # **そちらが `warn` を出す**（→ `LiveProgram#call`）。
+        logger.debug(post: @name, slot: format_slot(slot), message: 'no text')
+        return nil
+      end
+      return post(text, slot)
+    end
 
     def validate
       unless @source.respond_to?(:call)
