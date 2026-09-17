@@ -139,5 +139,22 @@ module Makoto
       assert_raise(SystemExit) {capture {command.export}}
       assert_equal('先にあるもの', File.read(path))
     end
+
+    # 🔴 **このリポジトリの中へは書き出さない**（#273）。⚠⚠ **`../` を 1 つ落とした形。**
+    def test_export_refuses_the_working_tree
+      out = File.join(Environment.dir, 'morning-export-test.yaml')
+
+      assert_include(capture_warning {capture {command(out: out).export}}, 'public')
+      assert_false(File.exist?(out))
+    ensure
+      FileUtils.rm_f(out)
+    end
+
+    # 🔴 **0600 で書く**（#273・細かい形は `ScriptExportFileTest`）。
+    def test_export_writes_a_private_file
+      export
+
+      assert_equal(0o600, File.stat(path).mode & 0o777)
+    end
   end
 end
