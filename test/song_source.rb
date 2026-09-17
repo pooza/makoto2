@@ -369,11 +369,14 @@ module Makoto
       common = add_prefixes(3)
       [Errno::EISDIR, Errno::EACCES, TypeError].each do |error|
         subject = spoken_source(-> {raise error, 'broken'})
-        subject.define_singleton_method(:logger) {Recorder.new([])}
+        logged = []
+        subject.define_singleton_method(:logger) {Recorder.new(logged)}
         entry = subject.compose(jst(9, 1))
 
         assert_true(entry[:spoken], error.name)
         assert_include(common, entry[:prefix][:body])
+        # ⚠⚠ **どの例外だったかがログに残る**（ロガーは例外のクラス名を潰す・Codex の P2）。
+        assert_equal(error.name, logged.first[:error_class])
       end
     end
 

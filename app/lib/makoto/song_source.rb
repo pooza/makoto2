@@ -177,7 +177,12 @@ module Makoto
     def spoken?(track)
       return @prefixes.spoken?(track)
     rescue => e
-      logger.warn(post: Song::NAME, message: 'spoken table unreadable', error: e)
+      # ⚠⚠ **クラス名は別に持つ**（Codex の P2）。🔴 **ロガーは例外を `message` / `file` /
+      # `line` に潰す**（→ test/logger.rb）ので、**`error: e` だけでは `EISDIR` か `EACCES` か
+      # `TypeError` かが残らない。**
+      logger.warn(
+        post: Song::NAME, message: 'spoken table unreadable', error_class: e.class.name, error: e,
+      )
       return true
     end
 

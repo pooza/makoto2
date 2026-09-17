@@ -1930,7 +1930,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 | | 前 | 後 |
 | --- | --- | --- |
-| **#312 語りの表が読めない** | ⚠ **`ValidateError` だけ受けていた** — 🔴 **`Errno::EISDIR` / `EACCES`・別名表の Hash でない行（`TypeError`）は `PostingJob` まで抜け、1 日 3 枠とも落ちる** | ✅ **`SongSource#spoken?` は例外を全部受けて共通へ倒す**（倒す向きは据え置き）・**別名表にも Hash の検査**（`SpokenTracks` と揃えた）・ログは `error: e`（クラス名を落とさない） |
+| **#312 語りの表が読めない** | ⚠ **`ValidateError` だけ受けていた** — 🔴 **`Errno::EISDIR` / `EACCES`・別名表の Hash でない行（`TypeError`）は `PostingJob` まで抜け、1 日 3 枠とも落ちる** | ✅ **`SongSource#spoken?` は例外を全部受けて共通へ倒す**（倒す向きは据え置き）・**別名表にも Hash の検査**（`SpokenTracks` と揃えた）・ログは `error_class` を別に持つ（⚠⚠ **ロガーは例外を `message` / `file` / `line` に潰すので、`error: e` だけではクラス名が残らない** — Codex の P2） |
 | **#313 前置きが引けない** | 🔴 **ログに 1 行も出ず、投稿は成功に数えられる**（`/healthz/posting` も緑） | ✅ **`SongSource#call` が `warn`（`message: 'no prefix'`・`kind`・`spoken`）を 1 行出す** |
 
 ⚠ **#313 の `warn` は `compose` ではなく `call`** — ⚠⚠ **下見（`song preview`）は何十枠も組むので、ログを汚さない**（テストで両方を留めた）。✅ **共通 90 本が入った後（#251）は平常日に鳴らない**ので、🔴 **出たら `/song/type` の綴り違いか原稿の消失。**
