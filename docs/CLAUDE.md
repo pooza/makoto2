@@ -1996,11 +1996,11 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 🔴 **原稿を書く側（`makoto-scripts`）から 500 字の壁が見えなかった** — ⚠⚠ **超えると投稿先が 422 を返し、再送なしの失敗としてその枠が消える**（気づくのは投稿の瞬間）。
 
-✅ **`message import` が、type ごとの上限を超える原稿を `ValidateError` で弾く**（[`PostBudget`](../app/lib/makoto/post_budget.rb)）。**上限 ＝ `/mastodon/max_length`（500）− 前後に付く定型文**、⚠ **URL は投稿先と同じく 23 字と数え、見た目の 1 文字（書記素クラスタ）を 1 字と数える**（Codex の P2 — `String#length` だと ZWJ の絵文字が数字ぶん長く出る）。⚠ **`/mastodon/max_length` はスキーマで必須・ハッシュタグは任意の設定として読む**（どちらも Codex の P2）。
+✅ **`message import` が、type ごとの上限を超える原稿を `ValidateError` で弾く**（[`PostBudget`](../app/lib/makoto/post_budget.rb)）。**上限 ＝ `/mastodon/max_length`（500）− 前後に付く定型文**、⚠ **URL は投稿先と同じく 23 字と数え、見た目の 1 文字（書記素クラスタ）を 1 字と数える**（Codex の P2 — `String#length` だと ZWJ の絵文字が数字ぶん長く出る・URL は 1 回の走査で置き換える — 1 本ずつだと前方一致する URL を長く数える）。⚠ **`/mastodon/max_length` はスキーマで必須・ハッシュタグは任意の設定として読む**（どちらも Codex の P2）。
 
 | type | 投稿の形 | 原稿が使える長さ（いまの設定） |
 | --- | --- | --- |
-| **朝挨拶**（`morning`） | 定型挨拶 ＋ 改行 ＋ 本文 | 475 |
+| **朝挨拶**（`morning`） | 定型挨拶 ＋ 改行 ＋ 本文 | 475（⚠ **日付つきは 500** — 挨拶は原稿が持つので付かない・Codex の P2） |
 | **曲紹介の前置き**（`song` / 種類別） | 本文 ＋ 空行 ＋ 曲の行 | 200（⚠ **曲の行に 300 字を取っておく** — 実測の最大 277 字・抽選なので最悪に合わせる） |
 | **ライブの台本** | 本文 ＋ 改行 ＋ ハッシュタグ | 479 |
 | それ以外（`holiday` / `announcement`） | 本文だけ | 500 |

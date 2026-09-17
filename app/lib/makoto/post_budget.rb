@@ -24,6 +24,9 @@ module Makoto
     # 🔴 **Mastodon は URL の長さによらず 23 字と数える。**
     URL_LENGTH = 23
 
+    # ⚠ **`URI.extract` と同じ規則**（`http` / `https`）。
+    URL_PATTERN = URI::RFC2396_PARSER.make_regexp(['http', 'https'])
+
     # ⚠⚠ **曲の行（曲名・名義・アルバム名・URL）に取っておく長さ。**🔴 **実測の最大は 277 字**
     # （2026-09-08・`bgm`・名義 102 字 → #282）＋ 空行 2 字に余裕を持たせた。
     # ⚠ **曲は抽選なので、前置きの側でどの曲に付くかは決められない** ＝ 最悪に合わせる。
@@ -34,11 +37,11 @@ module Makoto
     # ⚠⚠ **書記素クラスタで数える**（Codex の P2）。🔴 **Mastodon は URL を置き換えたあと、見た目の
     # 1 文字（結合文字・ZWJ の絵文字）を 1 字と数える** — ⚠ **`String#length` はコードポイント
     # なので、家族の絵文字 1 つが数字ぶん長く出て、上限の近くで通る原稿を弾いてしまう。**
+    #
+    # ⚠⚠ **URL は 1 回の走査で置き換える**（Codex の P2）。🔴 **1 本ずつ `gsub` すると、前方一致
+    # する URL（`/a` と `/a/b`）で短いほうが長いほうの中まで置き換え、長く数えてしまう。**
     def self.length(text)
-      text = text.to_s
-      urls = URI.extract(text, ['http', 'https'])
-      urls.uniq.each {|url| text = text.gsub(url, 'x' * URL_LENGTH)}
-      return text.grapheme_clusters.size
+      return text.to_s.gsub(URL_PATTERN) {'x' * URL_LENGTH}.grapheme_clusters.size
     end
 
     def limit
@@ -46,14 +49,18 @@ module Makoto
     end
 
     # その type の原稿が使える長さ。
-    def budget(type)
-      return limit - reserve(type.to_s)
+    #
+    # ⚠⚠ **日付つきの朝挨拶には定型挨拶が付かない**（Codex の P2 → `MorningSource#greeting_for`
+    # — **挨拶は原稿が自分で持つ**）。🔴 **type だけで挨拶の分を引くと、日付つきの原稿を 25 字
+    # ぶん不当に弾く。**
+    def budget(type, dated: false)
+      return limit - reserve(type.to_s, dated: dated)
     end
 
     # ⚠ **超えていれば `ValidateError`**（どれだけ超えたかを言う）。
-    def validate(type, body, slug)
+    def validate(type, body, slug, dated: false)
       length = self.class.length(body)
-      allowed = budget(type)
+      allowed = budget(type, dated: dated)
       return if length <= allowed
       raise Ginseng::ValidateError,
         "#{slug}: 本文が長すぎます（#{length} 字 / この type は #{allowed} 字まで・URL は #{URL_LENGTH} 字と数える）"
@@ -61,8 +68,10 @@ module Makoto
 
     private
 
-    def reserve(type)
-      return reserves.fetch(type, 0)
+    def reserve(type, dated: false)
+      value = reserves.fetch(type, 0)
+      value = [value - greeting_reserve, 0].max if dated && type == Morning.new.type
+      return value
     end
 
     # ⚠ **type は設定から引く**（書き写さない）。⚠⚠ **同じ type が複数の形に出たら大きいほう。**

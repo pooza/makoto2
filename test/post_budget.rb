@@ -20,6 +20,17 @@ module Makoto
       assert_equal(2, PostBudget.length("が\u{3099}#{family}".unicode_normalize(:nfd)))
     end
 
+    # ⚠⚠ **前方一致する URL を長く数えない**（Codex の P2）。
+    def test_urls_sharing_a_prefix_count_as_23_each
+      assert_equal(23 + 1 + 23, PostBudget.length('https://x.test/a https://x.test/a/b'))
+    end
+
+    # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。
+    def test_a_dated_morning_does_not_reserve_the_greeting
+      assert_equal(config['/mastodon/max_length'], budget.budget('morning', dated: true))
+      assert_equal(budget.budget('song'), budget.budget('song', dated: true))
+    end
+
     # ⚠⚠ **ハッシュタグを外した設定でも取り込みが落ちない**（Codex の P2）。
     def test_the_budget_without_a_hashtag
       config.delete('/live/hashtag')

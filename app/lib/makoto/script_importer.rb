@@ -127,14 +127,15 @@ module Makoto
       body = record['body'].to_s
       raise Ginseng::ValidateError, "#{slug}: body がありません" if body.strip.empty?
       # 🔴 **投稿先の上限を取り込みで見る**（#282 → `PostBudget`）。
-      budget.validate(type, body, slug)
+      date = self.class.parse_date(record['date'], slug)
+      budget.validate(type, body, slug, dated: date[:month].present?)
       return {
         slug: slug,
         type: type,
         body: body,
         feature: record['feature'],
         seasons: seasons(record['season'], slug),
-        **self.class.parse_date(record['date'], slug),
+        **date,
       }
     end
 
