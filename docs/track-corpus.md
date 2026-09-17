@@ -311,7 +311,7 @@ python3 seed/itunes_corpus.py --dry-run    # 報告だけ（seed/ は書き換�
 
 # 2. 報告（track_report.md）を読む — 新しい行の kind・語りのトラックの候補・見つからなかった既存の行
 # 3. PR（報告を本文に貼る）→ マージ
-# 4. 実機でレシピを当てる（track import が走る）→ 🔴 restart まで（seed/ は docs/ / tools/ の外・#275）
+# 4. 実機でレシピを当てる（track import が走る）→ 🔴 restart まで（seed/ は docs/ / tools/ の外。⚠ #275 で履歴の別名表は読み直すが、ライブの Setlist は起動時の表のまま）
 ```
 
 ### 🔴 既存の行は 1 文字も変えない。足すのは新しい行だけ

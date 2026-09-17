@@ -76,6 +76,8 @@ module Makoto
     end
 
     # ⚠ **`Setlist` のように取り込み元を持たない側が使う既定の表。**
+    # 🔴 **クラスでメモするので、常駐の中では起動したときの表のまま凍る**（#275）。
+    # ⚠⚠ **枠ごとに読み直したい側（`TrackHistory` / `SpokenTracks`）はこれを使わない。**
     def self.default_aliases
       @default_aliases ||= TrackAliases.new
       return @default_aliases
