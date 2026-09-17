@@ -235,12 +235,22 @@ properties:
       # 戻り、タグ付けが掛からなくなる（#77 の裏返し）。だから required に入れる。
       mulukhiya:
         type: boolean
+      # 🔴 投稿先の本文の上限（#282 → PostBudget）。
+      max_length:
+        type: integer
+        minimum: 1
+      # 🔴 モロヘイヤが足すタグのぶん（#282 → PostBudget）。
+      proxy_reserve:
+        type: integer
+        minimum: 0
     # ⚠ `whoami` も `post` も、この 2 つが無ければ動かない。ここに書いておかないと
     # `rake config:lint` は通り、投稿しようとした瞬間に初めて失敗する。
     required:
       - url
       - token
       - mulukhiya
+      # ⚠ 消すと原稿の取り込みが落ちる（#282 → PostBudget・Codex の P2）。
+      - max_length
   message:
     type: object
     properties:
