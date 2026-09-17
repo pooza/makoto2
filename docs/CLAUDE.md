@@ -1992,6 +1992,14 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠⚠ **上流の `post` はオプションを外から受けない**ので、**`Makoto::MastodonService#post` を同じ内容で暫定的に上書きし、同じ変更を上流へ PR した**（[`ginseng-fediverse#278`](https://github.com/pooza/ginseng-fediverse/pull/278)・オーナー判断）。🔴 **入ってタグが出たら上書きを消して引き上げる** — **中身は上流の写しなので、上流が `post` を組み替えた日に黙って古くなる。**
 
+#### ✅ 投稿先の上限を、原稿の取り込みで弾く（2026-09-17・#282 の後半）
+
+⚠ **原稿を書く側から投稿先の上限が見えなかった**（超えると 422 で再送なしの失敗になり、その枠が消える）。✅ **`message import` が、type ごとの上限を超える原稿を `ValidateError` で弾く**（[`PostBudget`](../app/lib/makoto/post_budget.rb)）。
+
+**上限 ＝ `/mastodon/max_length` − モロヘイヤが足すタグのぶん（`/mastodon/proxy_reserve`・経由するときだけ）− 前後に付く定型文**（朝挨拶の挨拶・曲紹介の曲の行 300 字・ライブのハッシュタグ）。⚠ **URL は 23 字、見た目の 1 文字を 1 字と数える。**
+
+🔴 **キュアスタ！の上限は 3000 字**（オーナー）— ⚠⚠ **最初は Mastodon の既定の 500 字を確かめずに置いており、Codex の指摘を 7 件受けて 500 字前提の詰めを重ねていた。**⚠ **3000 字では本物の原稿（最長の `holiday` で実効 328 字）に対して桁で余裕があるので、この検査は「壁を越える原稿を書いた日に気づける」歯止めにとどめ、これ以上詰めない**（オーナー「ほどほどでいい」）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。
