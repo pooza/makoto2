@@ -1906,6 +1906,14 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ✅ **実機の DB はどちらもテーブルを持つ**（`bydo` / `rubicon` とも `schema_info` = 5・`track_history` あり）ので、⚠ **入れても起動で落ちない。**
 
+#### ✅ 履歴の別名表を、常駐の中でも読み直す（2026-09-17・#275）
+
+🔴 **[`TrackHistory`](../app/lib/makoto/track_history.rb) は窓を「記憶しない（覚えると起動時のまま凍る）」と書いていたのに、鍵を寄せる別名表のほうは `TrackImporter.default_aliases`（クラスでメモ）で凍っていた。**⚠⚠ **組を足して `track import` を流しても、`restart` しない限り古い鍵が寄らず、寄せたばかりの曲がその日のうちにまた出る**（**レシピは作業木を進めるだけ** → 同期手順 3.）。
+
+✅ **`TrackHistory#aliases` はメモせず、読むたびに `TrackAliases.new` する**（⚠ **枠ごとに 1 回・表は数十行** ＝ **`SpokenTracks` と同じ形**）。🔴 **テストは旧コード（メモあり）で赤になることを確かめた。**
+
+⚠ **`TrackImporter.default_aliases` のメモは残した** — **使っているのはライブの `Setlist` で、`LiveProgram` が日付ごとに並びをメモする**（**11/4 の並びは起動時の表で固定されてよい**）。⚠⚠ **したがって [track-corpus.md](track-corpus.md) の「`track import` の後は `restart` まで」は変わらない**（`seed/` は許可リストの外）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

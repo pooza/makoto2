@@ -135,15 +135,32 @@ module Makoto
 
     # ⚠ **別名表が壊れていても同じ**（`recent_keys` → `canonicalize` で上がる）。
     def test_survives_a_broken_alias_table
-      subject = history
-      record(subject, 1001)
-      broken = Object.new
-      def broken.empty?
-        raise Ginseng::ValidateError, 'track_aliases.yaml: YAML を読めません'
-      end
-      subject.instance_variable_set(:@aliases, broken)
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, TrackAliases::FILE), "- names: [\n")
+        subject = TrackHistory.new(post: 'song', size: 3, repository: @history_repository, aliases_dir: dir)
+        record(subject, 1001)
 
-      assert_equal(candidates.count, subject.exclude(candidates).count)
+        assert_equal(candidates.count, subject.exclude(candidates).count)
+      end
+    end
+
+    # 🔴 **別名表を足したら、常駐を起こし直さなくても次の読みから寄る**（#275）。
+    # ⚠⚠ **同じインスタンスのまま**（`Song` は `TrackHistory` を常駐の間ずっと持つ）。
+    def test_reads_a_new_alias_table_without_a_restart
+      Dir.mktmpdir do |dir|
+        subject = TrackHistory.new(post: 'song', size: 3, repository: @history_repository, aliases_dir: dir)
+        @history_repository.record('song', TrackImporter.normalize('ごひきのこぶたとチャールストン'))
+
+        assert_equal([TrackImporter.normalize('ごひきのこぶたとチャールストン')], subject.recent_keys)
+
+        File.write(File.join(dir, TrackAliases::FILE), <<~YAML)
+          - names:
+              - 五匹の子ぶたとチャールストン
+              - ごひきのこぶたとチャールストン
+        YAML
+
+        assert_equal([TrackImporter.normalize('五匹の子ぶたとチャールストン')], subject.recent_keys)
+      end
     end
 
     # 🔴 **抽選まで通して、曲が 1 曲引ける**（枠が沈黙しない）。
