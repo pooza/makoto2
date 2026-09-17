@@ -27,12 +27,22 @@ module Makoto
       sentry.dsn = dsn
       sentry.release = Package.version
       sentry.environment = Environment.type
-      sentry.traces_sample_rate = Config.instance['/sentry/traces_sample_rate'] || 0
+      sentry.traces_sample_rate = sentry_traces_sample_rate
       # ⚠ `send_default_pii` は既定 false のまま。
       sentry.before_send = proc {|event, _hint| scrubber.scrub(event)}
     end
   rescue => e
-    warn "Sentry initialization skipped: #{e.message}"
+    # ⚠⚠ **メッセージは出さない**（Codex の P2）。🔴 **DSN が壊れていると、解析の例外メッセージに
+    # DSN そのものが載りうる**（`mask_fields` に入れた値を stderr へ素で書くことになる）。
+    warn "Sentry initialization skipped: #{e.class}"
+  end
+
+  # ⚠ **無ければ 0**（Codex の P2）。⚠⚠ **素で読むと、DSN だけ置いたホストで例外になり、
+  # 上の rescue に落ちて Sentry が黙って立ち上がらない。**
+  def self.sentry_traces_sample_rate
+    return Config.instance['/sentry/traces_sample_rate'].to_f
+  rescue Ginseng::ConfigError
+    return 0
   end
 
   # ⚠⚠ **`dsn: null` は `Config#[]` では「キーが無い」になり、例外が上がる。**🔴 **素で読むと、

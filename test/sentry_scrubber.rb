@@ -106,6 +106,15 @@ module Makoto
       assert_nil(Object.new.extend(Package).report_error(StandardError.new('boom'), post: 'song'))
     end
 
+    # ⚠ **`traces_sample_rate` が無くても 0 に倒す**（Codex の P2）。
+    def test_traces_sample_rate_defaults_to_zero
+      config.delete('/sentry/traces_sample_rate')
+
+      assert_equal(0, Makoto.sentry_traces_sample_rate)
+    ensure
+      config.reload
+    end
+
     # 🔴 **DSN が空でも警告を出さない。**⚠⚠ **`dsn: null` は `Config#[]` で例外になる**ので、
     # 素で読むとすべての起動が「Sentry initialization skipped」を出していた。
     def test_setup_without_a_dsn_is_silent
