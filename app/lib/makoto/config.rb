@@ -47,6 +47,11 @@ module Makoto
     # ⚠ **大文字小文字で判定を変えない。**上流の `mask_field?` は
     # `key.to_s.downcase` で見る（`Authorization` は HTTP ヘッダの綴りそのもの）。
     # ⚠⚠ **ここだけ完全一致にすると、ログでは伏せるのに CLI では平文**になる。
+    #
+    # 🔴 **この口はキー名で伏せる。値の形は見ない**（#283）。⚠⚠ **ログ側の `mask_query_params` /
+    # `mask_url_paths` に当たるものが無い**ので、**URL の中に資格情報を埋めた設定キーを足すと
+    # 平文で出る。**⚠ **いまの `/mastodon/url` と `acct` が平文なのは承知の上**（資格情報は
+    # `token` だけで、ハンドルは公開のソースにも書いてある）。
     def secure_dump
       fields = logger.mask_fields
       return each_with_object({}) do |(key, value), dest|

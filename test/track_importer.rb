@@ -20,7 +20,7 @@ module Makoto
       assert_equal('テストアルバム A', row[:collection_name])
       assert_equal(Date.new(2013, 5, 29), row[:release_date])
       assert_equal(108_000, row[:duration])
-      assert_equal('https://example.test/track/1001', row[:url])
+      assert_equal('https://music.apple.com/test/track/1001', row[:url])
       assert_equal('vocal', row[:kind])
     end
 
@@ -252,6 +252,65 @@ module Makoto
       importer.instance_variable_set(:@logger, logger)
       importer.exec
       return warnings.select {|message| message[:track] == kind}
+    end
+
+    # 普段用の行を書き換えてから取り込む（#283）。⚠ **戻り値は `[db, その種類の警告]`。**
+    def import_edited_rows(kind)
+      Dir.mktmpdir do |dir|
+        FileUtils.cp(File.join(track_fixture_dir, TrackImporter::LIVE), File.join(dir, TrackImporter::LIVE))
+        rows = JSON.parse(File.read(File.join(track_fixture_dir, TrackImporter::DAILY)))
+        yield rows
+        File.write(File.join(dir, TrackImporter::DAILY), JSON.generate(rows))
+        db = empty_db
+        return [db, import_with_warnings(dir, db, kind)]
+      end
+    end
+
+    # 🔴 **許可したホストの https でなければ `url` を空にする**（#283）。⚠⚠ **行は消さない**
+    # （`linkable` から外れるので曲紹介にもライブにも出ない）。⚠ **落とした行は警告に残す。**
+    def test_an_unexpected_url_host_is_dropped
+      db, warnings = import_edited_rows('url') do |rows|
+        rows.find {|row| row['trackId'] == 1001}['trackViewUrl'] = 'https://evil.example/track/1001'
+        rows.find {|row| row['trackId'] == 1002}['trackViewUrl'] = 'http://music.apple.com/track/1002'
+      end
+
+      assert_nil(db[:track][id: 1001][:url])
+      assert_nil(db[:track][id: 1002][:url])
+      assert_equal('しまうまグルグル', db[:track][id: 1001][:name])
+      assert_equal([1001, 1002], warnings.first[:id])
+      assert_not_include(TrackRepository.new(db).linkable.select_map(:id), 1001)
+    end
+
+    # 🔴 **取り込み元に無い行の URL も見る**（Codex の P2）。⚠⚠ **取り込みは行を消さないので、
+    # 以前入った行の URL が検査を通らないまま残っていた。**
+    def test_a_retained_row_with_an_unexpected_url_is_dropped
+      db = empty_db
+      TrackImporter.new(track_fixture_dir, db: db).exec
+      row = db[:track][id: 1001].merge(id: 424_242, url: 'https://evil.example/track/424242')
+      db[:track].insert(row)
+      warnings = import_with_warnings(track_fixture_dir, db, 'url')
+
+      assert_nil(db[:track][id: 424_242][:url])
+      assert_equal([424_242], warnings.first[:id])
+    end
+
+    # ⚠ **許可したホストだけなら黙る**（フィクスチャは `music.apple.com`）。
+    def test_allowed_urls_are_quiet
+      _, warnings = import_edited_rows('url') {|_rows| nil}
+
+      assert_empty(warnings)
+    end
+
+    # 🔴 **メンションになる形は残す**（#283）。⚠ **落とさない**（投稿の側で `StatusText` が崩す）。
+    # ⚠⚠ **直前が語中文字なら当たらない**（`H@ppy Together!!!`）。
+    def test_a_mention_shaped_name_is_reported
+      db, warnings = import_edited_rows('mention') do |rows|
+        rows.find {|row| row['trackId'] == 1001}['trackName'] = 'ありがとう @makoto'
+        rows.find {|row| row['trackId'] == 1002}['trackName'] = 'H@ppy Together!!!'
+      end
+
+      assert_equal([1001], warnings.first[:id])
+      assert_equal('ありがとう @makoto', db[:track][id: 1001][:name])
     end
 
     # ⚠⚠ **供給元が間違えた曲名を訂正する**（#58）。⚠ **鍵は訂正後の曲名から作る** —

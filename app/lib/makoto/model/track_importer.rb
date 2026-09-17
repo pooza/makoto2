@@ -32,6 +32,16 @@ module Makoto
     # 🔴 **同じ曲だが表記が違うものの表**（#123 → `TrackAliases`）。⚠⚠ **訂正表とは
     # 別物**で、**あちらは片方が誤記、こちらはどちらも正しい。**
 
+    # 🔴 **公開してよい曲の URL のホスト**（#283）。⚠⚠ **`track.url` は曲紹介が 1 日 3 回、
+    # 永久に公開する URL**で、**Mastodon はプレビューカードのために取りに行く。**⚠ **収集は
+    # 月 1 回の定常の経路**（#294）なので、**上流の形が変わったら黙って公開せずに落とす。**
+    URL_HOSTS = ['music.apple.com'].freeze
+
+    # 🔴 **投稿先がメンションと読む形**（#283）。⚠ **`StatusText` が投稿の側で崩す**ので
+    # 取り込みでは落とさず、**気づけるように残すだけ**（→ `report_mentions`）。
+    # ⚠ **直前が語中文字なら当たらない**（`H@ppy Together!!!`）。
+    MENTION = %r{(?:^|[^/[:word:]])@[a-z0-9_]+}i
+
     # 重複判定から落とす文字。⚠ **`duration` は鍵に使えない**（同一曲でも盤に
     # よって 1〜3 秒ばらつく。実測）。正規化した曲名だけで寄せる。
     #
@@ -90,9 +100,12 @@ module Makoto
       @db.transaction do
         import_daily
         mark_live
+        sanitize_urls
       end
       report_unused_aliases
       report_unused_spoken
+      report_rejected_urls
+      report_mentions
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
     end
@@ -138,6 +151,48 @@ module Makoto
           dedupe_key: self.class.dedupe_key(name, aliases),
         })
       end
+    end
+
+    # 🔴 **許可したホストの https だけを残す**（#283 → `URL_HOSTS`）。⚠⚠ **外れた行は `url` を
+    # 空にする** — **行は消さず、`linkable` から外れるので曲紹介にもライブにも出ない。**
+    #
+    # 🔴 **取り込んだ行だけでなく表全体を見る**（Codex の P2）。⚠⚠ **取り込みは「取り込み元に
+    # 無い行は消さない」ので、以前の取り込みで入った行の URL は、行ごとの検査を通らないまま
+    # 公開され続ける。**
+    def sanitize_urls
+      rows = @db[:track].exclude(url: nil).select_map([:id, :url])
+      ids = rows.reject {|_, url| public_url?(url)}.map(&:first)
+      @db[:track].where(id: ids).update(url: nil) unless ids.empty?
+      @rejected_urls = ids
+    end
+
+    def public_url?(value)
+      uri = URI.parse(value.to_s)
+      return uri.is_a?(URI::HTTPS) && URL_HOSTS.include?(uri.host)
+    rescue URI::InvalidURIError
+      return false
+    end
+
+    def rejected_urls
+      return @rejected_urls || []
+    end
+
+    # ⚠ **落とした行を残す**（黙って曲が減らないように）。
+    def report_rejected_urls
+      return nil if rejected_urls.empty?
+      logger.warn(track: 'url', state: 'rejected', hosts: URL_HOSTS, id: rejected_urls)
+      return rejected_urls
+    end
+
+    # ⚠ **メンションになる形の曲名・名義・アルバム名を残す**（→ `MENTION`）。
+    def report_mentions
+      columns = [:name, :artist_name, :collection_name]
+      ids = @db[:track].select(:id, *columns).all.filter_map do |row|
+        row[:id] if columns.any? {|column| row[column].to_s.match?(MENTION)}
+      end
+      return nil if ids.empty?
+      logger.warn(track: 'mention', state: 'found', id: ids)
+      return ids
     end
 
     # ⚠ **取り込み元と同じディレクトリの別名表**（#123）。

@@ -1974,6 +1974,18 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ✅ **1 回の走査から両方を取り、警告を 2 行に分けた**（`orphan process: 4650` ＋ `cannot read /proc (some entries skipped)`）。⚠ **`orphans` の戻り値は `nil` / 配列のまま**（`makoto status` の `orphans:` の行は変わらない）。
 
+#### ✅ 曲データの取り込みで、公開する URL のホストを限る（2026-09-17・#283）
+
+🔴 **`track.url` は曲紹介が 1 日 3 回、永久に公開する URL**で、⚠⚠ **Mastodon はプレビューカードのために取りに行く。**⚠ **収集は月 1 回の定常の経路になった**（#294）のに、**取り込みは `url IS NOT NULL` しか見ていなかった。**
+
+| | 後 |
+| --- | --- |
+| **URL** | 🔴 **`https://music.apple.com` 以外は `url` を空にする**（`TrackImporter::URL_HOSTS`）。⚠⚠ **行は消さない** — **`linkable` から外れるので曲紹介にもライブにも出ない**。⚠ **落とした `trackId` を `warn`（`track: url`）**。🔴 **見るのは取り込んだ行だけでなく表全体**（⚠⚠ **取り込みは「取り込み元に無い行は消さない」ので、以前入った行の URL が検査を通らないまま残る** — Codex の P2） |
+| **メンションの形** | ⚠ **曲名・名義・アルバム名が投稿先のメンションになる形なら `warn`（`track: mention`）だけ**（**落とさない** — 投稿の側で `StatusText` が崩す）。⚠⚠ **直前が語中文字なら当たらない**（`H@ppy Together!!!`） |
+| **`secure_dump`** | ⚠ **「キー名で伏せる。値の形は見ない」とコメントに明記**（URL に資格情報を埋めた設定キーを足す人への歯止め） |
+
+✅ **本物の `seed/` をメモリ DB へ取り込んで当てた**: **4,305 行すべて URL が残り、警告は 0 件**（Issue の実測どおり）。⚠ **テストの曲データの `trackViewUrl` は `https://music.apple.com/test/track/...` に揃えた**（**テストだけ別のホストを許す口は作らない**）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

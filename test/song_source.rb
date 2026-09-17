@@ -210,7 +210,7 @@ module Makoto
 
     # ⚠ **本文の最後は URL**（→ プレビューカードは SNS 側の機能）。
     def test_the_last_line_is_the_url
-      assert_match(%r{\Ahttps://example\.test/track/}, source.call(jst(9, 1)).lines.last.chomp)
+      assert_match(%r{\Ahttps://music\.apple\.com/test/track/}, source.call(jst(9, 1)).lines.last.chomp)
     end
 
     # ⚠⚠ **断りの後ろは 1 行アキ**（#122・`TrackPresenter` と同じ形）。
