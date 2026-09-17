@@ -245,6 +245,8 @@ properties:
       - url
       - token
       - mulukhiya
+      # ⚠ 消すと原稿の取り込みが落ちる（#282 → PostBudget・Codex の P2）。
+      - max_length
   message:
     type: object
     properties:

@@ -12,6 +12,24 @@ module Makoto
       assert_equal(3 + 1 + 23 + 1 + 2, PostBudget.length(text))
     end
 
+    # ⚠⚠ **見た目の 1 文字を 1 字と数える**（Codex の P2）。🔴 **家族の絵文字は 7 コードポイントで 1 字。**
+    def test_a_grapheme_cluster_counts_as_one
+      family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+
+      assert_equal(1, PostBudget.length(family))
+      assert_equal(2, PostBudget.length("が\u{3099}#{family}".unicode_normalize(:nfd)))
+    end
+
+    # ⚠⚠ **ハッシュタグを外した設定でも取り込みが落ちない**（Codex の P2）。
+    def test_the_budget_without_a_hashtag
+      config.delete('/live/hashtag')
+
+      assert_equal(config['/mastodon/max_length'], budget.budget('live_mc'))
+      assert_equal(budget.budget('song'), PostBudget.new.budget('song'))
+    ensure
+      config.reload
+    end
+
     # ⚠ **type ごとに、前後に付く定型文を引く。**
     def test_the_budget_depends_on_the_type
       limit = config['/mastodon/max_length']

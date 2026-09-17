@@ -1996,7 +1996,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 🔴 **原稿を書く側（`makoto-scripts`）から 500 字の壁が見えなかった** — ⚠⚠ **超えると投稿先が 422 を返し、再送なしの失敗としてその枠が消える**（気づくのは投稿の瞬間）。
 
-✅ **`message import` が、type ごとの上限を超える原稿を `ValidateError` で弾く**（[`PostBudget`](../app/lib/makoto/post_budget.rb)）。**上限 ＝ `/mastodon/max_length`（500）− 前後に付く定型文**、⚠ **URL は投稿先と同じく 23 字と数える。**
+✅ **`message import` が、type ごとの上限を超える原稿を `ValidateError` で弾く**（[`PostBudget`](../app/lib/makoto/post_budget.rb)）。**上限 ＝ `/mastodon/max_length`（500）− 前後に付く定型文**、⚠ **URL は投稿先と同じく 23 字と数え、見た目の 1 文字（書記素クラスタ）を 1 字と数える**（Codex の P2 — `String#length` だと ZWJ の絵文字が数字ぶん長く出る）。⚠ **`/mastodon/max_length` はスキーマで必須・ハッシュタグは任意の設定として読む**（どちらも Codex の P2）。
 
 | type | 投稿の形 | 原稿が使える長さ（いまの設定） |
 | --- | --- | --- |

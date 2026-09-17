@@ -30,10 +30,15 @@ module Makoto
     TRACK_RESERVE = 300
 
     # 投稿先が数える長さ。
+    #
+    # ⚠⚠ **書記素クラスタで数える**（Codex の P2）。🔴 **Mastodon は URL を置き換えたあと、見た目の
+    # 1 文字（結合文字・ZWJ の絵文字）を 1 字と数える** — ⚠ **`String#length` はコードポイント
+    # なので、家族の絵文字 1 つが数字ぶん長く出て、上限の近くで通る原稿を弾いてしまう。**
     def self.length(text)
       text = text.to_s
       urls = URI.extract(text, ['http', 'https'])
-      return text.length - urls.sum(&:length) + (urls.size * URL_LENGTH)
+      urls.uniq.each {|url| text = text.gsub(url, 'x' * URL_LENGTH)}
+      return text.grapheme_clusters.size
     end
 
     def limit
@@ -65,7 +70,7 @@ module Makoto
       unless @reserves
         @reserves = {}
         add_reserve(Song.new.prefix_types, TRACK_RESERVE)
-        add_reserve(Live.new.types, config['/live/hashtag'].to_s.length + 1)
+        add_reserve(Live.new.types, tag_reserve)
         add_reserve(Morning.new.type, greeting_reserve)
       end
       return @reserves
@@ -75,10 +80,18 @@ module Makoto
       Array(types).each {|type| @reserves[type.to_s] = [@reserves[type.to_s].to_i, value].max}
     end
 
+    # ⚠⚠ **ハッシュタグは任意の設定**（`Live#hashtag` は `optional_config`）— 🔴 **素の `config[]`
+    # で読むと、タグを外した設定ですべての取り込み（朝挨拶も）が落ちる**（Codex の P2）。
+    def tag_reserve
+      hashtag = Live.new.hashtag
+      return 0 if hashtag.empty?
+      return hashtag.grapheme_clusters.size + 1
+    end
+
     def greeting_reserve
       greeting = Morning.new.greeting
       return 0 if greeting.empty?
-      return greeting.length + 1
+      return greeting.grapheme_clusters.size + 1
     end
   end
 end
