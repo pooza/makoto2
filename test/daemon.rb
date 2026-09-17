@@ -12,7 +12,7 @@ module Makoto
     def with_migrated_connection
       original = Database.instance_variable_get(:@connection)
       Database.instance_variable_set(:@connection, empty_db)
-      yield
+      return yield
     ensure
       Database.instance_variable_set(:@connection, original)
     end
@@ -598,6 +598,22 @@ module Makoto
       assert_equal(7, Scheduler.instance.send(:jobs))
     ensure
       Scheduler.instance.clear
+    end
+
+    # 🔴 **`rake config:lint` が作るのと同じ一覧**（#276）。⚠ **登録と本数が揃っていること。**
+    def test_jobs
+      names = with_migrated_connection {@daemon.jobs}.map(&:name)
+
+      assert_equal(7, names.size)
+      assert_include(names, Song::NAME)
+    end
+
+    # ⚠⚠ **11/4 の後に `/message/anniversary` を掃除すると、常駐が起動しない**（#276）。
+    # 🔴 **一覧を作る段で落ちる ＝ `rake config:lint` が拾う。**
+    def test_jobs_reject_a_cleaned_anniversary
+      config['/message/anniversary/11-04'] = []
+
+      assert_raise(Ginseng::ConfigError) {with_migrated_connection {@daemon.jobs}}
     end
 
     # ⚠ 冪等キーの前半になる名前が衝突しないこと。⚠⚠ **同じ名前が 2 本あると、同じ
