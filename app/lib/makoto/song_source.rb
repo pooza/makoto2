@@ -136,6 +136,12 @@ module Makoto
       time ||= Time.now
       entry = compose(time)
       return nil unless entry
+      # 🔴 **前置きが引けなかったことを残す**（#313）。⚠⚠ **曲だけの本文でも投稿は成功に
+      # 数えられ、`/healthz/posting` も緑のまま** — ⚠ **前置きが消えたことは目で見るしか
+      # 分からなかった**（9/8〜9/10 の「ひとことが出ていない」）。✅ **共通の原稿が入った
+      # 後（#251）は平常日に出ない**ので、**出たら type の綴り違いか原稿の消失。**
+      # ⚠ **`compose` ではなくここ** — **下見（`song preview`）は何十枠も組むので、ログを汚さない。**
+      warn_no_prefix(entry) unless entry[:prefix]
       remember(time, entry[:track])
       return entry[:text]
     end
@@ -164,10 +170,14 @@ module Makoto
     #
     # ⚠⚠ **表が読めなければ true**（＝共通だけ）。🔴 **1 枠の異常で投稿を止めない**が、
     # **倒す向きは「どの曲にも外さない」側**（→ 冒頭「語りのトラックには共通だけ」）。
+    #
+    # 🔴 **`ValidateError` だけを受けない**（#312）。⚠⚠ **表がディレクトリ・権限が無い
+    # （`Errno::EISDIR` / `EACCES`）、別名表の行が Hash でない（`TypeError`）も、ここを
+    # 抜けると `PostingJob` まで上がって枠が丸ごと消える**（表は枠ごとに読み直すので 1 日 3 枠とも）。
     def spoken?(track)
       return @prefixes.spoken?(track)
-    rescue Ginseng::ValidateError => e
-      logger.warn(post: Song::NAME, message: 'spoken table unreadable', error: error_message(e))
+    rescue => e
+      logger.warn(post: Song::NAME, message: 'spoken table unreadable', error: e)
       return true
     end
 
@@ -313,6 +323,12 @@ module Makoto
     # ⚠ **例外は上げない。**1 枠の異常で常駐を落とさない（→ docs/CLAUDE.md
     # 「投稿の欠落は詰めない」）。⚠⚠ **設定の誤りは `TrackLottery` が例外にする**ので、
     # **ここが受けるのは「母集合が空」だけ。**
+    def warn_no_prefix(entry)
+      logger.warn(
+        post: Song::NAME, message: 'no prefix', kind: entry[:track][:kind], spoken: entry[:spoken],
+      )
+    end
+
     def draw
       track = @lottery.draw
       return track if track

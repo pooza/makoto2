@@ -162,11 +162,37 @@ module Makoto
     # ⚠⚠ **前置きが 0 件でも壊れない。**🔴 **原稿を書く前から機能として成立する**
     # （**曲だけを出す**）。
     def test_without_a_prefix_the_song_stands_alone
-      text = source.call(jst(9, 1))
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      text = subject.call(jst(9, 1))
 
       assert_not_nil(text)
       assert_equal('♪', text.lines.first[0])
       assert_not_include(text, "\n\n")
+      # 🔴 **黙った成功にしない**（#313）。
+      assert_equal(['no prefix'], logged.map {|payload| payload[:message]})
+    end
+
+    # ⚠ **前置きが引ければ何も出さない**（平常日に鳴らない）。
+    def test_a_prefix_logs_nothing
+      add_prefixes(4)
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.call(jst(9, 1))
+
+      assert_empty(logged)
+    end
+
+    # ⚠ **下見（`compose`）は鳴らさない**（何十枠も組むのでログを汚さない）。
+    def test_compose_does_not_log_a_missing_prefix
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.compose(jst(9, 1))
+
+      assert_empty(logged)
     end
 
     # ⚠ **本文の最後は URL**（→ プレビューカードは SNS 側の機能）。
@@ -336,6 +362,19 @@ module Makoto
       assert_true(entry[:spoken])
       assert_include(common, entry[:prefix][:body])
       assert_equal('spoken table unreadable', logged.first[:message])
+    end
+
+    # 🔴 **ファイルシステムの例外でも枠を落とさない**（#312）。⚠⚠ **表がディレクトリ・権限 0000。**
+    def test_a_filesystem_error_falls_to_the_common
+      common = add_prefixes(3)
+      [Errno::EISDIR, Errno::EACCES, TypeError].each do |error|
+        subject = spoken_source(-> {raise error, 'broken'})
+        subject.define_singleton_method(:logger) {Recorder.new([])}
+        entry = subject.compose(jst(9, 1))
+
+        assert_true(entry[:spoken], error.name)
+        assert_include(common, entry[:prefix][:body])
+      end
     end
 
     # 🔴 **同じ枠なら何度呼んでも同じ前置き**（状態を持たない）。⚠ **落ちて戻って
