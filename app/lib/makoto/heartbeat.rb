@@ -116,12 +116,17 @@ module Makoto
       #
       # ⚠⚠ **投稿の結末（`posted_at` / `failed_at` / `failures`）を消さない。**ここは
       # 1 時間ごとに動くので、素に書き直すと**枠の結末が毎時ぜんぶ消える。**
-      def touch(jobs:, now: nil)
+      #
+      # 🔴 **`revision` と `job_names` も残す**（#242）。⚠⚠ **`version` と `jobs` の本数だけでは、
+      # 「マージしたあの修正が載っているか」「morning が登録されているか」に答えられない。**
+      def touch(jobs:, job_names: nil, now: nil)
         return update do |record|
           record.merge(
             at: (now || Time.now).getutc.iso8601,
             jobs: jobs,
+            job_names: job_names,
             version: Package.version,
+            revision: Package.revision,
             pid: Process.pid,
           )
         end
@@ -275,6 +280,15 @@ module Makoto
         record = read
         return nil unless record
         return record[:jobs]
+      end
+
+      # ⚠ **旧い痕跡（#242 より前の常駐）には無いので nil。**
+      def job_names
+        return read&.dig(:job_names)
+      end
+
+      def revision
+        return read&.dig(:revision)
       end
 
       # 最後のハートビートからの経過（秒）。⚠ **読めなければ nil。**

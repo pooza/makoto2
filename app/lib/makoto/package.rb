@@ -1,3 +1,5 @@
+require 'open3'
+
 module Makoto
   module Package
     def environment_class
@@ -68,6 +70,25 @@ module Makoto
 
     def self.url
       return Config.instance['/package/url']
+    end
+
+    # 🔴 **起動時に読み込んだリビジョン**（短縮 SHA・#242）。⚠ **読めなければ nil。**
+    #
+    # ⚠⚠ **プロセスの中で 1 回だけ読んで固定する** — 🔴 **知りたいのは「置いてあるもの」
+    # ではなく「動いているもの」**（レシピは作業木を進めるだけで常駐を起こし直さない →
+    # 同期手順 3.）。⚠ **常駐は `MakotoDaemon#start` の最初のログで読むので、起動時の値になる。**
+    def self.revision
+      @revision = read_revision(Environment.dir) unless defined?(@revision)
+      return @revision
+    end
+
+    # ⚠ **`git` が無い・チェックアウトでない置き方でも落ちない**（nil を返す）。
+    def self.read_revision(dir)
+      output, status = Open3.capture2('git', '-C', dir.to_s, 'rev-parse', '--short', 'HEAD', err: File::NULL)
+      return nil unless status.success?
+      return output.strip.presence
+    rescue SystemCallError
+      return nil
     end
 
     def self.full_name

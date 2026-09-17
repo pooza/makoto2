@@ -72,6 +72,31 @@ module Makoto
       return Heartbeat.jobs
     end
 
+    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
+    def job_names
+      return nil unless own_heartbeat?
+      return Heartbeat.job_names
+    end
+
+    # ⚠ **常駐が起動時に読み込んだもの**（#242）。🔴 **`git log -1`（置いてあるもの）と違う。**
+    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
+    def revision
+      return nil unless own_heartbeat?
+      return Heartbeat.revision
+    end
+
+    # 🔴 **痕跡を書いたのが pid ファイルの常駐か**（#242・Codex の P2）。
+    #
+    # ⚠⚠ **痕跡のファイルは 1 つを共有する**ので、**再起動の直後**（`record_start` は前の
+    # ハートビートを残し、`touch` は `Scheduler#exec` まで走らない）や**孤児がまだ書いている
+    # とき**に、⚠ **新しい PID と古い／別のプロセスの `revision` を組み合わせて見せてしまう。**
+    # 🔴 **「動いているもの」を言う行が、まさに取り違えを隠す形になる**ので、合わなければ出さない。
+    def own_heartbeat?
+      recorded = Heartbeat.read&.dig(:pid)
+      return false unless recorded && pid
+      return recorded.to_i == pid.to_i
+    end
+
     def heartbeat_age
       return Heartbeat.age(now)
     end

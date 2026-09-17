@@ -91,14 +91,18 @@ module Makoto
     def schedule_heartbeat
       interval = config['/scheduler/heartbeat/interval']
       @scheduler.every interval, first: :now do
-        logger.info(scheduler: 'heartbeat', version: Package.version, jobs: jobs)
+        # 🔴 **`version` / `jobs` は版を粗くしか区別しない**（#242）— ⚠⚠ **同じ `0.6.0` / `7` の
+        # まま何コミットでも進む**ので、**起動時に読み込んだ `revision` を並べる。**
+        logger.info(
+          scheduler: 'heartbeat', version: Package.version, revision: Package.revision, jobs: jobs,
+        )
         # 🔴 **日付を騙している間は鳴らし続ける**（#110）。⚠⚠ **リハーサルの
         # つもりで無い常駐が偽の日付で動いていたら、それは事故。**⚠ **1 回きりの
         # 起動ログでは、後から入った人が気づけない。**
         logger.warn(time_travel: TimeTravel.describe) if TimeTravel.active?
         # ⚠ **監視はログではなくこの痕跡を見る**（→ `Heartbeat` / `Health`）。
         # 書けなくてもハートビートそのものは止めない（下の rescue の内側）。
-        Heartbeat.touch(jobs: jobs)
+        Heartbeat.touch(jobs: jobs, job_names: job_names)
       rescue => e
         logger.error(scheduler: 'heartbeat', error: e)
       end
@@ -129,6 +133,11 @@ module Makoto
     # 検知できる。⚠ ハートビート自身や tick は数えない。
     def jobs
       return @jobs.size
+    end
+
+    # ⚠ **本数だけでは「morning が居る」を確かめられない**（#242・PR #238 の Codex の P2）。
+    def job_names
+      return @jobs.map(&:name)
     end
   end
 end
