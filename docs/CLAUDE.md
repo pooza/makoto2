@@ -1968,6 +1968,12 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 🔴 **`revision` と枠の名前は、痕跡を書いた `pid` が pid ファイルの常駐と一致するときだけ出す**（Codex の P2）。⚠⚠ **痕跡のファイルは 1 つを共有する**ので、**再起動の直後**（`record_start` は前のハートビートを残し、`touch` は `Scheduler#exec` まで走らない）や**孤児がまだ書いているとき**に、**新しい PID と古い `revision` を並べてしまう** — 🔴 **「動いているもの」を言う行が、取り違えを隠す形になる。**⚠ **再起動の直後の数秒は `revision (unknown)` が正常。**
 
+#### ✅ 孤児が見つかっても「読めなかった項目」を捨てない（2026-09-17・#166）
+
+⚠ **`Health#orphans` は孤児が 1 つでも見つかると、`/proc` の一部が読めなかったことを捨てていた** — ⚠⚠ **「孤児 1 件」と出ているときに「実はもっとあるかもしれない」が消える**（警告自体は出るので無防備にはならない・緑）。
+
+✅ **1 回の走査から両方を取り、警告を 2 行に分けた**（`orphan process: 4650` ＋ `cannot read /proc (some entries skipped)`）。⚠ **`orphans` の戻り値は `nil` / 配列のまま**（`makoto status` の `orphans:` の行は変わらない）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

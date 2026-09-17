@@ -373,6 +373,24 @@ module Makoto
       end
     end
 
+    # 🔴 **孤児が見つかっても、同じ利用者の項目が読めなかったことを捨てない**（#166）。
+    # ⚠⚠ **「孤児 1 件」に「実はもっとあるかもしれない」を添える。**⚠ **`orphans` は配列のまま。**
+    def test_an_orphan_and_an_unreadable_entry_are_both_reported
+      beat
+      fake_process(4650, 'ruby bin/makoto_daemon.rb start')
+      unreadable = fake_process(4651, 'ruby bin/makoto_daemon.rb start')
+      subject = health
+
+      with_file_read_error(File.join(unreadable, 'cmdline'), Errno::EACCES) do
+        assert_equal([4650], subject.orphans)
+        assert_equal(
+          ['orphan process: 4650', 'cannot read /proc (some entries skipped)'],
+          subject.warnings,
+        )
+        assert_equal(Health::WARNING, subject.code)
+      end
+    end
+
     # ⚠ 列挙後に消えたプロセスは正常な競合。他の孤児の検出を止めない。
     def test_disappeared_process_does_not_mask_other_orphan
       beat
