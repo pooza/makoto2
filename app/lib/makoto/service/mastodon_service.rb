@@ -89,6 +89,26 @@ module Makoto
       raise classify(e)
     end
 
+    # 🔴 **投稿の口ではリダイレクトを追わない**（#282）。⚠⚠ **HTTParty の既定のまま追うと、
+    # 301 / 302 で POST が GET に化けて body が捨てられ、`Authorization` と `Idempotency-Key`
+    # が別ホストのリダイレクト先へもそのまま送られる。**⚠ **Mastodon の投稿 API はリダイレクトを
+    # 返さない**ので、3xx が来た時点で相手が違う（→ `validate_status` が「status ではない」で落とす）。
+    #
+    # ⚠⚠ **暫定の上書き。**上流の `post` はオプションを外から受けないので、**同じ内容を上流へ
+    # 出した**（[`ginseng-fediverse#278`](https://github.com/pooza/ginseng-fediverse/pull/278)）。
+    # 🔴 **入ってタグが出たら、このメソッドを消して引き上げる**（中身は上流の写しなので、
+    # 上流が `post` を組み替えた日に黙って古くなる）。
+    def post(body, params = {})
+      body = {status: body.to_s} unless body.is_a?(Hash)
+      body = body.deep_symbolize_keys
+      body[:in_reply_to_id] = params.dig(:reply, :id) if params[:reply]
+      return http.post('/api/v1/statuses', {
+        body: body.compact,
+        headers: create_headers(params[:headers]),
+        follow_redirects: false,
+      })
+    end
+
     private
 
     # 🔴 **200 で status でないものが返る形を弾く**（#272）。
