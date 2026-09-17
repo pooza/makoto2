@@ -2015,6 +2015,18 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠ **DSN の置き場の正本は chubo2 の `docs/infra-services.md`**（`4931e50`）。⚠⚠ **Client Key のレート制限は作成時点で未設定**（API で `rateLimit: null`）— **Web UI で当てる**（目安 1 時間 500 件）。
 
+#### ✅ 予算を超えて長くかかった枠を 1 行残す（2026-09-17・#92）
+
+⚠ **HTTParty の `timeout` は socket 操作ごと**なので、**チャンクを少しずつ送り続ける相手は、設定の予算（タイムアウト 30 秒 × 再送 3 回 ＋ 待ち ＝ 92 秒）を超えて投稿を掴んでいられる。**
+
+🔴 **打ち切りは入れなかった** — ⚠⚠ **`Timeout.timeout` などで切ると、非同期の例外が「受理された直後」に当たり、再送で同じ投稿がもう 1 本出る**（二重投稿の入口・Issue の表）。⚠ **`0.6` は観測を厚くする版**なので、✅ **`PostingJob#exec` が予算を超えた枠で `warn` を 1 行出すところまで**:
+
+```
+{"post":"live","slot":"2026-11-04T03:02:00Z","phase":"slow","seconds":131.4,"budget":92.0}
+```
+
+⚠ **予算は新しい設定を足さず `/http` から出す**（`test/http.rb` の「予算がライブの枠間隔より短い」と同じ式）。⚠ **`phase` を付けたので `RehearsalReport` は `exec` に数えない**（→ #277）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

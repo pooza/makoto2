@@ -51,6 +51,46 @@ module Makoto
       assert_empty(recorded[:warn])
     end
 
+    # 🔴 **予算を超えて長くかかった枠を 1 行残す**（#92）。⚠⚠ **打ち切らない**（投稿は出る）。
+    def test_a_slow_slot_is_logged
+      stub_post
+      warned = []
+      subject = job
+      subject.define_singleton_method(:budget_seconds) {-1}
+      subject.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| warned.push(payload)}
+        def info(*)
+        end
+      end.new(nil))
+
+      assert_not_nil(subject.exec(jst(12, 0)))
+      assert_equal('slow', warned.first[:phase])
+      assert_equal('live', warned.first[:post])
+    end
+
+    # ⚠ **予算の内側なら何も出さない。**⚠ **予算は `/http` の設定から出す**（タイムアウト × 再送 ＋ 待ち）。
+    def test_a_quick_slot_is_not_logged_as_slow
+      stub_post
+      warned = []
+      subject = job
+      subject.instance_variable_set(:@logger, Struct.new(:x) do
+        define_method(:warn) {|payload| warned.push(payload)}
+        def info(*)
+        end
+      end.new(nil))
+      subject.exec(jst(12, 0))
+
+      assert_empty(warned)
+      assert_in_delta(92.0, subject.budget_seconds)
+    end
+
+    # ⚠ **再送しない設定（`limit: 0`）でも予算は負にならない**（Codex の P2）。
+    def test_the_budget_without_retries
+      config['/http/retry/limit'] = 0
+
+      assert_in_delta(config['/http/timeout/seconds'].to_f, job.budget_seconds)
+    end
+
     # 🔴 **出せたことを `source` に伝える**（#41 → `SongSource#posted`）。
     #
     # ⚠⚠ **これがあるのは「下見が実機を動かさない」ため** — ⚠ **下見は `PostingJob` を
