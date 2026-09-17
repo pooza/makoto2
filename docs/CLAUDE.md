@@ -1924,7 +1924,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ✅ **手元で壊して当てた**: `config/local.yaml` に `/song/quiet_types` の綴り違いを足すと `jobs: song: quiet type 'live_typo' must be registered in /message/anniversary` ／ `exit 1`。🔴 **当てたことで 1 件拾った** — ⚠⚠ **rake のブロックの中では `error_message` が使えず、失敗側だけがバックトレースになっていた**（**成功側しか通していなければ出ない**）。
 
-⚠ **「起動時に落とす」決定そのものは変えていない**（**落ちる側を `Health#errors` に載せて起動を続ける案はオーナー判断** → #276 の本文）。🔴 **この変更で効くのは「デプロイの前に `config:lint` を流す」ときだけ** — ⚠⚠ **`/message/anniversary` を掃除するときは、`/song/quiet_types` とライブの枠も同じ変更で外し、`config:lint` を通してから `restart` する。**
+⚠ **「起動時に落とす」決定そのものは変えていない**（**落ちる側を `Health#errors` に載せて起動を続ける案はオーナー判断** → #276 の本文）。🔴 **この変更で効くのは「デプロイの前に `config:lint` を流す」ときだけ** — 🔴 **`/message/anniversary` の `11-01`〜`11-04` は 11/4 の後も掃除しない** — ⚠⚠ **`Live#types` と `Announcement#type` は設定から外せず、登録は常に要る**（**外すとライブの台本と予告が段 4 / 5 に混ざって毎日出る**ので、検査はそれを止めている）。⚠ **日付を動かすときも `config:lint` を通してから `restart` する。**
 
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
