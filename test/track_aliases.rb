@@ -64,6 +64,13 @@ module Makoto
       end
     end
 
+    # ⚠ **行が Hash でなくても `ValidateError`**（#312・`TypeError` で抜けない）。
+    def test_a_row_that_is_not_a_hash_is_an_error
+      with_table(['五匹の子ぶたとチャールストン']) do |subject|
+        assert_raise(Ginseng::ValidateError) {subject.groups}
+      end
+    end
+
     # ⚠ **壊れた YAML も黙って素通ししない。**
     def test_broken_yaml_is_an_error
       Dir.mktmpdir do |dir|
