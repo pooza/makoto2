@@ -425,7 +425,7 @@ map $http_x_mulukhiya $mulukhiya_backend {
 
 **直した形:**
 
-- **`makoto message export --type=morning,holiday --out=PATH`** で取り込みの形式（YAML）に書き出す。⚠ **`slug` は id 順の通し番号**（`morning-0001`）で、⚠⚠ **既に `slug` を持つ行はその `slug` を保つ**（付け直すと取り込みで二重になる）。🔴 **書き出し先はファイルだけ** — **本文を public のこのリポジトリや標準出力に出す経路を作らない**
+- **`makoto message export --type=morning,holiday --out=PATH`** で取り込みの形式（YAML）に書き出す。⚠ **`slug` は id 順の通し番号**（`morning-0001`）で、⚠⚠ **既に `slug` を持つ行はその `slug` を保つ**（付け直すと取り込みで二重になる）。🔴 **書き出し先はファイルだけ** — **本文を public のこのリポジトリや標準出力に出す経路を作らない**。🔴 **このリポジトリの中（リンクを辿った先も含む）は拒否し、0600 で書く**（#273 → [`ScriptExportFile`](../app/lib/makoto/script_export_file.rb)）— ⚠⚠ **`--force` で上書きしても mode は 0600 に締め直す**
 - **`/message/scripted_types`**（既定 `morning` / `holiday`）に書いた type は、🔴 **`makoto corpus import` が旧ダンプから取り込まず、`slug` を持たない行を消す。**⚠ **`slug` を持つ行には触らない**（移送済みの原稿と、あとから足した原稿がそこに居る）
 - ⚠⚠ **`MessageRepository::DROPPED_TYPES` に足してはいけない。**🔴 **あちらは「書ける口も塞ぐ」定数**（`birthday` 用）なので、**足すと `makoto message import` まで塞がって、移した先から入れられなくなる**
 - 🔴 **ただし `makoto message add` の側は塞ぐ**（Codex の P1）。⚠⚠ **直接足すと `slug` を持たない行ができ、次の `corpus import` が「旧ダンプ由来」と見なして黙って消す** — ⚠ **消す側と足せる側を同じ設定で揃える**（`birthday` で同じことをした → PR #207）。**`upsert`（取り込み）は必ず `slug` を持つので塞がない**
@@ -1876,6 +1876,21 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 ⚠⚠ **`song preview` は突き合わせに使えない** — 🔴 **曲は抽選なので、コードが 1 行も違わなくても毎回変わる**（実測で md5 が別）。⚠ **曲紹介の本文は `TrackPresenter` が組むので、11/4 の下見のほうが同じ経路を 837 行ぶん通している。**
 
 ⚠ **不正なバイト列はこれまでどおり枠が落ちる** — 🔴 **`scrub` で黙って直さない**（**化けた本文を投稿するくらいなら落とす**）。✅ **ただし理由は残るようになった** — ⚠⚠ **`Encoding::CompatibilityError`（どこで何が起きたか分からない）から `Ginseng::ValidateError: cannot convert to UTF-8 (Windows-31J): ...` へ。**
+
+#### ✅ 原稿の書き出し先を、作業ツリーの外と 0600 に限った（2026-09-17・#273）
+
+🔴 **`message export` のクラスのコメントは「本文をこのリポジトリに出さない」と書いていたが、強制しているものが何も無かった。**⚠⚠ **`--out=../makoto-scripts/morning.yaml` の `../` を 1 つ落とすだけで、public な作業ツリーの直下に原稿が落ちる**（**歯止めは `git status` を人が読むことだけ**）。
+
+| | 前 | 後 |
+| --- | --- | --- |
+| **宛先** | `--out` をそのまま使う | 🔴 **リンクを解いてから、このリポジトリの中なら原稿を読む前に拒否** |
+| **mode** | umask 任せ（0644） | 🔴 **0600**。⚠⚠ **`--force` の上書きでも締め直す**（`File.write` は既にあるファイルの mode を変えない・Codex の指摘） |
+| **既にあるか** | `File.exist?` を見てから書く（TOCTOU） | ⚠ **`O_EXCL` の 1 手**（`--force` なら `O_TRUNC`） |
+| **行き先の無いリンク** | 辿って作る | ⚠ **`O_NOFOLLOW` で落とす** |
+
+⚠ **判定はクラスに切り出した**（[`ScriptExportFile`](../app/lib/makoto/script_export_file.rb)）— **`MessageCommand` が `Metrics/ClassLength` の 200 行を超えた**ため。⚠⚠ **比べるのは `File.realpath` 同士で、前方一致は `/` まで含める**（**`makoto2-scripts` のような隣のディレクトリを巻き込まない**）。
+
+✅ **手元の CLI で当てた**: 作業ツリーの中は `exit 1` でファイルも作られない／外へは 333 件・`600`／`--force` 無しの 2 回目は拒否／`644` にしてから `--force` で `600` へ戻る／親ディレクトリが無ければ `exit 1`。⚠ **常駐は読まない経路なので、実機の再起動は要らない。**
 
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
