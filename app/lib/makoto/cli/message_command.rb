@@ -113,15 +113,15 @@ module Makoto
       # 🔴 **本文をこのリポジトリに出さない**（public。→ docs/CLAUDE.md の情報の記載先）。
       # ⚠⚠ **標準出力にも出さない** — **書き出し先はファイルだけ**にして、
       # ⚠ **原稿がログや貼り付けに紛れ込む経路を作らない。**
-      path = options[:out]
-      if File.exist?(path) && !options[:force]
-        warn "#{path} は既にあります（上書きするなら --force）"
-        exit 1
-      end
+      # 🔴 **作業ツリーの中は、原稿を読む前に拒む**（#273 → `ScriptExportFile`）。
+      file = ScriptExportFile.new(options[:out], force: options[:force])
       records = export_records(options[:type].split(','), exclude_ids(options[:exclude]))
-      File.write(path, export_header(records) + records.to_yaml)
-      puts "#{records.size} 件を #{path} へ書き出しました"
-    rescue Ginseng::ValidateError => e
+      file.write(export_header(records) + records.to_yaml)
+      puts "#{records.size} 件を #{options[:out]} へ書き出しました"
+    rescue Errno::EEXIST
+      warn "#{options[:out]} は既にあります（上書きするなら --force）"
+      exit 1
+    rescue Ginseng::ValidateError, SystemCallError => e
       warn error_message(e)
       exit 1
     end
