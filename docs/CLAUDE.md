@@ -1914,6 +1914,18 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠ **`TrackImporter.default_aliases` のメモは残した** — **使っているのはライブの `Setlist` で、`LiveProgram` が日付ごとに並びをメモする**（**11/4 の並びは起動時の表で固定されてよい**）。⚠⚠ **したがって [track-corpus.md](track-corpus.md) の「`track import` の後は `restart` まで」は変わらない**（`seed/` は許可リストの外）。
 
+#### ✅ 常駐が起動を拒む設定を `rake config:lint` で拾う（2026-09-17・#276）
+
+🔴 **起動時の検査（`Song#validate_*` / `Morning#validate_type` / `Announcement#validate` / `Live#validate` / `Scheduler` の実況の窓）はスキーマで書けない相互条件**で、⚠⚠ **`config:lint` を素通りし、常駐の起動で初めて落ちていた** — ⚠ **`systemd` の `Restart=always` で 5 秒ごとに叩き直され、`/healthz` も開かない**（`monitor_server.start` は登録の後）。
+
+🔴 **いちばん踏みやすいのは 11/4 の後の掃除**: ⚠⚠ **`/message/anniversary` の `11-03` / `11-04` を消した瞬間に、`/song/quiet_types`・`Live`・`Announcement` の検査が揃って落ちる**（**設定を「消した」ほうが起動不能になる**）。
+
+✅ **`rake config:lint` が常駐と同じ投稿の一覧（[`MakotoDaemon#jobs`](../app/lib/makoto/daemon/makoto_daemon.rb)）を 1 回作り、窓の検査まで当てる**（`jobs: OK (7)`）。⚠ **窓の検査は `Scheduler.validate_window` へ移した**（**`Scheduler.instance` は作った時点で rufus のスレッドを起こす**）。⚠⚠ **#274 の `Song#validate_history` も同じ形の検査**なので、**DB に履歴のテーブルが無いホストでもここで止まる。**
+
+✅ **手元で壊して当てた**: `config/local.yaml` に `/song/quiet_types` の綴り違いを足すと `jobs: song: quiet type 'live_typo' must be registered in /message/anniversary` ／ `exit 1`。🔴 **当てたことで 1 件拾った** — ⚠⚠ **rake のブロックの中では `error_message` が使えず、失敗側だけがバックトレースになっていた**（**成功側しか通していなければ出ない**）。
+
+⚠ **「起動時に落とす」決定そのものは変えていない**（**落ちる側を `Health#errors` に載せて起動を続ける案はオーナー判断** → #276 の本文）。🔴 **この変更で効くのは「デプロイの前に `config:lint` を流す」ときだけ** — 🔴 **`/message/anniversary` の `11-01`〜`11-04` は 11/4 の後も掃除しない** — ⚠⚠ **`Live#types` と `Announcement#type` は設定から外せず、登録は常に要る**（**外すとライブの台本と予告が段 4 / 5 に混ざって毎日出る**ので、検査はそれを止めている）。⚠ **日付を動かすときも `config:lint` を通してから `restart` する。**
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。
