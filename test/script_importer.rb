@@ -195,6 +195,16 @@ module Makoto
       assert_raise(Ginseng::ValidateError) {importer.import(@tmp_path)}
     end
 
+    # 🔴 **投稿先の上限を超える原稿は取り込みで弾く**（#282 → `PostBudget`）。
+    # ⚠⚠ **弾かないと、その原稿が引かれた日に 422 で枠が消える。**
+    def test_a_body_over_the_budget_is_rejected
+      body = 'あ' * (PostBudget.new.budget('song') + 1)
+      write_script('long.yaml', "- slug: song-long\n  type: song\n  body: #{body}\n")
+
+      error = assert_raise(Ginseng::ValidateError) {importer.import(@tmp_path)}
+      assert_include(error.message, 'song-long')
+    end
+
     def test_bad_date_is_rejected
       write_script('baddate.yaml', "- slug: test-bad\n  type: test_morning\n  date: '11/4'\n  body: x\n")
 

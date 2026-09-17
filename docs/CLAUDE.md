@@ -1992,6 +1992,21 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠⚠ **上流の `post` はオプションを外から受けない**ので、**`Makoto::MastodonService#post` を同じ内容で暫定的に上書きし、同じ変更を上流へ PR した**（[`ginseng-fediverse#278`](https://github.com/pooza/ginseng-fediverse/pull/278)・オーナー判断）。🔴 **入ってタグが出たら上書きを消して引き上げる** — **中身は上流の写しなので、上流が `post` を組み替えた日に黙って古くなる。**
 
+#### ✅ 投稿先の上限を、原稿の取り込みで弾く（2026-09-17・#282 の後半）
+
+🔴 **原稿を書く側（`makoto-scripts`）から 500 字の壁が見えなかった** — ⚠⚠ **超えると投稿先が 422 を返し、再送なしの失敗としてその枠が消える**（気づくのは投稿の瞬間）。
+
+✅ **`message import` が、type ごとの上限を超える原稿を `ValidateError` で弾く**（[`PostBudget`](../app/lib/makoto/post_budget.rb)）。**上限 ＝ `/mastodon/max_length`（500）− 前後に付く定型文**、⚠ **URL は投稿先と同じく 23 字と数える。**
+
+| type | 投稿の形 | 原稿が使える長さ（いまの設定） |
+| --- | --- | --- |
+| **朝挨拶**（`morning`） | 定型挨拶 ＋ 改行 ＋ 本文 | 475 |
+| **曲紹介の前置き**（`song` / 種類別） | 本文 ＋ 空行 ＋ 曲の行 | 200（⚠ **曲の行に 300 字を取っておく** — 実測の最大 277 字・抽選なので最悪に合わせる） |
+| **ライブの台本** | 本文 ＋ 改行 ＋ ハッシュタグ | 479 |
+| それ以外（`holiday` / `announcement`） | 本文だけ | 500 |
+
+✅ **本物の原稿 648 本（`makoto-scripts`）はすべて内側**（最大は `holiday` の実効 328 字・`song` は 36 字）。⚠ **type は設定から引く**（書き写さない）ので、**挨拶やハッシュタグを変えれば上限も追随する。**⚠⚠ **サーバーの上限を変えたら `/mastodon/max_length` も変える。**
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。
