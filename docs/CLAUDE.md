@@ -1986,6 +1986,12 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ✅ **本物の `seed/` をメモリ DB へ取り込んで当てた**: **4,305 行すべて URL が残り、警告は 0 件**（Issue の実測どおり）。⚠ **テストの曲データの `trackViewUrl` は `https://music.apple.com/test/track/...` に揃えた**（**テストだけ別のホストを許す口は作らない**）。
 
+#### ✅ 投稿の口でリダイレクトを追わない（2026-09-17・#282 の前半）
+
+🔴 **上流の `MastodonService#post` は `follow_redirects` を渡さない**ので HTTParty の既定（追従する）のまま — ⚠⚠ **301 / 302 で POST が GET に化けて body が捨てられ、`Authorization` と `Idempotency-Key` が別ホストのリダイレクト先へ送られる。**⚠ **Mastodon の投稿 API はリダイレクトを返さない**ので、3xx は「status ではない」として落とす（#272 の `validate_status`）。
+
+⚠⚠ **上流の `post` はオプションを外から受けない**ので、**`Makoto::MastodonService#post` を同じ内容で暫定的に上書きし、同じ変更を上流へ PR した**（[`ginseng-fediverse#278`](https://github.com/pooza/ginseng-fediverse/pull/278)・オーナー判断）。🔴 **入ってタグが出たら上書きを消して引き上げる** — **中身は上流の写しなので、上流が `post` を組み替えた日に黙って古くなる。**
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

@@ -17,6 +17,18 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
+    # 🔴 **リダイレクトを追わない**（#282）。⚠⚠ **追うと POST が GET に化け、資格情報を含む
+    # ヘッダが別ホストへ送られる。**⚠ **3xx は「status ではない」として落ちる。**
+    def test_post_status_does_not_follow_a_redirect
+      elsewhere = 'https://elsewhere.example/api/v1/statuses'
+      stub_request(:post, @url).to_return(status: 302, headers: {'Location' => elsewhere})
+      stub_request(:any, elsewhere)
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+      assert_requested(:post, @url, times: 1)
+      assert_not_requested(:any, elsewhere)
+    end
+
     def test_post_status_sends_token
       stub_request(:post, @url)
         .with(headers: {'Authorization' => "Bearer #{config['/mastodon/token']}"})
