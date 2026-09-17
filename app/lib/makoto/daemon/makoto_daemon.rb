@@ -76,7 +76,10 @@ module Makoto
     end
 
     def start(args = [])
-      logger.info(daemon: app_name, version: Package.version, message: 'start')
+      # ⚠ **`revision` はここで固定される**（#242 → `Package.revision`）。
+      logger.info(
+        daemon: app_name, version: Package.version, revision: Package.revision, message: 'start',
+      )
       # 🔴 **設定を起動時に 1 回検証する**（#99）。⚠ **止めない**（→ `validate_config`）。
       validate_config
       # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。

@@ -30,8 +30,17 @@ module Makoto
 
       assert_equal(3, record[:jobs])
       assert_equal(Package.version, record[:version])
+      assert_equal(Package.revision, record[:revision])
       assert_equal(Process.pid, record[:pid])
       assert_equal(now.getutc.iso8601, record[:at])
+    end
+
+    # 🔴 **起動時のリビジョンと枠の名前を残す**（#242）。⚠ **旧い痕跡には無いので nil。**
+    def test_touch_keeps_the_revision_and_the_job_names
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+
+      assert_equal(['morning', 'song'], Heartbeat.job_names)
+      assert_equal(Package.revision, Heartbeat.revision)
     end
 
     def test_read_without_file

@@ -85,6 +85,24 @@ module Makoto
       end
     end
 
+    # 🔴 **動いているリビジョンと枠の名前が画面に出る**（#242）。⚠ **行は増やさない。**
+    def test_status_shows_the_revision_and_the_job_names
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+      output = status_output
+
+      assert_match(/^running \(PID \d+, revision #{Regexp.escape(Package.revision.to_s)}\)$/, output)
+      assert_include(output, "jobs: 2 (morning, song)\n")
+    end
+
+    # ⚠ **#242 より前の常駐が書いた痕跡でも落ちない**（本数だけ出す）。
+    def test_status_without_job_names
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_include(status_output, "jobs: 1\n")
+    end
+
     def test_tick_with_a_trace
       Heartbeat.record_start(now: now - 120)
       Heartbeat.record_tick(now: now - 90)

@@ -72,6 +72,15 @@ module Makoto
       return Heartbeat.jobs
     end
 
+    def job_names
+      return Heartbeat.job_names
+    end
+
+    # ⚠ **常駐が起動時に読み込んだもの**（#242）。🔴 **`git log -1`（置いてあるもの）と違う。**
+    def revision
+      return Heartbeat.revision
+    end
+
     def heartbeat_age
       return Heartbeat.age(now)
     end
