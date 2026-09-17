@@ -1877,6 +1877,21 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠ **不正なバイト列はこれまでどおり枠が落ちる** — 🔴 **`scrub` で黙って直さない**（**化けた本文を投稿するくらいなら落とす**）。✅ **ただし理由は残るようになった** — ⚠⚠ **`Encoding::CompatibilityError`（どこで何が起きたか分からない）から `Ginseng::ValidateError: cannot convert to UTF-8 (Windows-31J): ...` へ。**
 
+#### ✅ 履歴を読めなくても曲紹介の枠を落とさず、起動時に 1 回読む（2026-09-17・#274）
+
+🔴 **[`TrackHistory`](../app/lib/makoto/track_history.rb) は書き側（`record`）だけ握って投稿を通し、読み側（`exclude`）は例外を `PostingJob` まで抜けさせていた** — ⚠⚠ **`track_history` テーブルが無い（常駐はマイグレーションを流さない）・別名表が壊れている、のどちらでも 12:00 / 15:30 / 19:00 の枠が丸ごと消える。**
+
+| | 前 | 後 |
+| --- | --- | --- |
+| **投稿の瞬間に読めない** | 🔴 枠が落ちる | ⚠ **`logger.error` を出し、絞り込まない母集合で引く**（**重複を許す** ＝ `record` と同じ倒し方） |
+| **起動時** | 何も見ない（初回の 12:00 まで出ない） | 🔴 **`Song#validate_history` が `recent_keys` を 1 回読み、読めなければ `ConfigError`**（テーブルと別名表の両方を通る） |
+
+⚠ **「起動で落ちるか、落ちなければ投稿は出る」の二択になった。**⚠⚠ **履歴を止めている（`/song/history/size` が 0）ときは読みに行かない**（#77）。
+
+🔴 **登録のテストが既定の接続を掴むようになった** — ⚠⚠ **`MakotoDaemon#register_jobs` は `Song.new` を素で作る**ので、**検査が空の `test.db` に落ちて赤になる**（**「渡し忘れた経路はテストが落ちる」という `Environment.db` の設計どおりの壊れ方**）。⚠ **`DaemonTest` の 2 件だけ、マイグレーション済みのメモリ DB を掴ませた。**
+
+✅ **実機の DB はどちらもテーブルを持つ**（`bydo` / `rubicon` とも `schema_info` = 5・`track_history` あり）ので、⚠ **入れても起動で落ちない。**
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。

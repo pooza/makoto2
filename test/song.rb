@@ -46,6 +46,31 @@ module Makoto
       assert_equal(song.timetable.to_s, job.timetable.to_s)
     end
 
+    # 🔴 **履歴を読めなければ起動で落とす**（#274）。⚠⚠ **これまでは初回の 12:00 まで出なかった。**
+    def test_rejects_an_unreadable_history
+      broken = Object.new
+      def broken.recent_keys(*)
+        raise Sequel::DatabaseError, 'no such table: track_history'
+      end
+      history = TrackHistory.new(post: Song::NAME, size: 3, repository: broken)
+      subject = Song.new(repository: @repository, tracks: @tracks, history: history)
+
+      error = assert_raise(Ginseng::ConfigError) {subject.job}
+      assert_include(error.message, 'track_history')
+    end
+
+    # ⚠ **履歴を止めていれば読みに行かない**（#77）。
+    def test_skips_the_history_check_when_disabled
+      broken = Object.new
+      def broken.recent_keys(*)
+        raise Sequel::DatabaseError, 'no such table: track_history'
+      end
+      history = TrackHistory.new(post: Song::NAME, size: 0, repository: broken)
+      subject = Song.new(repository: @repository, tracks: @tracks, history: history)
+
+      assert_equal(Song::NAME, subject.job.name)
+    end
+
     # ⚠ 冪等キーは枠の頭から作る。⚠⚠ **12:00 JST は 03:00 UTC・15:30 JST は 06:30 UTC・
     # 19:00 JST は 10:00 UTC。**
     #

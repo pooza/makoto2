@@ -6,6 +6,17 @@ module Makoto
       @daemon = MakotoDaemon.new
     end
 
+    # 🔴 **登録は曲紹介の履歴を 1 回読む**（#274 → `Song#validate_history`）。⚠⚠ **既定の
+    # 接続は空の `test.db` に落ちる**（→ `Environment.db`）ので、**マイグレーション済みの
+    # メモリ DB を掴ませる。**
+    def with_migrated_connection
+      original = Database.instance_variable_get(:@connection)
+      Database.instance_variable_set(:@connection, empty_db)
+      yield
+    ensure
+      Database.instance_variable_set(:@connection, original)
+    end
+
     # pid ファイルと `/proc` を差し替えた常駐。⚠ **番号は本物**（`Process.kill(0)` が
     # 通らないと `alive?` がそこで false になり、身元の判定まで届かない）。
     def with_daemon(command: nil, proc_dir: nil, pid: Process.pid)
@@ -580,7 +591,7 @@ module Makoto
     def test_register_jobs
       Scheduler.instance.clear
 
-      @daemon.register_jobs
+      with_migrated_connection {@daemon.register_jobs}
 
       # 予告（#14）1 本 ＋ 朝挨拶（#17）1 本 ＋ 曲紹介（#16）1 本 ＋ ライブ（#13）4 本。
       # ⚠⚠ **`heartbeat` の `jobs` はこの数**（→ docs/CLAUDE.md 同期手順 3.）。
@@ -594,7 +605,7 @@ module Makoto
     def test_job_names_are_unique
       Scheduler.instance.clear
 
-      @daemon.register_jobs
+      with_migrated_connection {@daemon.register_jobs}
       names = Scheduler.instance.instance_variable_get(:@jobs).map(&:name)
 
       assert_equal(names.uniq, names)

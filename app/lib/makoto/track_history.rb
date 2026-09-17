@@ -63,6 +63,14 @@ module Makoto
       # 窓より小さいという設定の食い違いなので、気づける場所はここだけ。**
       logger.warn(track: 'history', post: @post, size: @size, message: 'nothing fresh left')
       return records
+    # 🔴 **読めなくても枠を落とさない**（#274）。⚠⚠ **書き側（`record`）は握って投稿を
+    # 通すのに、読み側だけが例外を `PostingJob` まで抜けさせ、枠を丸ごと消していた**
+    # （**テーブルが無い・別名表が壊れている**）。⚠ **絞り込まない母集合を返す ＝ 重複を許す。**
+    # ⚠ **起動時にも 1 回読んで落とす**（→ `Song#validate_history`）ので、ここへ来るのは
+    # **動いている間に壊れたときだけ。**
+    rescue => e
+      logger.error(track: 'history', post: @post, error: e)
+      return records
     end
 
     # ⚠ **出した曲を覚える。**
