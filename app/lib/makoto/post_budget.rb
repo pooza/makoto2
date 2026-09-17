@@ -17,6 +17,9 @@ module Makoto
   # | **ライブの台本** | 本文 ＋ 改行 ＋ ハッシュタグ | タグの長さ ＋ 1 |
   # | それ以外 | 本文だけ | 0 |
   #
+  # 🔴 **モロヘイヤを経由するときは、さらに `/mastodon/proxy_reserve` を全部の type から引く**
+  # （転送時にタグの行を足すため）。
+  #
   # ⚠ **URL は投稿先と同じく 23 字と数える**（`holiday` は素の長さ 576 字だが実効 328 字）。
   class PostBudget
     include Package
@@ -54,7 +57,13 @@ module Makoto
     # — **挨拶は原稿が自分で持つ**）。🔴 **type だけで挨拶の分を引くと、日付つきの原稿を 25 字
     # ぶん不当に弾く。**
     def budget(type, dated: false)
-      return limit - reserve(type.to_s, dated: dated)
+      return limit - proxy_reserve - reserve(type.to_s, dated: dated)
+    end
+
+    # 🔴 **モロヘイヤが転送時に足すタグのぶん**（Codex の P2）。⚠⚠ **経由しないなら 0。**
+    def proxy_reserve
+      return 0 unless config['/mastodon/mulukhiya']
+      return optional_config('/mastodon/proxy_reserve', 0).to_i
     end
 
     # ⚠ **超えていれば `ValidateError`**（どれだけ超えたかを言う）。
@@ -91,10 +100,17 @@ module Makoto
 
     # ⚠⚠ **ハッシュタグは任意の設定**（`Live#hashtag` は `optional_config`）— 🔴 **素の `config[]`
     # で読むと、タグを外した設定ですべての取り込み（朝挨拶も）が落ちる**（Codex の P2）。
+    #
+    # ⚠⚠ **正規化した形で数える**（Codex の P2）。🔴 **`#` を書かない設定も `HashtagSource` は
+    # 受け、`TagContainer` が `#` を足す**ので、素の設定値では 1 字短く出る。
     def tag_reserve
       hashtag = Live.new.hashtag
       return 0 if hashtag.empty?
-      return hashtag.grapheme_clusters.size + 1
+      container = Ginseng::Fediverse::TagContainer.new
+      container.push(hashtag)
+      tags = container.to_s
+      return 0 if tags.empty?
+      return tags.grapheme_clusters.size + 1
     end
 
     def greeting_reserve

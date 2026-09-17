@@ -239,6 +239,10 @@ properties:
       max_length:
         type: integer
         minimum: 1
+      # 🔴 モロヘイヤが足すタグのぶん（#282 → PostBudget）。
+      proxy_reserve:
+        type: integer
+        minimum: 0
     # ⚠ `whoami` も `post` も、この 2 つが無ければ動かない。ここに書いておかないと
     # `rake config:lint` は通り、投稿しようとした瞬間に初めて失敗する。
     required:
