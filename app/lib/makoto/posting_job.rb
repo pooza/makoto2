@@ -181,6 +181,9 @@ module Makoto
       return @source.call(slot).to_s
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **枠が落ちたことを Sentry へ**（#28）。⚠ **ライブ当日の 8 時間に静かに壊れると、
+      # 気づくのは終わった後になる。**
+      report_error(e, post: @name)
       record(:failure, slot)
       return nil
     end
@@ -200,6 +203,9 @@ module Makoto
       return response
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **枠が落ちたことを Sentry へ**（#28）。⚠ **ライブ当日の 8 時間に静かに壊れると、
+      # 気づくのは終わった後になる。**
+      report_error(e, post: @name)
       record(:failure, slot)
       return nil
     end
@@ -235,6 +241,7 @@ module Makoto
       # **こちらは「投稿は成功したが、履歴の通知で落ちた」。**⚠ **`TrackHistory#record`
       # が内側で全部握るのでほぼ発火しない**が、🔴 **発火した日に読み違える。**
       logger.error(post: @name, slot: format_slot(slot), phase: 'notify', error: e)
+      report_error(e, post: @name, phase: 'notify')
       return nil
     end
 

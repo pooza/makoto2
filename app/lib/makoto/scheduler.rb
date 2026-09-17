@@ -62,6 +62,7 @@ module Makoto
         job.exec(time)
       rescue => e
         logger.error(scheduler: 'tick', post: job.name, error: e)
+        report_error(e, post: job.name)
         next nil
       end
       record_tick
@@ -81,6 +82,7 @@ module Makoto
       Heartbeat.record_tick
     rescue => e
       logger.error(scheduler: 'tick', error: e)
+      report_error(e)
     end
 
     def initialize
@@ -105,6 +107,7 @@ module Makoto
         Heartbeat.touch(jobs: jobs, job_names: job_names)
       rescue => e
         logger.error(scheduler: 'heartbeat', error: e)
+        report_error(e)
       end
     end
 

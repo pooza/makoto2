@@ -100,6 +100,9 @@ module Makoto
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
+      # ⚠ **起き上がれなかったことを Sentry へ**（#28）。⚠⚠ **stderr は `/dev/null` で、
+      # `systemd` は 5 秒ごとに叩き直すだけ**なので、ログを見に行かない限り気づけない。
+      report_error(e, daemon: app_name)
       raise
     end
 

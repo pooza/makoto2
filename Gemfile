@@ -8,6 +8,8 @@ gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v1.23.7', require: 'gins
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v2.0.0',
   require: 'ginseng/fediverse'
 gem 'rufus-scheduler'
+# 例外の集約（#28）。⚠ **DSN が無ければ初期化しない**（→ `Makoto.setup_sentry`）。
+gem 'sentry-ruby'
 gem 'sequel'
 # rufus-scheduler の依存として入るが、Timetable が直接使うので明示する。
 gem 'sqlite3'

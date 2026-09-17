@@ -1999,6 +1999,21 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 **上限 ＝ `/mastodon/max_length` − モロヘイヤが足すタグのぶん（`/mastodon/proxy_reserve`・経由するときだけ）− 前後に付く定型文**（朝挨拶の挨拶・曲紹介の曲の行 300 字・ライブのハッシュタグ）。⚠ **URL は 23 字、見た目の 1 文字を 1 字と数える。**
 
 🔴 **キュアスタ！の上限は 3000 字**（オーナー）— ⚠⚠ **最初は Mastodon の既定の 500 字を確かめずに置いており、Codex の指摘を 7 件受けて 500 字前提の詰めを重ねていた。**⚠ **3000 字では本物の原稿（最長の `holiday` で実効 328 字）に対して桁で余裕があるので、この検査は「壁を越える原稿を書いた日に気づける」歯止めにとどめ、これ以上詰めない**（オーナー「ほどほどでいい」）。
+#### ✅ Sentry を入れた（2026-09-17・#28）
+
+✅ **`sentry-ruby`（7.0.0）で、枠が落ちた・tick が落ちた・常駐が起き上がれなかったを Sentry へ送る**（`Package#report_error`・**初期化されていなければ何もしない**）。
+
+| 送る場所 | 付けるタグ |
+| --- | --- |
+| **`PostingJob`** の本文の組み立て・投稿・履歴の通知の失敗 | `post`（通知は `phase: notify`） |
+| **`Scheduler`** の tick・ハートビートの失敗 | `post`（tick の枠ごと） |
+| **`MakotoDaemon#start`** の失敗（**起き上がれなかった**） | `daemon` |
+
+🔴 **ログで伏せている値を送らない** — ⚠⚠ **`before_send` で `Ginseng::Logger` の `mask` / `mask_url` を通す**（[`SentryScrubber`](../app/lib/makoto/sentry_scrubber.rb)・**マスクの正本は `/logger/mask_fields` と上流の既定**）。**tomato-shrieker の同名クラスの写し**で、🔴 **マスクを通せなければ送らない（fail closed）**・**落としたことはログへ、ログも落ちたら素の syslog へクラス名だけ**。⚠ **`dsn` を `mask_fields` に足した**（`makoto config` で `(masked)`）。
+
+🔴 **DSN が空なら初期化しない**（開発機・CI・テスト）。⚠⚠ **`dsn: null` は `Config#[]` で「キーが無い」例外になる**ので、**素で読むとすべての起動が「Sentry initialization skipped」を出していた**（**テストで留めた**）。
+
+⚠ **DSN の置き場の正本は chubo2 の `docs/infra-services.md`**（`4931e50`）。⚠⚠ **Client Key のレート制限は作成時点で未設定**（API で `rateLimit: null`）— **Web UI で当てる**（目安 1 時間 500 件）。
 
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
@@ -2655,7 +2670,7 @@ bin/makoto corpus stat     # 件数を確認する
    ⚠⚠ **それでも「実行の signal」そのものは無い**（Codex は check run を作らない）。⚠ **`test` の緑と混同して「見てもらった」と読まない**し、**「走っていない」と決めて待ち続けもしない**（**数分待って付かなければ進めてよい**）。
 
    🔴 **ただし「走らせて観測する」ことはできる**（2026-09-01・PR #220）。⚠⚠ **`@codex review` とコメントすると、指摘がゼロでもその旨が issue comment で明示される** — 実測: **`Codex Review: Didn't find any major issues. 👍` ＋ `Reviewed commit: 095da25`**（⚠ **review ではなく issue comment で来る**ので、`gh pr view --json reviews` だけを見ると拾えない）。⚠ **自動のレビューは PR を開いた時・draft を ready にした時しか走らない**ので、**後から積んだコミットは対象外** — 🔴 **押し直したいときは自分でコメントする。**
-6. **Sentry**（導入したら）— `sentry-cli issues list` で未解決を確認し、判断をコメントに記録
+6. **Sentry**（2026-09-17 導入・#28・プロジェクト `makoto2`）— `sentry-cli issues list --project makoto2` で未解決を確認し、判断をコメントに記録。⚠ **DSN の置き場の正本は chubo2 の `docs/infra-services.md`**（各ホストの `config/local.yaml` の `sentry.dsn`）
 7. **`pooza/chubo2` の同期確認** — `git fetch origin` + `docs/infra-note.md` の変更、open Issue の変動。あわせて **MAKOTO に関係する chubo2 Issue**（実行環境の CT、cure-api の公開露出、モロヘイヤの webhook 経路など）を拾い、makoto2 側の作業の前提になっていないか確認する
 
    ⚠⚠ **open / `updatedAt` だけで「動いていない」と判断しない。必ずコメントまで読む。**⚠ **chubo2 は「作業は完了、モンキーテスト待ちで open」を常用する**（makoto2 のラップアップ規約と同じ）ので、**`updatedAt` が示すのは「何か書かれた」であって「まだ着手していない」ではない。**
