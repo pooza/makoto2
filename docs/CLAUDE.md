@@ -1980,7 +1980,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 | | 後 |
 | --- | --- |
-| **URL** | 🔴 **`https://music.apple.com` 以外は `url` を空にする**（`TrackImporter::URL_HOSTS`）。⚠⚠ **行は消さない** — **`linkable` から外れるので曲紹介にもライブにも出ない**。⚠ **落とした `trackId` を `warn`（`track: url`）** |
+| **URL** | 🔴 **`https://music.apple.com` 以外は `url` を空にする**（`TrackImporter::URL_HOSTS`）。⚠⚠ **行は消さない** — **`linkable` から外れるので曲紹介にもライブにも出ない**。⚠ **落とした `trackId` を `warn`（`track: url`）**。🔴 **見るのは取り込んだ行だけでなく表全体**（⚠⚠ **取り込みは「取り込み元に無い行は消さない」ので、以前入った行の URL が検査を通らないまま残る** — Codex の P2） |
 | **メンションの形** | ⚠ **曲名・名義・アルバム名が投稿先のメンションになる形なら `warn`（`track: mention`）だけ**（**落とさない** — 投稿の側で `StatusText` が崩す）。⚠⚠ **直前が語中文字なら当たらない**（`H@ppy Together!!!`） |
 | **`secure_dump`** | ⚠ **「キー名で伏せる。値の形は見ない」とコメントに明記**（URL に資格情報を埋めた設定キーを足す人への歯止め） |
 

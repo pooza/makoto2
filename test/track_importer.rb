@@ -281,6 +281,19 @@ module Makoto
       assert_not_include(TrackRepository.new(db).linkable.select_map(:id), 1001)
     end
 
+    # 🔴 **取り込み元に無い行の URL も見る**（Codex の P2）。⚠⚠ **取り込みは行を消さないので、
+    # 以前入った行の URL が検査を通らないまま残っていた。**
+    def test_a_retained_row_with_an_unexpected_url_is_dropped
+      db = empty_db
+      TrackImporter.new(track_fixture_dir, db: db).exec
+      row = db[:track][id: 1001].merge(id: 424_242, url: 'https://evil.example/track/424242')
+      db[:track].insert(row)
+      warnings = import_with_warnings(track_fixture_dir, db, 'url')
+
+      assert_nil(db[:track][id: 424_242][:url])
+      assert_equal([424_242], warnings.first[:id])
+    end
+
     # ⚠ **許可したホストだけなら黙る**（フィクスチャは `music.apple.com`）。
     def test_allowed_urls_are_quiet
       _, warnings = import_edited_rows('url') {|_rows| nil}

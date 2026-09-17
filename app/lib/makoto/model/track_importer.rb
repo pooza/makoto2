@@ -100,6 +100,7 @@ module Makoto
       @db.transaction do
         import_daily
         mark_live
+        sanitize_urls
       end
       report_unused_aliases
       report_unused_spoken
@@ -141,7 +142,7 @@ module Makoto
           release_date: release_date(row),
           duration: row[:trackTimeMillis],
           track_number: row[:trackNumber],
-          url: public_url(row),
+          url: row[:trackViewUrl],
           preview_url: row[:previewUrl],
           artwork_url: row[:artworkUrl100],
           kind: corrected_kind(row),
@@ -154,22 +155,26 @@ module Makoto
 
     # 🔴 **許可したホストの https だけを残す**（#283 → `URL_HOSTS`）。⚠⚠ **外れた行は `url` を
     # 空にする** — **行は消さず、`linkable` から外れるので曲紹介にもライブにも出ない。**
-    # ⚠ **上書きで空にするので、前回の取り込みで入った URL も残らない。**
-    def public_url(row)
-      value = row[:trackViewUrl].to_s
-      return nil if value.empty?
-      uri = URI.parse(value)
-      return value if uri.is_a?(URI::HTTPS) && URL_HOSTS.include?(uri.host)
-      rejected_urls.push(row[:trackId])
-      return nil
+    #
+    # 🔴 **取り込んだ行だけでなく表全体を見る**（Codex の P2）。⚠⚠ **取り込みは「取り込み元に
+    # 無い行は消さない」ので、以前の取り込みで入った行の URL は、行ごとの検査を通らないまま
+    # 公開され続ける。**
+    def sanitize_urls
+      rows = @db[:track].exclude(url: nil).select_map([:id, :url])
+      ids = rows.reject {|_, url| public_url?(url)}.map(&:first)
+      @db[:track].where(id: ids).update(url: nil) unless ids.empty?
+      @rejected_urls = ids
+    end
+
+    def public_url?(value)
+      uri = URI.parse(value.to_s)
+      return uri.is_a?(URI::HTTPS) && URL_HOSTS.include?(uri.host)
     rescue URI::InvalidURIError
-      rejected_urls.push(row[:trackId])
-      return nil
+      return false
     end
 
     def rejected_urls
-      @rejected_urls ||= []
-      return @rejected_urls
+      return @rejected_urls || []
     end
 
     # ⚠ **落とした行を残す**（黙って曲が減らないように）。
