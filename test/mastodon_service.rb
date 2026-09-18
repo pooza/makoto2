@@ -141,6 +141,36 @@ module Makoto
       assert_equal(Package.full_name, headers['X-Mulukhiya'])
     end
 
+    # 🔴 **別ホストへのリダイレクトでトークンを渡さない**（#349）。⚠⚠ **HTTParty が守るのは
+    # `basic_auth` / `digest_auth` だけ**なので、`headers` に置いた `Authorization` は
+    # 素のままだとホストが変わっても付いていく。
+    def test_account_rejects_a_redirect_to_another_host
+      url = "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials"
+      elsewhere = 'https://elsewhere.example/api/v1/accounts/verify_credentials'
+      stub_request(:get, url).to_return(status: 302, headers: {'Location' => elsewhere})
+      stub_request(:any, elsewhere)
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.account}
+      assert_requested(:get, url, times: 1)
+      assert_not_requested(:any, elsewhere)
+    end
+
+    # ⚠ **同じホストのリダイレクトは追える**（#349）。⚠⚠ **一律に `follow_redirects: false`
+    # にしないのはこのため** — **証明書切替やパスの整理で自分のホストが 301 を返す形は、
+    # トークンの漏れ方ではない。**
+    def test_account_follows_a_redirect_within_the_same_host
+      url = "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials"
+      moved = "#{config['/mastodon/url']}/api/v2/accounts/verify_credentials"
+      stub_request(:get, url).to_return(status: 301, headers: {'Location' => moved})
+      stub_request(:get, moved)
+        .with(headers: {'Authorization' => "Bearer #{config['/mastodon/token']}"})
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'},
+          body: {acct: 'test', statuses_count: 1}.to_json)
+
+      assert_equal('test', MastodonService.new.account['acct'])
+      assert_requested(:get, moved, times: 1)
+    end
+
     # ⚠⚠ 経路をログに残すこと（#124）。⚠ 経路の間違いは投稿の失敗として現れない
     # ので、成功したログの側に出ていないと気付けない。
     def test_post_status_logs_the_route

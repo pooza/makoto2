@@ -58,8 +58,30 @@ module Makoto
     # モロヘイヤの都合を巻き込まない** — nginx の `map` が掛かるのは投稿の側で、
     # ⚠⚠ **#106 で失効を見に行くときに「モロヘイヤが落ちている」が「トークンが
     # 死んでいる」に化けると、当日いちばん困る形**になる。
+    #
+    # 🔴 **リダイレクト先のホストを検証する**（#349）。⚠⚠ **HTTParty が既定でリダイレクトを
+    # 追うのに、`options[:headers]` に直接置いた `Authorization` はホストが変わっても
+    # 剥がされない**（守られるのは `basic_auth` / `digest_auth` だけ）。⚠ **`/mastodon/url` の
+    # vhost が 301 / 302 を返す構成になった日**（nginx の `return 301`・ドメインの移転・
+    # 証明書切替時の暫定）に、🔴 **常駐の起動ごと（`MakotoDaemon#verify_credentials`）と
+    # `makoto whoami` のたびに、フルスコープのボットトークンが転送先ホストへ送られる。**
+    #
+    # ⚠ **`follow_redirects: false` で一律に切らず、`host_validator` を渡す**
+    # （🔴 **ginseng-core が用意した口** — **ホップごとにホストを検証**し、
+    # ⚠⚠ **オリジンが変わる先へは資格情報のヘッダとオプションを渡さない**）。
+    # ⚠ **同一ホストの 301（`http` → `https` など）は追えるまま**で、**別ホストは
+    # `GatewayError "Rejected host '...'"` で落ちる** — ⚠⚠ **3xx が黙って `nil` の
+    # 本文になるのではなく、読めるエラーになる。**
+    #
+    # 🔴 **上流 [`ginseng-fediverse#280`](https://github.com/pooza/ginseng-fediverse/issues/280)
+    # が入っても、ここは畳まない** — ⚠⚠ **上流の `MastodonService` は
+    # `verify_credentials` を持たず、この呼び出し口は makoto2 のもの**（#282 で
+    # 塞いだ投稿の口とは分界が違う）。
     def account
-      response = http.get('/api/v1/accounts/verify_credentials', {headers: direct_headers})
+      response = http.get('/api/v1/accounts/verify_credentials', {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+      })
       return response.parsed_response
     rescue Ginseng::GatewayError => e
       raise classify(e)
