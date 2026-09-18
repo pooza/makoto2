@@ -43,9 +43,18 @@ module Makoto
     # 🔴 **`exec` ではない行の目印**（#284 → `PostingJob#notify`）。
     NOTIFY_PHASE = 'notify'.freeze
 
+    # 🔴 **予算を超えて長くかかった枠の目印**（#92 → `PostingJob#warn_slow`）。
+    # ⚠⚠ **この行も `post` と `slot` を両方持つ**ので、**捨てないと `exec` 2 回になる**
+    # （→ #348・`notify` と同じ形）。
+    SLOW_PHASE = 'slow'.freeze
+
+    # ⚠ **`phase` ごとの受け皿**（→ `count_phase`）。⚠⚠ **ここに無い `phase` は捨てる。**
+    PHASE_COUNTERS = {NOTIFY_PHASE => :count_notify, SLOW_PHASE => :count_slow}.freeze
+
     # ⚠ 人が読む順。**赤の判定に関わるものを上に置く。**
+    # ⚠ **`slow` は赤に掛からない**ので、赤の判定に関わる 3 つより下に置く（→ #348）。
     SECTIONS = [
-      :header, :execs, :posts, :notify, :http, :heartbeat, :blind
+      :header, :execs, :posts, :notify, :slow, :http, :heartbeat, :blind
     ].freeze
 
     # @param lines [Enumerable<String>] ログの行。⚠ **JSON でない行は捨てる**
@@ -60,11 +69,15 @@ module Makoto
       @lines = 0
       @notifies = 0
       @notify_failures = 0
+      @notify_misses = 0
+      @slows = []
+      @slow_errors = 0
+      @revisions = Set.new
       lines.each {|line| consume(parse(line))}
     end
 
     attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
-      :notify_failures
+      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -153,14 +166,23 @@ module Makoto
       @lines += 1
       # 🔴 **`count_slot` より先に見る**（#284）。⚠⚠ **この行も `post` と `slot` を
       # 両方持つ**ので、**後ろに置くと `exec` として数えられてしまう。**
-      return count_notify(entry) if entry[:phase] == NOTIFY_PHASE
-      # ⚠⚠ **他の `phase` も `exec` ではない**（#277 の `quiet` — 黙る日に黙ったことの 1 行）。
-      return nil if entry[:phase]
+      return count_phase(entry) if entry[:phase]
       return count_slot(entry) if entry[:post] && entry[:slot]
       return count_http(entry) if entry[:method] && entry[:url]
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
       return @travel = entry[:time_travel] if entry[:time_travel]
       return nil
+    end
+
+    # 🔴 **`phase` を持つ行は `exec` ではない**（#284 / #277 / #348）。⚠ **受け皿のある
+    # `phase` はそこへ渡し、無いものは捨てる**（#277 の `quiet` — 黙る日に黙ったことの 1 行）。
+    #
+    # ⚠⚠ **「捨てた先に受け皿が無い」を作らない**（#348）— 🔴 **`notify` に受け皿を足した
+    # ときに `slow` へは足さなかったので、#92 で出した行が丸ごと消えていた。**
+    # ⚠ **表に足せば、次に `phase` を増やす人が受け皿の有無を 1 か所で決められる。**
+    def count_phase(entry)
+      counter = PHASE_COUNTERS[entry[:phase]]
+      return counter ? send(counter, entry) : nil
     end
 
     # ⚠ **1 行 = `exec` 1 回。**結末で内訳を分ける（成功 / 失敗 / 沈黙）。
@@ -181,10 +203,34 @@ module Makoto
     # `error` を持つ 1 行として `failed` に数えられており、`red?` に掛かっていた** —
     # ⚠ **区別を足したついでに見逃す形にしない**（**投稿は出たのに履歴が伸びていない** ＝
     # **#41 の重複回避が切れている**）。
+    # 🔴 **`recorded: false` を数える**（#348）。⚠⚠ **これが「投稿は出たのに履歴が
+    # 伸びていない」** ＝ **#41 の重複回避が無言で切れた状態**（→ `PostingJob#notify`）。
+    # ⚠ **数えなかった頃は、全部 `true` だった回と出力が 1 文字も変わらなかった。**
+    #
+    # 🔴 **`red?` には掛けない。**⚠⚠ **履歴を切ってあれば毎枠出る**（**`TrackLottery#record`
+    # は `@history` が無ければ `nil`** ＝ **`recorded: false`**）ので、⚠ **赤にすると
+    # 履歴を持たない構成のリハーサルが毎回落ちる**（→ #284 で決めた線・`test/rehearsal_report.rb`
+    # の `test_a_notify_miss_is_not_a_failure` が固定している）。
     def count_notify(entry)
       @notifies += 1
       @notify_failures += 1 if entry[:error]
+      # ⚠ **キーが無い行と `false` を混ぜない**（`!recorded.nil?` の結果なので真偽値で来る）。
+      @notify_misses += 1 if entry[:recorded] == false
       return @notifies
+    end
+
+    # 🔴 **予算を超えた枠を覚える**（#348 / #92）。
+    #
+    # ⚠ **`red?` には掛けない** — ⚠⚠ **早送りのリハーサルでは実時間が伸びる**ので、
+    # **赤にすると毎回鳴る**（#92 は「観測まで」で線を引いている）。
+    # 🔴 **だから読む人に見せる**（`#90` の「枠を跨ぐ余裕が構造的にゼロ」が再発したとき、
+    # ⚠⚠ **本番の syslog を `grep slow` する人がいる前提にしない**）。
+    #
+    # ⚠ **計測そのものが落ちた行は別に数える**（`warn_slow` の `rescue` は `slot` を
+    # 持たない `{post:, phase: 'slow', error:}`）。
+    def count_slow(entry)
+      return @slow_errors += 1 if entry[:error]
+      return @slows.push(entry.slice(:post, :slot, :seconds, :budget))
     end
 
     # ⚠ **応答が返った行と、落ちた試行の行を分ける。**⚠⚠ **後者は `count` を持ち、
@@ -196,14 +242,22 @@ module Makoto
       return @http[key]
     end
 
+    # ⚠ **リビジョンも拾う**（#348 / #242）。🔴 **`version` は `0.6.0` のまま何コミットでも
+    # 進む**ので、⚠⚠ **見出しが「バージョン 0.6.0」だけだと、リハーサルの途中でデプロイが
+    # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
     def count_heartbeat(entry)
       @heartbeats += 1
       @versions.add(entry[:version].to_s) if entry[:version]
+      @revisions.add(entry[:revision].to_s) if entry[:revision]
       return @heartbeats
     end
 
     def format_header
-      out = ["ログ #{@lines} 行 / バージョン #{@versions.to_a.join(', ').presence || '(不明)'}"]
+      out = ["ログ #{@lines} 行 / バージョン #{@versions.to_a.join(', ').presence || '(不明)'}" \
+        " / リビジョン #{@revisions.to_a.join(', ').presence || '(不明)'}"]
+      # 🔴 **途中でデプロイが挟まった回は、結果を 1 つの版のものとして読めない**（#348 / #242）。
+      # ⚠ **赤にはしない**（**リハーサルの終わり際に当てた回もここに出る**）が、⚠⚠ **見出しで言う。**
+      out.push("⚠ 途中でリビジョンが変わった（#{@revisions.size} 種）") if @revisions.size > 1
       # ⚠⚠ **騙していたことを必ず出す。**⚠ **後から読む人が「本番のログ」と
       # 取り違えないため**（→ `TimeTravel` が毎ハートビートに `warn` を出すのと同じ理由）。
       out.push(format_travel) if @travel
@@ -254,6 +308,25 @@ module Makoto
       # ⚠⚠ **赤にした理由を本文にも書く**（#127 と同じ）。
       out.push("🔴 #{@notify_failures} 回の通知が落ちた（投稿は出ているが履歴が伸びていない）") \
         if @notify_failures.positive?
+      # 🔴 **落ちた回とは別に数える**（#348）。⚠⚠ **こちらは例外にならない** —
+      # **`posted` が `nil` を返しただけ**なので、**ログの上では成功した枠と同じ形に見える。**
+      # ⚠ **赤にしないのは、履歴を切ってあれば毎枠出るから**（→ `count_notify`）。
+      out.push("⚠ #{@notify_misses} 回が履歴を伸ばさなかった（recorded:false）") if @notify_misses.positive?
+      return out.join("\n")
+    end
+
+    # 🔴 **予算を超えて長くかかった枠**（#348 / #92）。⚠ **1 行も無いのが普通**なので、
+    # **無ければ節そのものを出さない**（`format_notify` と同じ扱い）。
+    def format_slow
+      return nil if @slows.empty? && @slow_errors.zero?
+      out = ['', "予算を超えた枠: #{@slows.size} 回"]
+      out += @slows.map do |row|
+        "⚠ #{row[:post]} #{row[:slot]}: #{row[:seconds]} 秒（予算 #{row[:budget]} 秒）"
+      end
+      out.push("⚠ 計測そのものが #{@slow_errors} 回落ちた") if @slow_errors.positive?
+      # ⚠⚠ **早送りでは実時間が伸びる**ので、🔴 **この節が出ること自体は異常ではない**
+      # （→ #92 / #90）。⚠ **読む人が「本番でも遅い」と取り違えないため、毎回書く。**
+      out.push('⚠ 早送り中は実時間が伸びるので、この節は赤ではない（→ #90 / #92）') if scaled?
       return out.join("\n")
     end
 
@@ -278,6 +351,10 @@ module Makoto
       out = ['', '⚠ この集計では読めないもの']
       out.push('- 沈黙した枠の exec 回数（本文が無いときの 1 行は `debug` → #114）') if silenced.zero?
       out.push('- 実時間の経過に依存するもの（メモリ・接続の寿命・ログのローテート）')
+      # 🔴 **数えているが赤にしないものを名指しする**（#348）。⚠⚠ **「集計が緑 ＝ 何も
+      # 起きていない」と読ませない** — ⚠ **どちらも上の節に出ているので、見落とすのは
+      # 終了コードだけを見たとき。**
+      out.push('- 予算を超えた枠と recorded:false は赤にしない（履歴を切った構成では毎枠出る）')
       out.push('- 外部が実時間で持つ制限（Mastodon のレート制限窓）')
       out.push('- 投稿が枠を跨ぐか（早送りでは見かけ上 scale 倍かかる → #90 / #92）') if scaled?
       return out.join("\n")

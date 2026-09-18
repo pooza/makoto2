@@ -17,6 +17,14 @@ module Makoto
     NOTIFY_MISS = '{"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify","recorded":false}'.freeze
     NOTIFY_ERROR = '{"error":{"message":"boom"},"post":"song","slot":"2026-11-04T03:02:00Z","phase":"notify"}'.freeze
 
+    # 🔴 **予算を超えて長くかかった枠の 1 行**（#92 → `PostingJob#warn_slow`）。
+    # ⚠⚠ **`post` と `slot` を両方持つ**ので、**捨てないと `exec` 2 回になる**（#348）。
+    SLOW = '{"post":"song","slot":"2026-11-04T03:00:00Z","phase":"slow","seconds":12.3,"budget":9.0}'.freeze
+    # ⚠ **計測そのものが落ちた行**（`warn_slow` の `rescue`）。🔴 **`slot` を持たない。**
+    SLOW_ERROR = '{"error":{"message":"boom"},"post":"song","phase":"slow"}'.freeze
+    # ⚠ **`revision` を持つハートビート**（#242 → `MakotoDaemon`）。
+    HEARTBEAT_REV = '{"scheduler":"heartbeat","version":"0.6.0","revision":"689b795","jobs":7}'.freeze
+
     # 🔴 **黙る日に黙ったことの 1 行**（#277 → `SongSource#log_quiet_day`）。⚠ **これも `exec` ではない。**
     QUIET = '{"post":"song","slot":"2026-11-04T03:00:00Z","phase":"quiet","message":"quiet day","types":["live_open","live_close"]}'.freeze
 
@@ -234,6 +242,90 @@ module Makoto
       assert_equal(2, row[:execs])
       assert_equal([2, 2], row[:range])
       assert_equal(1, subject.by_name['announcement'][:silences])
+    end
+
+    # 🔴 **予算を超えた枠の行を `exec` に数えない**（#348）。⚠⚠ **`notify` と同じ形**
+    # （`post` と `slot` を両方持つ）なので、**素で数えると成功した 1 枠が exec 2 回になる。**
+    def test_a_slow_entry_is_not_an_exec
+      subject = report(SUCCESS, SLOW)
+
+      assert_equal(1, subject.slots.size)
+      assert_equal(1, subject.slots.values.first[:execs])
+      assert_empty(subject.anomalous_slots)
+      assert_equal(1, subject.slows.size)
+    end
+
+    # 🔴 **捨てずに受け皿へ入れる**（#348）。⚠⚠ **#92 で出した行が丸ごと消えていたので、
+    # #90（枠を跨ぐ余裕が構造的にゼロ）が再発しても報告書は緑のままだった。**
+    def test_a_slow_entry_is_named_in_the_report
+      subject = report(SUCCESS, SLOW)
+
+      assert_include(subject.to_s, '予算を超えた枠: 1 回')
+      assert_include(subject.to_s, '12.3 秒（予算 9.0 秒）')
+    end
+
+    # 🔴 **赤にはしない**（#348 / #92）。⚠⚠ **早送りでは実時間が伸びる**ので、
+    # **赤にすると毎回鳴る** — ⚠ **#92 は「観測まで」で線を引いている。**
+    def test_a_slow_entry_is_not_red
+      assert_false(report(SUCCESS, SLOW).red?)
+    end
+
+    # ⚠ **早送りの回は「この節は赤ではない」と書く**（#348）。🔴 **読む人が「本番でも
+    # 遅い」と取り違えないため。**
+    def test_a_slow_entry_notes_the_scale
+      assert_include(report(TRAVEL, SUCCESS, SLOW).to_s, '早送り中は実時間が伸びる')
+      assert_not_include(report(SUCCESS, SLOW).to_s, '早送り中は実時間が伸びる')
+    end
+
+    # ⚠ **計測そのものが落ちた行は別に数える**（#348）。🔴 **`slot` を持たないので
+    # 投稿の失敗にも数えない。**
+    def test_a_slow_measurement_error_is_counted_separately
+      subject = report(SUCCESS, SLOW_ERROR)
+
+      assert_equal(1, subject.slow_errors)
+      assert_empty(subject.slows)
+      assert_equal(0, subject.failed)
+      assert_include(subject.to_s, '計測そのものが 1 回落ちた')
+    end
+
+    # 🔴 **`recorded: false` を数えて名指しする**（#348）。⚠⚠ **数えなかった頃は、
+    # 全部 `true` だった回と出力が 1 文字も変わらなかった** — ⚠ **`recorded: false` は
+    # 「投稿は出たのに履歴が伸びていない」＝ #41 の重複回避が無言で切れた状態。**
+    def test_a_notify_miss_is_named_in_the_report
+      subject = report(SUCCESS, NOTIFY_MISS)
+
+      assert_equal(1, subject.notify_misses)
+      assert_include(subject.to_s, '1 回が履歴を伸ばさなかった（recorded:false）')
+    end
+
+    # ⚠ **数えているが赤にしないものを「読めないもの」に書く**（#348）。
+    # 🔴 **終了コードだけを見る人に、節が出ていることを知らせる。**
+    def test_the_blind_spot_names_what_is_not_red
+      assert_include(report(SUCCESS).to_s, '赤にしない')
+    end
+
+    # ⚠ **リビジョンを見出しに出す**（#348 / #242）。🔴 **`version` は `0.6.0` のまま
+    # 何コミットでも進む**ので、**版だけでは「その修正が載っているか」に答えられない。**
+    def test_the_header_shows_the_revision
+      subject = report(HEARTBEAT_REV)
+
+      assert_equal(['689b795'], subject.revisions.to_a)
+      assert_include(subject.to_s, 'リビジョン 689b795')
+    end
+
+    # 🔴 **途中でデプロイが挟まった回を見出しで言う**（#348）。⚠⚠ **結果を 1 つの版の
+    # ものとして読めない** — ⚠ **#242 が消したかった盲点がここに残っていた。**
+    def test_a_revision_change_is_flagged
+      subject = report(HEARTBEAT_REV, HEARTBEAT_REV.sub('689b795', 'a12eca8'))
+
+      assert_equal(2, subject.revisions.size)
+      assert_include(subject.to_s, '途中でリビジョンが変わった（2 種）')
+    end
+
+    # ⚠ **リビジョンを持たない古いログでも落ちない**（#348）。🔴 **`0.6` より前の
+    # リハーサルのログを流し込む形は残っている。**
+    def test_a_log_without_a_revision_is_not_broken
+      assert_include(report(HEARTBEAT).to_s, 'リビジョン (不明)')
     end
   end
 end
