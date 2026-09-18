@@ -2079,6 +2079,32 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ⚠ **予算は新しい設定を足さず `/http` から出す**（`test/http.rb` の「予算がライブの枠間隔より短い」と同じ式）。⚠ **`phase` を付けたので `RehearsalReport` は `exec` に数えない**（→ #277）。
 
+### ✅ v0.6.0 をリリースし、本番へ入れた（2026-09-18）
+
+✅ **[v0.6.0](https://github.com/pooza/makoto2/releases/tag/v0.6.0)**（`main` = `c461c22`）を出し、**同日 `rubicon` へデプロイした**（20:30:07 JST 再起動）。🔴 **`0.6` は Issue 17 件を当てて箱を空にし、クローズ済み**（⚠ **GitHub の箱の件数は 18 と出る** — **リリース PR #337 も同じ箱に入れてあり、あの数字は PR も数える**）。
+
+| 手順 | 結果 |
+| --- | --- |
+| 1. 箱を空にする | ✅ **17 件**（⚠ **#28 はデプロイの中で閉じた** — **`rubicon` への DSN 設置がリリース作業そのもの**） |
+| 2. リリース前レビュー | ✅ **赤 1 / 黄 22 / 緑 15**（→ 上記）。⚠ **赤 1 ＋ 黄 2 を PR #346 で畳み、繰越 9 件は `0.8` へ** |
+| 3. セキュリティレビュー | ✅ **`bundle-audit` 0 件**（DB 2026-09-16）・**Dependabot open 0** |
+| 4. ステージング検証 | ✅ **8 回目の当日通しリハーサル**（→ 上記・162 投稿・失敗 0・撤収済み） |
+| 9. デプロイ | ✅ **`rubicon` = `c461c22` / `0.6.0` / `jobs 7`**・`corpus import` を 1 回（`quote 956` / `message 770` / `message_season 219`）・`/healthz` の 3 口とも 200 |
+| 10. 箱を空にして閉じる | ✅ **`0.6` を closed**（⚠ **数えるなら `gh issue list --milestone 0.6 --state closed` ＝ Issue だけ**。**マイルストーン API の `closed_issues` は PR を含む**） |
+
+🔴 **本番で Sentry が効いていることを 1 回だけ実測した**（⚠⚠ **`bydo` と同じやり方**）:
+
+```text
+initialized: true / sending_allowed: true / propagate_traces: false
+```
+
+- ✅ **テストイベントが届いた**（`MAKOTO2-2`・`environment=production` / `release=0.6.0` / `server_name=rubicon`）。🔴 **ダミーのトークン入り URL は Sentry 側のタイトルでも `access_token=[FILTERED]`。**⚠ **立った Issue は `tools/sentry-resolve.rb MAKOTO2-2` で resolve 済み。**
+- ⚠ **`propagate_traces: false` はこの版のレビューで塞いだぶん**（→ PR #346）。
+- 🔴 **残るオーナー作業は Client Key のレート制限だけ**（API で `rateLimit: null`・目安 1 時間 500 件）。
+- ⚠⚠ **「Sentry が生きているか」を言う口は無いまま** — **人が 1 回叩いて確かめるしかない**（→ #347）。
+
+⚠ **Codex はリリース PR #337 で 2 件当てたが、どちらも既知だった**（🔴 **同じ日のレビューで 2 観点が当て、#348 として `0.6` の外へ送ったもの** — `phase: "slow"` を捨てる／`recorded: false` を数えない）。⚠ **v0.5.1 のときと同じ形**（→ 上記）。
+
 ### ✅ v0.5.1 をリリースし、本番へ入れた（2026-09-13）
 
 **`main` は `588b72e`・タグ [v0.5.1](https://github.com/pooza/makoto2/releases/tag/v0.5.1)。**⚠ `v0.5.0..v0.5.1` で **41 commits / 25 ファイル / +1,785 −163**（`git diff --shortstat`）。
