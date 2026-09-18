@@ -56,9 +56,18 @@ module Makoto
     Logger.new.error(sentry: 'init', message: 'initialization skipped',
       error_class: error.class.name)
   rescue => e
+    report_sentry_setup_error_fallback(error, e)
+  end
+
+  # 🔴 **最後の 1 手で起動を巻き込まない**（Codex の P2）。⚠⚠ **ここは `setup_sentry` の rescue の
+  # 中から呼ばれる**ので、**syslog も使えない箱でここが例外を上げると、観測のための 1 行が
+  # 常駐を落とす。**⚠ **`SentryScrubber#report_drop_fallback` と同じく、諦めて nil を返す。**
+  def self.report_sentry_setup_error_fallback(error, log_error)
     ::Syslog::Logger.new(Package.name).error(
-      "sentry init: initialization skipped: #{error.class} (logging failed: #{e.class})",
+      "sentry init: initialization skipped: #{error.class} (logging failed: #{log_error.class})",
     )
+  rescue
+    return nil
   end
 
   # ⚠ **無ければ 0**（Codex の P2）。⚠⚠ **素で読むと、DSN だけ置いたホストで例外になり、

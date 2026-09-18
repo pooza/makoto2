@@ -134,6 +134,17 @@ module Makoto
       end
     end
 
+    # 🔴 **値そのものが ` did not ` を含んでも、残りを素で出さない**（Codex の P2）。
+    # ⚠⚠ **最短一致だと値の途中で止まり、その先が `/healthz` の本文に出ていた。**
+    def test_validation_errors_mask_values_containing_the_delimiter
+      found = ["The property '#/sentry/dsn' value \"x did not #{SECRET}\"" \
+        " did not match the regex '^https://' in schema abc123"]
+
+      with_errors(-> {found}) do
+        assert_not_include(config.validation_errors.first, SECRET)
+      end
+    end
+
     # ⚠ **伏せる対象でないキーは、値を出したまま**（消すと調べられない）。
     def test_validation_errors_keep_values_of_public_keys
       found = ["The property '#/mastodon/url' value \"ftp://example.com\"" \

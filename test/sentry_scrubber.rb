@@ -169,6 +169,19 @@ module Makoto
       assert_not_include(logged.first.to_s, 'publickey', 'DSN を載せない')
     end
 
+    # 🔴 **最後の 1 手で起動を巻き込まない**（Codex の P2）。⚠⚠ **`setup_sentry` の rescue から
+    # 呼ばれる**ので、**syslog も使えない箱でここが例外を上げると、観測の行が常駐を落とす。**
+    def test_setup_error_fallback_never_raises
+      Syslog::Logger.define_singleton_method(:new) {|*| raise 'syslog boom'}
+      begin
+        assert_nothing_raised do
+          assert_nil(Makoto.report_sentry_setup_error_fallback(RuntimeError.new('boom'), RuntimeError.new('log')))
+        end
+      ensure
+        Syslog::Logger.singleton_class.remove_method(:new)
+      end
+    end
+
     # 🔴 **DSN が空でも警告を出さない。**⚠⚠ **`dsn: null` は `Config#[]` で例外になる**ので、
     # 素で読むとすべての起動が「Sentry initialization skipped」を出していた。
     def test_setup_without_a_dsn_is_silent

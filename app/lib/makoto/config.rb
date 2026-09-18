@@ -74,10 +74,14 @@ module Makoto
     #
     # ⚠⚠ **判定の正本は `secure_dump` と同じ `logger.mask_fields`**（**gem の既定 ＋
     # `/logger/mask_fields`**）。🔴 **ここで列を書き起こさない** — **2 か所に分かれると必ずズレる。**
+    #
+    # 🔴 **値の側は欲張って読む**（Codex の P2）。⚠⚠ **最短一致にすると、値そのものが ` did not `
+    # を含むときにそこで止まり、残りが素で出る**（`value "x did not SECRET" did not match ...`）。
+    # ⚠ **欲張れば伏せすぎる側に倒れるだけで、秘密は残らない。**
     def sanitize_error(message)
       text = message.to_s.sub(/ in schema .*\z/, '')
       return text unless masked_property?(text)
-      return text.sub(/(?<= value ).+?(?= did not )/, '(masked)')
+      return text.sub(/(?<= value ).+(?= did not )/, '(masked)')
     end
 
     # ⚠ **`#/sentry/dsn` のような指し先を、`secure_dump` と同じ形で照合する。**
