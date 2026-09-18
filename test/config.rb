@@ -2,6 +2,9 @@ require 'json-schema'
 
 module Makoto
   class ConfigTest < TestCase
+    # ⚠ **鍵は userinfo のユーザ名側だけに入る**（URL のマスクに当たらない形）。
+    SECRET = 'PUBLICKEYSECRET'.freeze
+
     def test_version
       assert_match(/^\d+\.\d+\.\d+$/, Package.version)
       assert_equal("makoto2 #{Package.version}", Package.full_name)
@@ -114,6 +117,41 @@ module Makoto
       with_errors(-> {found}) do
         assert_equal(["The property '#/mastodon' did not contain a required property"],
           config.validation_errors)
+      end
+    end
+
+    # 🔴 **伏せるはずのキーの値を、検査エラーの本文で出さない**（v0.6.0 のリリース前レビュー・黄）。
+    # ⚠⚠ **この文字列は `/healthz` の 503 の本文と起動時の `logger.error` に載る** — ⚠ **ログの
+    # マスクは `https://<鍵>@host/` の形を落とせない**（クエリでも `user:pass` でもないため）。
+    def test_validation_errors_mask_secret_values
+      found = ["The property '#/sentry/dsn' value \"http://#{SECRET}@o1.ingest.sentry.io/456\"" \
+        " did not match the regex '^https://' in schema abc123"]
+
+      with_errors(-> {found}) do
+        assert_not_include(config.validation_errors.first, SECRET, 'DSN が素で出ている')
+        assert_include(config.validation_errors.first, '#/sentry/dsn', 'どのキーが悪いかは残す')
+        assert_include(config.validation_errors.first, 'did not match the regex', '理由も残す')
+      end
+    end
+
+    # 🔴 **値そのものが ` did not ` を含んでも、残りを素で出さない**（Codex の P2）。
+    # ⚠⚠ **最短一致だと値の途中で止まり、その先が `/healthz` の本文に出ていた。**
+    def test_validation_errors_mask_values_containing_the_delimiter
+      found = ["The property '#/sentry/dsn' value \"x did not #{SECRET}\"" \
+        " did not match the regex '^https://' in schema abc123"]
+
+      with_errors(-> {found}) do
+        assert_not_include(config.validation_errors.first, SECRET)
+      end
+    end
+
+    # ⚠ **伏せる対象でないキーは、値を出したまま**（消すと調べられない）。
+    def test_validation_errors_keep_values_of_public_keys
+      found = ["The property '#/mastodon/url' value \"ftp://example.com\"" \
+        " did not match the regex '^https://' in schema abc123"]
+
+      with_errors(-> {found}) do
+        assert_include(config.validation_errors.first, 'ftp://example.com')
       end
     end
 

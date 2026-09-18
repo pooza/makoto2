@@ -1,4 +1,5 @@
 require 'bundler/setup'
+require 'syslog/logger'
 
 module Makoto
   def self.dir
@@ -28,13 +29,45 @@ module Makoto
       sentry.release = Package.version
       sentry.environment = Environment.type
       sentry.traces_sample_rate = sentry_traces_sample_rate
+      # 🔴 **外向きの要求にトレースの文脈を足さない**（v0.6.0 のリリース前レビュー・黄）。
+      # ⚠⚠ **既定の `true` は `Net::HTTP` へのパッチを通じて、すべての送信要求に
+      # `Sentry-Trace` と `Baggage` を付ける** — ⚠ **`Baggage` には `sentry-public_key=<DSN の鍵>`
+      # が載る**ので、**投稿 1 本ごと（ライブ当日は 160 本）と cure-api への要求に、
+      # `mask_fields` へ入れたはずの鍵が平文で出ていく。**
+      # ⚠⚠ **`traces_sample_rate` を 0 にしても止まらない**（標本化ではなく伝播の設定）。
+      # ⚠ **MAKOTO は誰ともトレースを繋いでいない**ので、失うものは無い。
+      sentry.propagate_traces = false
       # ⚠ `send_default_pii` は既定 false のまま。
       sentry.before_send = proc {|event, _hint| scrubber.scrub(event)}
     end
   rescue => e
-    # ⚠⚠ **メッセージは出さない**（Codex の P2）。🔴 **DSN が壊れていると、解析の例外メッセージに
-    # DSN そのものが載りうる**（`mask_fields` に入れた値を stderr へ素で書くことになる）。
-    warn "Sentry initialization skipped: #{e.class}"
+    report_sentry_setup_error(e)
+  end
+
+  # 🔴 **`warn` で出さない**（v0.6.0 のリリース前レビュー・赤）。⚠⚠ **`bin/makoto_daemon.rb` は
+  # `start` / `restart` のとき `require 'makoto'` より前に `$stderr` を `/dev/null` へ繋ぐ**ので、
+  # **本番ではこの 1 行が丸ごと消える** — ⚠ **`report_error` は `Sentry.initialized?` が false の
+  # あいだ全経路で no-op になる**ので、**「入れたつもりで 1 件も集まらない」に誰も気付けない。**
+  # 🔴 **`SentryScrubber#report_drop` と同じ倒し方**（logger → 落ちたら syslog）。
+  #
+  # ⚠⚠ **メッセージは出さない**（Codex の P2）。🔴 **DSN が壊れていると、解析の例外メッセージに
+  # DSN そのものが載りうる**（`mask_fields` に入れた値を素で書くことになる）。
+  def self.report_sentry_setup_error(error)
+    Logger.new.error(sentry: 'init', message: 'initialization skipped',
+      error_class: error.class.name)
+  rescue => e
+    report_sentry_setup_error_fallback(error, e)
+  end
+
+  # 🔴 **最後の 1 手で起動を巻き込まない**（Codex の P2）。⚠⚠ **ここは `setup_sentry` の rescue の
+  # 中から呼ばれる**ので、**syslog も使えない箱でここが例外を上げると、観測のための 1 行が
+  # 常駐を落とす。**⚠ **`SentryScrubber#report_drop_fallback` と同じく、諦めて nil を返す。**
+  def self.report_sentry_setup_error_fallback(error, log_error)
+    ::Syslog::Logger.new(Package.name).error(
+      "sentry init: initialization skipped: #{error.class} (logging failed: #{log_error.class})",
+    )
+  rescue
+    return nil
   end
 
   # ⚠ **無ければ 0**（Codex の P2）。⚠⚠ **素で読むと、DSN だけ置いたホストで例外になり、
