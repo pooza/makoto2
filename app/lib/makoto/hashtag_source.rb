@@ -30,6 +30,9 @@ module Makoto
   class HashtagSource
     include Package
 
+    # 🔴 **包んだ先へ渡すもの**（#281）。⚠ **`call` はここが自分で持つので入れない。**
+    DELEGATED = [:posted].freeze
+
     # @param source [#call] 包む `source`
     # @param hashtag [String, nil] 足すハッシュタグ。⚠ **空なら何もしない**
     def initialize(source:, hashtag: nil)
@@ -39,6 +42,30 @@ module Makoto
 
     def call(time = nil)
       return tag(@source.call(time))
+    end
+
+    # 🔴 **包んだ先が持つものだけを、持っていると答える**（#281）。
+    #
+    # ⚠⚠ **`PostingJob#notify` は `@source.respond_to?(:posted)` で分岐する。**
+    # ⚠ **包んだ時点でそれが false になる**ので、🔴 **曲紹介にタグを 1 つ足した瞬間に
+    # `posted` が届かなくなり、`track_history` が黙って伸びなくなる** ＝ **#41 の
+    # 重複回避が無言で切れる**（⚠⚠ **ログにも痕跡が出ない**）。
+    #
+    # ⚠ **`posted` を素のメソッドとして生やさない。**🔴 **そうすると `respond_to?` が
+    # 常に true になり、`posted` を持たない source を包んだライブの 160 枠でも
+    # `notify` が呼ばれる** — ⚠⚠ **「委譲を足したが常に nil」という、検知したかった
+    # 状態と見分けの付かない形になる**（→ `PostingJob#notify` の `recorded`・#284）。
+    def respond_to_missing?(name, include_private = false)
+      return true if DELEGATED.include?(name) && @source.respond_to?(name, include_private)
+      return super
+    end
+
+    # ⚠ **何でも通さない**（#281）。🔴 **`PostingJob` が source に求めるのは `call` と
+    # `posted` の 2 つだけ** — ⚠⚠ **広く通すと「包んだせいで別のメソッドが生えた」形の
+    # 事故を後から作る**（**包む側は本文にタグを足すだけのもので、中身の代わりではない**）。
+    def method_missing(name, ...)
+      return super unless DELEGATED.include?(name) && @source.respond_to?(name)
+      return @source.public_send(name, ...)
     end
 
     # 本文にタグを足す。
@@ -69,33 +96,20 @@ module Makoto
     # 🔴 **受けるのは `PostingJob#create_text` の `rescue`** — ⚠⚠ **`record(:failure)`
     # して `nil` を返す ＝ その枠は 1 文字も投稿されない。**⚠ **重複判定の側
     # （`create_tags`）だけが #171 で直っていて、連結の側は #64 から残っていた。**
+    #
+    # ✅ **寄せ方そのものは `Text` へ出した**（#280）— ⚠⚠ **同じ判断が要る場所が
+    # ここだけではなかった**（**朝挨拶と曲紹介**）。🔴 **Shift_JIS はここで諦めずに
+    # 済むようになった** — ⚠ **以前はラベルの貼り替えだけだったので、`rescue` が
+    # タグを落としていた**（**本文は出るがタグが付かない**）。
+    #
+    # ⚠ **寄せられないもの（不正なバイト列）だけがタグを落とす** —
+    # 🔴 **`Ginseng::ValidateError` も握る**（⚠⚠ **握らないと `PostingJob` まで抜けて、
+    # #192 が守った「投稿そのものは失わない」が裏返る**）。
     def join(text, tags)
-      return [utf8(text).rstrip, tags].join("\n")
-    rescue ArgumentError, EncodingError => e
+      return [Text.utf8(text).rstrip, tags].join("\n")
+    rescue ArgumentError, EncodingError, Ginseng::ValidateError => e
       logger.warn(hashtag: 'skipped', at: 'join', error: e)
       return text
-    end
-
-    # ⚠ **ラベルを貼り替えるのは ASCII-8BIT だけ**（🔴 **直したいのはその 1 件** —
-    # **`Sequel` / SQLite が非 ASCII を ASCII-8BIT で返す**）。
-    # 🔴 **中身は 1 バイトも変わらない**ので、**投稿するのは元の文字列**のまま。
-    #
-    # ⚠⚠ **エンコーディングを名乗っている文字列には触らない**（Codex の P2）。
-    # 🔴 **「妥当な UTF-8 か」だけで決めると、Shift_JIS の本文が黙って化ける** —
-    # ⚠ **`'凜々'.encode('Windows-31J')` は `EA A3 81 58` で、これは妥当な UTF-8
-    # でもある**ので、**貼り替えると `ꣁX` として投稿される。**
-    # ⚠⚠ **`valid_encoding?` は「そう読めるか」であって「そうである」ではない。**
-    #
-    # ⚠ **ASCII-8BIT は「エンコーディングが分からない」**という意味なので、
-    # **妥当な UTF-8 と確かめられたときに限って UTF-8 と見なしてよい。**
-    #
-    # ⚠ **触らなかったもの（Shift_JIS・不正なバイト列）は `join` に任せる** —
-    # 🔴 **タグが ASCII だけなら普通に繋がり、非 ASCII なら `rescue` がタグを諦める。**
-    def utf8(text)
-      text = text.to_s
-      return text unless text.encoding == Encoding::ASCII_8BIT
-      utf8 = text.dup.force_encoding(Encoding::UTF_8)
-      return utf8.valid_encoding? ? utf8 : text
     end
 
     # ⚠ **本文は重複の判定にだけ使う**（投稿するのは元の文字列）。

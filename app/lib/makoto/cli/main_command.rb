@@ -74,9 +74,10 @@ module Makoto
 
       出す行は 6 つ:
 
-      running — 生死と PID。死んでいればこの 1 行だけ
+      running — 生死と PID。🔴 常駐が起動時に読み込んだリビジョンも（#242）。
+      ⚠⚠ git log -1 は「置いてあるもの」で、こちらは「動いているもの」。死んでいればこの 1 行だけ
 
-      jobs — ⚠⚠ 登録された本数。「出た本数」ではない（#78）
+      jobs — ⚠⚠ 登録された本数。「出た本数」ではない（#78）。⚠ 枠の名前も並べる（#242）
 
       heartbeat — 最後のハートビートからの経過。⚠ 止まっていればスケジューラが死んでいる
 
@@ -93,8 +94,8 @@ module Makoto
     def status
       health = Health.new
       if health.alive?
-        puts "running (PID #{health.pid})"
-        puts "jobs: #{health.jobs || '(unknown)'}"
+        puts "running (PID #{health.pid}, revision #{health.revision || '(unknown)'})"
+        puts "jobs: #{format_jobs(health)}"
         puts "heartbeat: #{format_age(health.heartbeat_age)}"
         puts "tick: #{format_tick(health)}"
         puts "posting: #{format_posting(health)}"
@@ -108,6 +109,14 @@ module Makoto
     end
 
     private
+
+    # ⚠ **名前が無ければ本数だけ**（#242 より前の常駐が書いた痕跡）。
+    def format_jobs(health)
+      return '(unknown)' unless health.jobs
+      names = Array(health.job_names)
+      return health.jobs.to_s if names.empty?
+      return "#{health.jobs} (#{names.join(', ')})"
+    end
 
     def format_age(seconds)
       return '(unknown)' unless seconds

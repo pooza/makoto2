@@ -134,8 +134,17 @@ module Makoto
     # ⚠ **枠の外・ライブが持つ日・曲が引けなければ nil**（＝その枠は投稿しない）。
     def call(time = nil)
       time ||= Time.now
+      log_quiet_day(time)
       entry = compose(time)
       return nil unless entry
+      # 🔴 **前置きが引けなかったことを残す**（#313）。⚠⚠ **曲だけの本文でも投稿は成功に
+      # 数えられ、`/healthz/posting` も緑のまま** — ⚠ **前置きが消えたことは目で見るしか
+      # 分からなかった**（9/8〜9/10 の「ひとことが出ていない」）。✅ **共通の原稿が入った
+      # 後（#251）は平常日に出ない**ので、**出たら type の綴り違いか原稿の消失。**
+      # ⚠ **`compose` ではなくここ** — **下見（`song preview`）は何十枠も組むので、ログを汚さない。**
+      # ⚠⚠ **行が引けても本文が空なら同じ**（Codex の P2）。🔴 **`makoto message add` は
+      # 空の本文を弾かず、`TrackPresenter` は空を「前置き無し」として出す。**
+      warn_no_prefix(entry) if entry[:prefix].nil? || entry[:prefix][:body].blank?
       remember(time, entry[:track])
       return entry[:text]
     end
@@ -164,10 +173,19 @@ module Makoto
     #
     # ⚠⚠ **表が読めなければ true**（＝共通だけ）。🔴 **1 枠の異常で投稿を止めない**が、
     # **倒す向きは「どの曲にも外さない」側**（→ 冒頭「語りのトラックには共通だけ」）。
+    #
+    # 🔴 **`ValidateError` だけを受けない**（#312）。⚠⚠ **表がディレクトリ・権限が無い
+    # （`Errno::EISDIR` / `EACCES`）、別名表の行が Hash でない（`TypeError`）も、ここを
+    # 抜けると `PostingJob` まで上がって枠が丸ごと消える**（表は枠ごとに読み直すので 1 日 3 枠とも）。
     def spoken?(track)
       return @prefixes.spoken?(track)
-    rescue Ginseng::ValidateError => e
-      logger.warn(post: Song::NAME, message: 'spoken table unreadable', error: error_message(e))
+    rescue => e
+      # ⚠⚠ **クラス名は別に持つ**（Codex の P2）。🔴 **ロガーは例外を `message` / `file` /
+      # `line` に潰す**（→ test/logger.rb）ので、**`error: e` だけでは `EISDIR` か `EACCES` か
+      # `TypeError` かが残らない。**
+      logger.warn(
+        post: Song::NAME, message: 'spoken table unreadable', error_class: e.class.name, error: e,
+      )
       return true
     end
 
@@ -181,6 +199,13 @@ module Makoto
     def posted(slot)
       track = @drawn_mutex.synchronize {@drawn.delete(key_of(slot))}
       return nil unless track
+      # 🔴 **どの曲を出したかをログに残す**（#284）。⚠⚠ **投稿のログは `status_id` しか
+      # 持たない**ので、**「履歴がその曲で伸びたか」をログだけでは言えなかった。**
+      # ⚠ **鍵は `track_history` に書く値と同じ `dedupe_key`**（→ `TrackHistory#record`）
+      # なので、🔴 **ログの行と表の行を突き合わせられる。**
+      # ⚠⚠ **`id` ではなく `dedupe_key`** — **`id` は DB ごとの採番なので箱をまたぐと
+      # 意味が変わる**（#223 で並べ替えの鍵から外したのと同じ理由）。
+      logger.info(post: Song::NAME, dedupe_key: track[:dedupe_key], kind: track[:kind])
       # ⚠ **履歴を持っているのは `TrackLottery`**（**外す側と覚える側を 1 つにする**）。
       return @lottery.record(track)
     end
@@ -306,6 +331,31 @@ module Makoto
     # ⚠ **例外は上げない。**1 枠の異常で常駐を落とさない（→ docs/CLAUDE.md
     # 「投稿の欠落は詰めない」）。⚠⚠ **設定の誤りは `TrackLottery` が例外にする**ので、
     # **ここが受けるのは「母集合が空」だけ。**
+    # 🔴 **黙る日に黙ったことを残す**（#277）。⚠⚠ **`PostingJob` の「本文なし」は `debug`**
+    # なので、**11/3・11/4 に曲紹介が正しく黙っているかを、ログで確かめられなかった**
+    # （**別の理由で黙っても出力は同じ「何も無い」**）。⚠ **`info` で年 6 行**（2 日 × 3 枠）—
+    # 🔴 **平常日には出ない**ので #80 の黄 9（平常日に 171 行）にはならない。
+    # ⚠ **`call` だけ**（下見の `compose` は鳴らさない → `warn_no_prefix` と同じ）。
+    #
+    # 🔴 **`phase` を付ける。**⚠⚠ **`post` と `slot` を両方持つ行は、`RehearsalReport` が
+    # `exec` 1 回として数える**（#284 の `notify` で踏んだ形）— ⚠ **黙る日そのものを回す
+    # 11/3・11/4 のリハーサルで、曲紹介の枠が exec 2 回に見えてしまう。**
+    def log_quiet_day(time)
+      return unless @timetable.index_at(time)
+      return unless quiet?(time)
+      types = @selector.reserved_types_on(@selector.date_of(time)) & @quiet_types
+      logger.info(
+        post: Song::NAME, slot: time.getutc.iso8601, phase: 'quiet',
+        message: 'quiet day', types: types
+      )
+    end
+
+    def warn_no_prefix(entry)
+      logger.warn(
+        post: Song::NAME, message: 'no prefix', kind: entry[:track][:kind], spoken: entry[:spoken],
+      )
+    end
+
     def draw
       track = @lottery.draw
       return track if track

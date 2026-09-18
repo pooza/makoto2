@@ -74,6 +74,10 @@ module Makoto
     # ⚠ **壊れた表で黙って素通ししない。**🔴 **`names` が 1 つだけの行は何もしない**
     # ので、⚠⚠ **書いたのに効いていないことに気づけない形になる。**
     def validate(entry)
+      # ⚠ **行が Hash でなければ `entry[:names]` が `TypeError` で抜ける**（#312）。
+      # ⚠⚠ **`- 五匹の子ぶた` のように `names:` を書き忘れた形**（`SpokenTracks#validate` と揃える）。
+      raise Ginseng::ValidateError, "#{FILE}: 行が Hash ではありません（#{entry.inspect}）" unless
+        entry.is_a?(Hash)
       names = Array(entry[:names]).map(&:to_s).reject(&:blank?)
       raise Ginseng::ValidateError, "#{FILE}: names は 2 つ以上必要です（#{names.join(', ')}）" if
         names.size < 2

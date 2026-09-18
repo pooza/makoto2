@@ -34,10 +34,10 @@ GIT
 
 GIT
   remote: https://github.com/pooza/ginseng-fediverse.git
-  revision: f6e160a2794db2573b9210eea23ab7593dcc5123
-  tag: v1.8.31
+  revision: 4bc0d965167214c2747733a951661e7c74420c4f
+  tag: v2.0.0
   specs:
-    ginseng-fediverse (1.8.31)
+    ginseng-fediverse (2.0.0)
 
 GIT
   remote: https://github.com/pooza/ginseng-style.git
@@ -198,6 +198,10 @@ GEM
       crass (~> 1.0.2)
       nokogiri (>= 1.16.8)
     securerandom (0.4.1)
+    sentry-ruby (7.0.0)
+      bigdecimal
+      concurrent-ruby (~> 1.0, >= 1.0.2)
+      logger
     sequel (5.106.0)
       bigdecimal
     set (1.1.3)
@@ -250,6 +254,7 @@ DEPENDENCIES
   puma
   rubocop-sequel
   rufus-scheduler
+  sentry-ruby
   sequel
   sqlite3
   test-unit
@@ -282,7 +287,7 @@ CHECKSUMS
   find (0.2.0) sha256=9aabac9dbbea3fdd23781f79a2fd626166e57dab349aaec449400811b40c371b
   fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
   ginseng-core (1.23.7)
-  ginseng-fediverse (1.8.31)
+  ginseng-fediverse (2.0.0)
   ginseng-style (1.1.12)
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   httparty (0.24.2) sha256=8fca6a54aa0c4aa4303a0fd33e5e2156175d6a5334f714263b458abd7fda9c38
@@ -333,6 +338,7 @@ CHECKSUMS
   rufus-scheduler (3.9.2) sha256=55fa9e4db0ff69d7f38c804f17baba0c9bce5cba39984ae3c5cf6c039d1323b9
   sanitize (7.0.0) sha256=269d1b9d7326e69307723af5643ec032ff86ad616e72a3b36d301ac75a273984
   securerandom (0.4.1) sha256=cc5193d414a4341b6e225f0cb4446aceca8e50d5e1888743fac16987638ea0b1
+  sentry-ruby (7.0.0) sha256=e9616ff521355a983fad404ca575d8bb1f1949a8cac42a7a893dd02156bcdb1a
   sequel (5.106.0) sha256=0e6677f230e724ecbc9b4d5fc95ef9a69997cfb24c60fff84268185e0bb254cd
   set (1.1.3) sha256=12bbbd31c8b177d55ac0314bcc7f4c473276b06e8a2dcfdc14326e73ce7769ce
   sqlite3 (2.9.6-aarch64-linux-gnu) sha256=d8b1f7d23efd7abac285775a9566562fc7debfef79d594e3a20354406fb7907c

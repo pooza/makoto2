@@ -75,24 +75,35 @@ module Makoto
     def exec(time = nil)
       slot = claim(due_slot(time))
       return nil unless slot
-      text = create_text(slot)
-      # ⚠ **nil は `source` が落ちたことを指す**（`create_text` が記録済み）。
-      # ⚠⚠ **空文字と混ぜない** — 混ぜると #77 の「設定を消すと枠の中で例外が上がる」
-      # 形が「原稿の無い日」に化けて、**160 枠が沈黙しても健全に見える。**
-      return nil if text.nil?
-      if text.blank?
-        # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
-        # ⚠⚠ **成功にも失敗にも数えない。**→ `Heartbeat` 冒頭の表。
-        #
-        # ⚠ **`debug` なのは、これが平常日に 171 行出るから**（#80 の黄 9）。
-        # ⚠⚠ **ライブの 4 枠は毎日空回りする設計**なので、これを `info` に置くと
-        # **11/4 に壊れて何も出なかった日のログが、平常日と 1 文字も変わらない。**
-        # ⚠ **「出るべき日に出なかった」を言えるのは中身を知っている側だけ**なので、
-        # **そちらが `warn` を出す**（→ `LiveProgram#call`）。
-        logger.debug(post: @name, slot: format_slot(slot), message: 'no text')
-        return nil
-      end
-      return post(text, slot)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return exec_slot(slot)
+    ensure
+      warn_slow(slot, started) if started
+    end
+
+    # 🔴 **設定した予算を超えて長くかかった枠を 1 行残す**（#92）。
+    #
+    # ⚠⚠ **打ち切らない。**🔴 **`Timeout.timeout` などで切ると、非同期に上がる例外が「受理された
+    # 直後」に当たり、再送で同じ投稿がもう 1 本出る**（二重投稿の入口 → #92 の本文）。⚠ **この箱
+    # （`0.6`）は観測を厚くする版**なので、**「予算の外で掴まれていた」ことに気づけるところまで。**
+    #
+    # ⚠ **予算は `/http` の設定から出す**（タイムアウト × 再送 ＋ 待ち）— ⚠⚠ **HTTParty の
+    # `timeout` は socket 操作ごと**なので、**これを超えたら slow-drip で掴まれている合図。**
+    # ⚠ **`phase` を付ける**（`RehearsalReport` が `exec` に数えない → #277）。
+    def warn_slow(slot, started)
+      seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      return if seconds <= budget_seconds
+      logger.warn(post: @name, slot: format_slot(slot), phase: 'slow',
+        seconds: seconds.round(1), budget: budget_seconds)
+    rescue => e
+      logger.error(post: @name, phase: 'slow', error: e)
+    end
+
+    def budget_seconds
+      # ⚠ **`limit` が 0（再送しない）でも最初の 1 回は飛ぶ**（Codex の P2）。
+      attempts = [config['/http/retry/limit'].to_i, 1].max
+      waits = config['/http/retry/seconds'].to_f * (attempts - 1)
+      return (config['/http/timeout/seconds'].to_f * attempts) + waits
     end
 
     # ⚠ **枠の頭の時刻そのものから作る。**プロセスをまたいでも同じ枠なら同じ値。
@@ -116,6 +127,27 @@ module Makoto
     end
 
     private
+
+    def exec_slot(slot)
+      text = create_text(slot)
+      # ⚠ **nil は `source` が落ちたことを指す**（`create_text` が記録済み）。
+      # ⚠⚠ **空文字と混ぜない** — 混ぜると #77 の「設定を消すと枠の中で例外が上がる」
+      # 形が「原稿の無い日」に化けて、**160 枠が沈黙しても健全に見える。**
+      return nil if text.nil?
+      if text.blank?
+        # ⚠ 本文が無いのは「投稿しない」であって異常ではない（原稿が無い日など）。
+        # ⚠⚠ **成功にも失敗にも数えない。**→ `Heartbeat` 冒頭の表。
+        #
+        # ⚠ **`debug` なのは、これが平常日に 171 行出るから**（#80 の黄 9）。
+        # ⚠⚠ **ライブの 4 枠は毎日空回りする設計**なので、これを `info` に置くと
+        # **11/4 に壊れて何も出なかった日のログが、平常日と 1 文字も変わらない。**
+        # ⚠ **「出るべき日に出なかった」を言えるのは中身を知っている側だけ**なので、
+        # **そちらが `warn` を出す**（→ `LiveProgram#call`）。
+        logger.debug(post: @name, slot: format_slot(slot), message: 'no text')
+        return nil
+      end
+      return post(text, slot)
+    end
 
     def validate
       unless @source.respond_to?(:call)
@@ -181,6 +213,9 @@ module Makoto
       return @source.call(slot).to_s
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **枠が落ちたことを Sentry へ**（#28）。⚠ **ライブ当日の 8 時間に静かに壊れると、
+      # 気づくのは終わった後になる。**
+      report_error(e, post: @name)
       record(:failure, slot)
       return nil
     end
@@ -200,6 +235,9 @@ module Makoto
       return response
     rescue => e
       logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **枠が落ちたことを Sentry へ**（#28）。⚠ **ライブ当日の 8 時間に静かに壊れると、
+      # 気づくのは終わった後になる。**
+      report_error(e, post: @name)
       record(:failure, slot)
       return nil
     end
@@ -215,11 +253,27 @@ module Makoto
     # **その曲を「出した」とは数えない。**
     #
     # ⚠ **ここで落ちても投稿の側を巻き込まない**（`record` と同じ判断）。
+    #
+    # 🔴 **履歴が伸びたかをログだけで言えるようにする**（#284）。⚠⚠ **`posted` が nil を
+    # 返すのは「覚えなかった」** — **履歴を切ってある（`/song/history/size` が 0）か、
+    # その枠の曲を持っていない**。⚠ **投稿そのものは成功しているので、失敗としては
+    # 1 行も出ない** ＝ 🔴 **#41 の重複回避が無言で切れていても気づけなかった。**
+    #
+    # ⚠ **`posted` を持たない source では 1 行も出さない**（朝挨拶・ライブの 160 枠）。
+    # ⚠⚠ **「持たない」と「持っているのに覚えなかった」は別の状態**なので、
+    # **前者を毎回ログに出すと後者が埋もれる。**
     def notify(slot)
       return nil unless @source.respond_to?(:posted)
-      return @source.posted(slot)
+      recorded = @source.posted(slot)
+      logger.info(post: @name, slot: format_slot(slot), phase: 'notify',
+        recorded: !recorded.nil?)
+      return recorded
     rescue => e
-      logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **投稿の失敗と同じキーで出さない**（#284）。⚠⚠ **意味が正反対** —
+      # **こちらは「投稿は成功したが、履歴の通知で落ちた」。**⚠ **`TrackHistory#record`
+      # が内側で全部握るのでほぼ発火しない**が、🔴 **発火した日に読み違える。**
+      logger.error(post: @name, slot: format_slot(slot), phase: 'notify', error: e)
+      report_error(e, post: @name, phase: 'notify')
       return nil
     end
 

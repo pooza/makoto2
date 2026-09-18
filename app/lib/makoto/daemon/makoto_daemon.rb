@@ -76,7 +76,10 @@ module Makoto
     end
 
     def start(args = [])
-      logger.info(daemon: app_name, version: Package.version, message: 'start')
+      # ⚠ **`revision` はここで固定される**（#242 → `Package.revision`）。
+      logger.info(
+        daemon: app_name, version: Package.version, revision: Package.revision, message: 'start',
+      )
       # 🔴 **設定を起動時に 1 回検証する**（#99）。⚠ **止めない**（→ `validate_config`）。
       validate_config
       # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。
@@ -97,6 +100,9 @@ module Makoto
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
+      # ⚠ **起き上がれなかったことを Sentry へ**（#28）。⚠⚠ **stderr は `/dev/null` で、
+      # `systemd` は 5 秒ごとに叩き直すだけ**なので、ログを見に行かない限り気づけない。
+      report_error(e, daemon: app_name)
       raise
     end
 
@@ -119,17 +125,29 @@ module Makoto
     # を作って持つ（→ `Scheduler`）。ここは並べるだけ。
     # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
     def register_jobs
-      Scheduler.instance.register(Announcement.new.job)
-      # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
-      # 何も返さない**（→ Morning / MessageSelector）。
-      Scheduler.instance.register(Morning.new.job)
-      # ⚠ 曲紹介は 1 日 3 本（#16 / #292）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
-      # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
-      Scheduler.instance.register(Song.new.job)
-      # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
-      # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
-      Live.new.jobs.each {|job| Scheduler.instance.register(job)}
+      jobs.each {|job| Scheduler.instance.register(job)}
       return Scheduler.instance
+    end
+
+    # 常駐が回す投稿の一覧（登録はしない）。
+    #
+    # 🔴 **作るだけで各機能の起動時の検査が走る**（`Song#validate` など）。⚠⚠ **`rake config:lint`
+    # が同じものを 1 回作る**（#276）— **スキーマで書けない相互条件**（「この type が
+    # `/message/anniversary` に登録されているか」）**で常駐が起動を拒むと、`systemd` が 5 秒
+    # ごとに叩き直し、`/healthz` も開かない**ので、**デプロイの前に拾う。**
+    def jobs
+      return [
+        Announcement.new.job,
+        # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
+        # 何も返さない**（→ Morning / MessageSelector）。
+        Morning.new.job,
+        # ⚠ 曲紹介は 1 日 3 本（#16 / #292）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
+        # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
+        Song.new.job,
+        # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
+        # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
+        *Live.new.jobs,
+      ]
     end
 
     private

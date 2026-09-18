@@ -25,6 +25,15 @@ module Makoto
       @scheduler.shutdown(:kill)
     end
 
+    # 🔴 **窓の検査はクラスに置く**（#276）。⚠⚠ **`rake config:lint` が `Scheduler.instance`
+    # を作らずに当てるため** — ⚠ **インスタンスは作った時点で rufus のスレッドを起こす。**
+    def self.validate_window(job)
+      window = CommentaryWindow.new
+      return unless window.conflict?(job.timetable)
+      raise Ginseng::ConfigError,
+        "scheduler: #{job.name} (#{job.timetable}) must avoid the commentary window (#{window})"
+    end
+
     # 投稿を登録する。⚠ `exec` の前に呼ぶこと。
     #
     # 🔴 **ここが「自分から出す投稿」の唯一の入口**（#172・Codex の P2）。⚠⚠ **日曜
@@ -34,7 +43,7 @@ module Makoto
     # ⚠ **応答の経路には掛からない**（#18 / #29）。**窓が止めるのは自分から出すほうだけ**
     # で、⚠⚠ **呼ばれて答えるのは割り込みではなく参加**（→ docs/CLAUDE.md）。
     def register(job)
-      validate_window(job)
+      self.class.validate_window(job)
       @jobs.push(job)
       logger.info(scheduler: 'register', post: job.name, timetable: job.timetable.to_s)
       return self
@@ -53,6 +62,7 @@ module Makoto
         job.exec(time)
       rescue => e
         logger.error(scheduler: 'tick', post: job.name, error: e)
+        report_error(e, post: job.name)
         next nil
       end
       record_tick
@@ -60,13 +70,6 @@ module Makoto
     end
 
     private
-
-    def validate_window(job)
-      window = CommentaryWindow.new
-      return unless window.conflict?(job.timetable)
-      raise Ginseng::ConfigError,
-        "scheduler: #{job.name} (#{job.timetable}) must avoid the commentary window (#{window})"
-    end
 
     # ⚠⚠ **tick が回ったこと自体を痕跡に残す**（#80 の黄 7）。⚠ **ハートビートは別の
     # rufus ジョブ**なので、**tick 側だけが詰まっても `at` は更新され続ける** —
@@ -79,6 +82,7 @@ module Makoto
       Heartbeat.record_tick
     rescue => e
       logger.error(scheduler: 'tick', error: e)
+      report_error(e)
     end
 
     def initialize
@@ -89,16 +93,21 @@ module Makoto
     def schedule_heartbeat
       interval = config['/scheduler/heartbeat/interval']
       @scheduler.every interval, first: :now do
-        logger.info(scheduler: 'heartbeat', version: Package.version, jobs: jobs)
+        # 🔴 **`version` / `jobs` は版を粗くしか区別しない**（#242）— ⚠⚠ **同じ `0.6.0` / `7` の
+        # まま何コミットでも進む**ので、**起動時に読み込んだ `revision` を並べる。**
+        logger.info(
+          scheduler: 'heartbeat', version: Package.version, revision: Package.revision, jobs: jobs,
+        )
         # 🔴 **日付を騙している間は鳴らし続ける**（#110）。⚠⚠ **リハーサルの
         # つもりで無い常駐が偽の日付で動いていたら、それは事故。**⚠ **1 回きりの
         # 起動ログでは、後から入った人が気づけない。**
         logger.warn(time_travel: TimeTravel.describe) if TimeTravel.active?
         # ⚠ **監視はログではなくこの痕跡を見る**（→ `Heartbeat` / `Health`）。
         # 書けなくてもハートビートそのものは止めない（下の rescue の内側）。
-        Heartbeat.touch(jobs: jobs)
+        Heartbeat.touch(jobs: jobs, job_names: job_names)
       rescue => e
         logger.error(scheduler: 'heartbeat', error: e)
+        report_error(e)
       end
     end
 
@@ -127,6 +136,11 @@ module Makoto
     # 検知できる。⚠ ハートビート自身や tick は数えない。
     def jobs
       return @jobs.size
+    end
+
+    # ⚠ **本数だけでは「morning が居る」を確かめられない**（#242・PR #238 の Codex の P2）。
+    def job_names
+      return @jobs.map(&:name)
     end
   end
 end

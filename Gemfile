@@ -5,9 +5,11 @@ source 'https://rubygems.org'
 #   当日通しリハーサルを 5.x で通した」とき（→ docs/CLAUDE.md の当日通し）。
 ruby '>= 4.0', '< 5.0'
 gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v1.23.7', require: 'ginseng'
-gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v1.8.31',
+gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v2.0.0',
   require: 'ginseng/fediverse'
 gem 'rufus-scheduler'
+# 例外の集約（#28）。⚠ **DSN が無ければ初期化しない**（→ `Makoto.setup_sentry`）。
+gem 'sentry-ruby'
 gem 'sequel'
 # rufus-scheduler の依存として入るが、Timetable が直接使うので明示する。
 gem 'sqlite3'

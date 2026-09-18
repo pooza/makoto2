@@ -72,6 +72,31 @@ module Makoto
       return Heartbeat.jobs
     end
 
+    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
+    def job_names
+      return nil unless own_heartbeat?
+      return Heartbeat.job_names
+    end
+
+    # ⚠ **常駐が起動時に読み込んだもの**（#242）。🔴 **`git log -1`（置いてあるもの）と違う。**
+    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
+    def revision
+      return nil unless own_heartbeat?
+      return Heartbeat.revision
+    end
+
+    # 🔴 **痕跡を書いたのが pid ファイルの常駐か**（#242・Codex の P2）。
+    #
+    # ⚠⚠ **痕跡のファイルは 1 つを共有する**ので、**再起動の直後**（`record_start` は前の
+    # ハートビートを残し、`touch` は `Scheduler#exec` まで走らない）や**孤児がまだ書いている
+    # とき**に、⚠ **新しい PID と古い／別のプロセスの `revision` を組み合わせて見せてしまう。**
+    # 🔴 **「動いているもの」を言う行が、まさに取り違えを隠す形になる**ので、合わなければ出さない。
+    def own_heartbeat?
+      recorded = Heartbeat.read&.dig(:pid)
+      return false unless recorded && pid
+      return recorded.to_i == pid.to_i
+    end
+
     def heartbeat_age
       return Heartbeat.age(now)
     end
@@ -92,22 +117,7 @@ module Makoto
     # ⚠⚠ **`/proc` が読めない環境では nil を返す。**「孤児は無い」と嘘をつくと、
     # 監視しているつもりで無防備になる。
     def orphans
-      return nil unless File.directory?(@proc_dir)
-      unreadable = false
-      found = Dir.glob(File.join(@proc_dir, '[0-9]*')).filter_map do |dir|
-        orphan_pid(dir)
-      rescue Errno::EACCES
-        unreadable = true if File.owned?(dir)
-        next nil
-      rescue SystemCallError
-        unreadable = true
-        next nil
-      end
-      return found.sort if found.any?
-      return nil if unreadable
-      return []
-    rescue SystemCallError
-      return nil
+      return scan_orphans.first
     end
 
     # 最後に tick が回った時刻。⚠ **一度も無ければ nil。**
@@ -186,11 +196,18 @@ module Makoto
     end
 
     # 孤児プロセスがあること。⚠ **`/proc` が読めないときも黙らない**（→ `orphans`）。
+    #
+    # 🔴 **孤児が見つかっても、読めなかった項目があればそれも言う**（#166）。⚠⚠ **以前は
+    # 見つかった時点で「読めなかった」を捨てていた**ので、**「孤児 3 件」と出ているときに
+    # 「実はもっとあるかもしれない」が消えていた。**⚠ **`orphans` の戻り値の型は増やさない**
+    # （`nil` / 配列のまま）ので、**1 回の走査から両方を取る**（→ `scan_orphans`）。
     def orphan_warnings
-      found = orphans
+      found, unreadable = scan_orphans
       return ['cannot read /proc (orphan check skipped)'] if found.nil?
       return [] if found.empty?
-      return ["orphan process: #{found.join(', ')}"]
+      warnings = ["orphan process: #{found.join(', ')}"]
+      warnings.push('cannot read /proc (some entries skipped)') if unreadable
+      return warnings
     end
 
     def code
@@ -215,6 +232,29 @@ module Makoto
         return "posting failed #{posting_failures} times in a row (last success: #{last})"
       end
       return "posting failed: #{posts} (limit #{Heartbeat.failure_limit}, last success: #{last})"
+    end
+
+    # `[孤児（読めなければ nil）, 読めなかった項目があったか]`。
+    #
+    # ⚠⚠ **`/proc` が読めない環境では nil。**「孤児は無い」と嘘をつくと、監視しているつもりで
+    # 無防備になる。⚠ **読めた孤児は捨てない**（他の項目が読めなくても）。
+    def scan_orphans
+      return [nil, true] unless File.directory?(@proc_dir)
+      unreadable = false
+      found = Dir.glob(File.join(@proc_dir, '[0-9]*')).filter_map do |dir|
+        orphan_pid(dir)
+      rescue Errno::EACCES
+        unreadable = true if File.owned?(dir)
+        next nil
+      rescue SystemCallError
+        unreadable = true
+        next nil
+      end
+      return [found.sort, unreadable] if found.any?
+      return [nil, true] if unreadable
+      return [[], false]
+    rescue SystemCallError
+      return [nil, true]
     end
 
     def orphan_pid(dir)

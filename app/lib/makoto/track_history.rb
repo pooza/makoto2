@@ -33,10 +33,12 @@ module Makoto
     # @param post [String] 枠の名前。⚠ **枠ごとに別の履歴として読む**
     # @param size [Integer] 直近この本数を避ける。⚠ **0 なら何もしない**
     # @param repository [TrackHistoryRepository] テストが差し替えるための口
-    def initialize(post:, size: 0, repository: nil)
+    # @param aliases_dir [String] 別名表のディレクトリ。⚠ **テストが差し替えるための口**
+    def initialize(post:, size: 0, repository: nil, aliases_dir: nil)
       @post = post.to_s
       @size = size.to_i
       @repository = repository || TrackHistoryRepository.new
+      @aliases_dir = aliases_dir
     end
 
     # ⚠ **設定を消せば止まる**（#77）。🔴 **0 のときは読みにも書きにも行かない。**
@@ -62,6 +64,14 @@ module Makoto
       # 🔴 **避けきれなくなった。**⚠ **黙って重複させない** — ⚠⚠ **母集合が
       # 窓より小さいという設定の食い違いなので、気づける場所はここだけ。**
       logger.warn(track: 'history', post: @post, size: @size, message: 'nothing fresh left')
+      return records
+    # 🔴 **読めなくても枠を落とさない**（#274）。⚠⚠ **書き側（`record`）は握って投稿を
+    # 通すのに、読み側だけが例外を `PostingJob` まで抜けさせ、枠を丸ごと消していた**
+    # （**テーブルが無い・別名表が壊れている**）。⚠ **絞り込まない母集合を返す ＝ 重複を許す。**
+    # ⚠ **起動時にも 1 回読んで落とす**（→ `Song#validate_history`）ので、ここへ来るのは
+    # **動いている間に壊れたときだけ。**
+    rescue => e
+      logger.error(track: 'history', post: @post, error: e)
       return records
     end
 
@@ -104,14 +114,20 @@ module Makoto
     # ⚠ **行を書き換えるのではなく、読むときに寄せる** — ⚠⚠ **別名表は後から増える**
     # ので、**移行を 1 回走らせる形にすると、次に足した日にまた同じことが起きる。**
     def canonicalize(keys)
-      return keys if aliases.empty?
-      return keys.map {|key| aliases.key_for(key) || key}.uniq
+      table = aliases
+      return keys if table.empty?
+      return keys.map {|key| table.key_for(key) || key}.uniq
     end
 
-    # ⚠ **取り込みと同じ表を見る**（→ `TrackImporter.default_aliases`）。
+    # ⚠ **取り込みと同じ表を見る**（`seed/track_aliases.yaml`）。
+    #
+    # 🔴 **メモしない。読むたびに作り直す**（#275）。⚠⚠ **`TrackImporter.default_aliases`
+    # はクラスでメモする**ので、**常駐の中では起動したときの表のまま凍る** — ⚠ **組を足して
+    # `track import` を流しても、`restart` しない限り古い鍵が寄らず、寄せたばかりの曲が
+    # その日のうちにまた出る。**⚠ **窓を記憶しない（→ `exclude`）のと同じ理由。**
+    # ⚠ **読むのは枠ごとに 1 回で、表は数十行**なので実費は無い（→ `SpokenTracks` も同じ形）。
     def aliases
-      @aliases ||= TrackImporter.default_aliases
-      return @aliases
+      return TrackAliases.new(@aliases_dir)
     end
   end
 end

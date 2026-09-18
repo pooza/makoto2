@@ -102,6 +102,11 @@ module Makoto
 
     # ⚠ **`date: 2026-11-03` は Psych が `Date` にする**ので許可する。
     # ⚠⚠ **`safe_load` を使う**（原稿のファイルに Ruby のオブジェクトを書かせない）。
+    def budget
+      @budget ||= PostBudget.new
+      return @budget
+    end
+
     def load_yaml(file)
       return YAML.safe_load_file(file, permitted_classes: [Date])
     rescue Psych::Exception => e
@@ -121,13 +126,16 @@ module Makoto
       raise Ginseng::ValidateError, "#{slug}: type がありません" if type.empty?
       body = record['body'].to_s
       raise Ginseng::ValidateError, "#{slug}: body がありません" if body.strip.empty?
+      # 🔴 **投稿先の上限を取り込みで見る**（#282 → `PostBudget`）。
+      date = self.class.parse_date(record['date'], slug)
+      budget.validate(type, body, slug, dated: date[:month].present?)
       return {
         slug: slug,
         type: type,
         body: body,
         feature: record['feature'],
         seasons: seasons(record['season'], slug),
-        **self.class.parse_date(record['date'], slug),
+        **date,
       }
     end
 

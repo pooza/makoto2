@@ -34,8 +34,8 @@ module Makoto
       return stub
     end
 
-    def health(alive: true)
-      return Health.new(daemon: daemon(alive: alive), now: now)
+    def health(alive: true, pid: 4649)
+      return Health.new(daemon: daemon(alive: alive, pid: pid), now: now)
     end
 
     def capture
@@ -49,8 +49,8 @@ module Makoto
 
     # ⚠ **`status` は終了コードで答えるので `exit` する。**画面のほうを見たいので、
     # ここでは終了そのものは捨てる。
-    def status_output(alive: true)
-      stub = health(alive: alive)
+    def status_output(alive: true, pid: 4649)
+      stub = health(alive: alive, pid: pid)
       new_method = Health.method(:new)
       Health.define_singleton_method(:new) {|*, **| stub}
       return capture do
@@ -83,6 +83,36 @@ module Makoto
       ['running (PID ', 'jobs: ', 'heartbeat: ', 'tick: ', 'posting: ', 'orphans: '].each do |line|
         assert_include(output, line)
       end
+    end
+
+    # 🔴 **動いているリビジョンと枠の名前が画面に出る**（#242）。⚠ **行は増やさない。**
+    def test_status_shows_the_revision_and_the_job_names
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+      # ⚠ **痕跡を書いたのはこのプロセス**なので、pid ファイルの番号もそれに合わせる。
+      output = status_output(pid: Process.pid)
+
+      assert_match(/^running \(PID \d+, revision #{Regexp.escape(Package.revision.to_s)}\)$/, output)
+      assert_include(output, "jobs: 2 (morning, song)\n")
+    end
+
+    # 🔴 **別のプロセスが書いた痕跡のリビジョンは出さない**（#242・Codex の P2）。
+    # ⚠⚠ **再起動の直後・孤児がまだ書いているとき** — **新しい PID と古い revision を並べない。**
+    def test_status_hides_a_revision_from_another_process
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+      output = status_output(pid: Process.pid + 1)
+
+      assert_include(output, "running (PID #{Process.pid + 1}, revision (unknown))\n")
+      assert_include(output, "jobs: 2\n")
+    end
+
+    # ⚠ **#242 より前の常駐が書いた痕跡でも落ちない**（本数だけ出す）。
+    def test_status_without_job_names
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_include(status_output, "jobs: 1\n")
     end
 
     def test_tick_with_a_trace

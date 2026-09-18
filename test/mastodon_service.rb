@@ -17,10 +17,22 @@ module Makoto
       assert_requested(:post, @url, times: 1)
     end
 
+    # 🔴 **リダイレクトを追わない**（#282）。⚠⚠ **追うと POST が GET に化け、資格情報を含む
+    # ヘッダが別ホストへ送られる。**⚠ **3xx は「status ではない」として落ちる。**
+    def test_post_status_does_not_follow_a_redirect
+      elsewhere = 'https://elsewhere.example/api/v1/statuses'
+      stub_request(:post, @url).to_return(status: 302, headers: {'Location' => elsewhere})
+      stub_request(:any, elsewhere)
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+      assert_requested(:post, @url, times: 1)
+      assert_not_requested(:any, elsewhere)
+    end
+
     def test_post_status_sends_token
       stub_request(:post, @url)
         .with(headers: {'Authorization' => "Bearer #{config['/mastodon/token']}"})
-        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}')
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
       @service.post_status('こんにちは')
 
       assert_requested(:post, @url, times: 1)
@@ -63,7 +75,7 @@ module Makoto
       keys = []
       stub_request(:post, @url).to_return do |request|
         keys.push(request.headers['Idempotency-Key'])
-        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body}
       end
       @service.post_status('こんにちは')
       @service.post_status('こんばんは')
@@ -75,7 +87,7 @@ module Makoto
     def test_post_status_accepts_explicit_idempotency_key
       stub_request(:post, @url)
         .with(headers: {'Idempotency-Key' => 'morning-2026-11-01'})
-        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}')
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
       @service.post_status('おはよう', idempotency_key: 'morning-2026-11-01')
 
       assert_requested(:post, @url, times: 1)
@@ -88,7 +100,7 @@ module Makoto
       headers = nil
       stub_request(:post, @url).to_return do |request|
         headers = request.headers
-        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body}
       end
       MastodonService.new.post_status('こんにちは')
 
@@ -102,7 +114,7 @@ module Makoto
       headers = nil
       stub_request(:post, @url).to_return do |request|
         headers = request.headers
-        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body}
       end
       MastodonService.new.post_status('こんにちは')
 
@@ -116,7 +128,7 @@ module Makoto
       headers = nil
       stub_request(:get, url).to_return do |request|
         headers = request.headers
-        {status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}'}
+        {status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body}
       end
       MastodonService.new.account
 
@@ -127,7 +139,7 @@ module Makoto
     # ので、成功したログの側に出ていないと気付けない。
     def test_post_status_logs_the_route
       stub_request(:post, @url)
-        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}')
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
       messages = []
       recorder = Object.new
       recorder.define_singleton_method(:info) {|message| messages.push(message)}
@@ -173,6 +185,150 @@ module Makoto
 
       assert_not_include(message.keys, :token)
       assert_not_include(message.to_json, config['/mastodon/token'])
+    end
+
+    # 🔴 **200 で HTML が返ったら失敗として上げること**（#272）。
+    #
+    # ⚠⚠ **httparty は対応していない Content-Type ではボディを String のまま返す。**
+    # ⚠ **`response['id']` は `String#[]('id')` になり、HTML に `id` の 2 文字があれば
+    # `"id"` を返す** — 🔴 **例外にならないので、`PostingJob` は成功として数え、
+    # `Heartbeat` の連敗を打ち消し、履歴まで進める**（投稿は 1 通も出ていないのに）。
+    def test_post_status_rejects_html_body
+      stub_request(:post, @url).to_return(
+        status: 200,
+        headers: {'Content-Type' => 'text/html'},
+        # ⚠ **`id` の 2 文字を含む HTML**（`<meta name=... id=...>` でまず含まれる）。
+        # ⚠⚠ **これを弾かないと `status_id` に `"id"` という 2 文字が載る。**
+        body: '<html><body id="maintenance">ただいまメンテナンス中です</body></html>',
+      )
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+      # ⚠ **再送しない。**🔴 **200 が返っている以上 `HTTP#retryable?` は発火しない**ので、
+      # ⚠⚠ **1 回だけ叩いて諦めるのが正しい**（→ `PostingJob#post` のコメント）。
+      assert_requested(:post, @url, times: 1)
+    end
+
+    # ⚠⚠ **JSON でも status でなければ弾くこと**（#272）。
+    # 🔴 **`Hash` かどうかだけでは、200 で `{"status":"maintenance"}` を返す前段を通す。**
+    def test_post_status_rejects_json_without_id
+      stub_request(:post, @url).to_return(
+        status: 200,
+        headers: {'Content-Type' => 'application/json'},
+        body: {status: 'maintenance'}.to_json,
+      )
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+    end
+
+    # ⚠ **弾いたことがログに残ること**（#272）。🔴 **型と経路を出す** — ⚠⚠ **誤ルーティング
+    # はモロヘイヤの側で起きる**ので、**経路が分からないと切り分けに 1 往復増える**（#124）。
+    def test_post_status_logs_the_unexpected_shape
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'text/html'}, body: '<html></html>')
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      begin
+        service.post_status('こんにちは')
+      rescue Ginseng::GatewayError
+        nil
+      end
+
+      assert_equal(1, messages.length)
+      assert_equal('String', messages.first[:type])
+      assert_true(messages.first[:mulukhiya])
+    end
+
+    # ⚠⚠ **本文をログに載せないこと**（#272）。🔴 **HTML が丸ごとログに出ると、
+    # 前段が返したものを全部 syslog へ書くことになる** — ⚠ **型だけで区別は足りる。**
+    def test_post_status_does_not_log_the_unexpected_body
+      body = '<html><body>ただいまメンテナンス中です</body></html>'
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'text/html'}, body: body)
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      begin
+        service.post_status('こんにちは')
+      rescue Ginseng::GatewayError
+        nil
+      end
+
+      assert_not_include(messages.first.to_json, 'メンテナンス')
+    end
+
+    # 🔴 **分類が化けないこと**（#272）。⚠⚠ **`GatewayError#source_status` は `message` の
+    # 末尾 3 桁を上流のステータスとして読む**ので、⚠ **例外メッセージの末尾に数字を
+    # 置くと `classify` が `PERMANENT_STATUSES` に当ててしまう**（400 なら `RequestError`）。
+    def test_post_status_unexpected_shape_is_not_classified_as_permanent
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'text/html'}, body: '<html></html>')
+      error = nil
+      begin
+        @service.post_status('こんにちは')
+      rescue Ginseng::GatewayError => e
+        error = e
+      end
+
+      assert_instance_of(Ginseng::GatewayError, error)
+      assert_equal(502, error.source_status)
+    end
+
+    # 🔴 **本文が読めないときも失敗として上げること**（#272・Codex の P2）。
+    #
+    # ⚠⚠ **`Content-Type` が `application/json` なら httparty は `JSON.parse` を通す**
+    # ので、**素のテキストは `JSON::ParserError`**（実測）。⚠ **`post_status` は
+    # `Ginseng::GatewayError` しか rescue しない**ので、🔴 **分類も警告も通らずに
+    # 外へ出ていた** — ⚠⚠ **`bin/makoto post` の rescue も素通りする。**
+    def test_post_status_rejects_a_body_that_cannot_be_parsed
+      stub_request(:post, @url).to_return(
+        status: 200,
+        headers: {'Content-Type' => 'application/json'},
+        body: 'ただいまメンテナンス中です',
+      )
+
+      assert_raise(Ginseng::GatewayError) {@service.post_status('こんにちは')}
+    end
+
+    # ⚠ **何で落ちたのかがログに残ること**（#272）。🔴 **`String` ではなく
+    # `JSON::ParserError` と出る** — ⚠⚠ **「200 で HTML」と「200 で壊れた JSON」は
+    # 切り分け先が違う**（前者は vhost、後者は前段が本文を切っている）。
+    def test_post_status_logs_the_parse_failure
+      stub_request(:post, @url).to_return(
+        status: 200,
+        headers: {'Content-Type' => 'application/json'},
+        body: 'ただいまメンテナンス中です',
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      begin
+        service.post_status('こんにちは')
+      rescue Ginseng::GatewayError
+        nil
+      end
+
+      assert_equal(['JSON::ParserError'], messages.map {|message| message[:type]})
+      assert_not_include(messages.first.to_json, 'メンテナンス')
+    end
+
+    private
+
+    # ⚠ **Mastodon が実際に返す形**（`POST /api/v1/statuses` は必ず `id` を持つ Status）。
+    # 🔴 **`'{}'` で書かない** — ⚠⚠ **起こりえない応答を前提にしたテストは、
+    # 応答の形を検査し始めた日に「壊れた」ように見える**（#272 で実際にそうなった）。
+    def status_body
+      return {
+        id: '114514',
+        url: "#{config['/mastodon/url']}/@test/114514",
+        visibility: 'public',
+      }.to_json
     end
   end
 end

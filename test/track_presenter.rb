@@ -42,6 +42,52 @@ module Makoto
       assert_includes(text, "\n# テスト名義")
     end
 
+    # 🔴 **ASCII-8BIT の曲名でも本文が組める**（#280）。
+    #
+    # ⚠⚠ **`Sequel` / SQLite は非 ASCII を ASCII-8BIT で返しうる**（#124 / #79）。
+    # ⚠ **落ちるのは連結ではなく `TrackName.normalize_marks` の正規表現**（実測）で、
+    # 🔴 **受けるのは `PostingJob#create_text` の `rescue`** ＝ **その枠は 1 文字も
+    # 投稿されない**（#192 が `HashtagSource` だけを塞いだ形）。
+    def test_a_binary_title_still_makes_a_body
+      name = '〜SONGBIRD〜'.dup.force_encoding(Encoding::ASCII_8BIT)
+      text = TrackPresenter.new(track(name: name)).to_s
+
+      assert_equal('♪ 〜SONGBIRD〜', text.lines.first.chomp)
+      assert_equal(Encoding::UTF_8, text.encoding)
+    end
+
+    # ⚠ **名義・アルバム名・URL も同じ**（🔴 **どの欄から来ても連結は同じ形で落ちる**）。
+    def test_a_binary_credit_and_collection_still_make_a_body
+      text = TrackPresenter.new(
+        track(
+          artist_name: 'キュアソード/剣崎真琴(CV:宮本佳那子)'.dup.force_encoding(Encoding::ASCII_8BIT),
+          collection_name: 'テストアルバム A'.dup.force_encoding(Encoding::ASCII_8BIT),
+        ),
+        collection: true,
+      ).to_s
+
+      assert_include(text, 'テストアルバム A')
+      assert_include(text, 'キュアソード/剣崎真琴(CV:宮本佳那子)')
+    end
+
+    # 🔴 **前置きも同じ**（#280）— ⚠⚠ **曲紹介の前置きは `message` の 1 行**なので、
+    # **曲名と同じ経路で ASCII-8BIT が来る**（#293 → `SongSource#prefix_record`）。
+    def test_a_binary_prefix_still_makes_a_body
+      prefix = '（お借りした歌）'.dup.force_encoding(Encoding::ASCII_8BIT)
+      text = TrackPresenter.new(track, prefix: prefix).to_s
+
+      assert_equal('（お借りした歌）', text.lines.first.chomp)
+      assert_include(text, '♪ 〜SONGBIRD〜')
+    end
+
+    # ⚠ **Shift_JIS は中身を保ったまま寄せる**（🔴 **`encode` であって貼り替えでは
+    # ない** → `Text`）。⚠⚠ **貼り替えると `凜々` が `ꣁX` になる。**
+    def test_a_shift_jis_title_keeps_its_characters
+      text = TrackPresenter.new(track(name: '凜々'.encode('Windows-31J'))).to_s
+
+      assert_equal('♪ 凜々', text.lines.first.chomp)
+    end
+
     # ⚠ **語中の `@` は無傷**（実データの `H@ppy Together!!!` 系 12 行）。
     # 🔴 **上流の `escape_status` を使わなかったのはこれを壊さないため。**
     def test_an_at_sign_inside_a_title_is_left_alone

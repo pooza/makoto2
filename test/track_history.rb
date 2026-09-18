@@ -121,5 +121,57 @@ module Makoto
       assert_nothing_raised {subject.record(@repository.dataset.first(id: 1001))}
       assert_nil(subject.record(@repository.dataset.first(id: 1001)))
     end
+
+    # 🔴 **読めなくても枠を落とさない**（#274）。⚠ **絞り込まない母集合を返す。**
+    def test_survives_an_unreadable_repository
+      broken = Object.new
+      def broken.recent_keys(*)
+        raise Sequel::DatabaseError, 'no such table: track_history'
+      end
+      subject = TrackHistory.new(post: 'song', size: 3, repository: broken)
+
+      assert_equal(candidates.count, subject.exclude(candidates).count)
+    end
+
+    # ⚠ **別名表が壊れていても同じ**（`recent_keys` → `canonicalize` で上がる）。
+    def test_survives_a_broken_alias_table
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, TrackAliases::FILE), "- names: [\n")
+        subject = TrackHistory.new(post: 'song', size: 3, repository: @history_repository, aliases_dir: dir)
+        record(subject, 1001)
+
+        assert_equal(candidates.count, subject.exclude(candidates).count)
+      end
+    end
+
+    # 🔴 **別名表を足したら、常駐を起こし直さなくても次の読みから寄る**（#275）。
+    # ⚠⚠ **同じインスタンスのまま**（`Song` は `TrackHistory` を常駐の間ずっと持つ）。
+    def test_reads_a_new_alias_table_without_a_restart
+      Dir.mktmpdir do |dir|
+        subject = TrackHistory.new(post: 'song', size: 3, repository: @history_repository, aliases_dir: dir)
+        @history_repository.record('song', TrackImporter.normalize('ごひきのこぶたとチャールストン'))
+
+        assert_equal([TrackImporter.normalize('ごひきのこぶたとチャールストン')], subject.recent_keys)
+
+        File.write(File.join(dir, TrackAliases::FILE), <<~YAML)
+          - names:
+              - 五匹の子ぶたとチャールストン
+              - ごひきのこぶたとチャールストン
+        YAML
+
+        assert_equal([TrackImporter.normalize('五匹の子ぶたとチャールストン')], subject.recent_keys)
+      end
+    end
+
+    # 🔴 **抽選まで通して、曲が 1 曲引ける**（枠が沈黙しない）。
+    def test_the_lottery_still_draws_without_a_history
+      broken = Object.new
+      def broken.recent_keys(*)
+        raise Sequel::DatabaseError, 'no such table: track_history'
+      end
+      history = TrackHistory.new(post: 'song', size: 3, repository: broken)
+
+      assert_not_nil(TrackLottery.new(@repository, random: Random.new(1), history: history).draw)
+    end
   end
 end

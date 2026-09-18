@@ -210,7 +210,22 @@ module Makoto
       validate_kind_types
       validate_type
       validate_quiet_types
+      validate_history
       return nil
+    end
+
+    # 🔴 **履歴を起動時に 1 回読む**（#274）。⚠⚠ **`track_history` テーブルが無い
+    # （常駐はマイグレーションを流さない）・別名表が壊れている、のどちらも初回の 12:00
+    # まで表に出なかった。**⚠ **読むのは `recent_keys`** — **テーブルと別名表の両方を通る。**
+    #
+    # ⚠ **投稿の瞬間に壊れても枠は落ちない**（→ `TrackHistory#exclude`）ので、
+    # **「起動で落ちるか、落ちなければ投稿は出る」の二択になる。**
+    def validate_history
+      return unless history.enabled?
+      history.recent_keys
+    rescue Sequel::DatabaseError, Ginseng::ValidateError => e
+      raise Ginseng::ConfigError,
+        "song: #{PREFIX}/history is not readable (rake migration:run?): #{error_message(e)}"
     end
 
     # 🔴 **`kind` の綴りを間違えたら落とす**（#293）。⚠⚠ **`/track/weight` に無い `kind`

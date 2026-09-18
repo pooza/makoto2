@@ -64,6 +64,49 @@ module Makoto
       assert_equal([expected[:dedupe_key]], subject.history.recent_keys)
     end
 
+    # 🔴 **どの曲を出したかがログに残ること**（#284）。
+    #
+    # ⚠⚠ **投稿のログは `status_id` しか持たない**ので、**「履歴がその曲で伸びたか」を
+    # ログだけでは言えなかった。**⚠ **鍵は `track_history` に書く値と同じ `dedupe_key`**
+    # なので、🔴 **ログの行と表の行を突き合わせられる。**
+    def test_posted_logs_the_track
+      expected = Song.new(repository: @repository, tracks: @tracks, random: Random.new(20_261_104))
+        .lottery.draw
+      payloads = []
+      logger = Object.new
+      [:info, :warn, :debug, :error].each do |name|
+        logger.define_singleton_method(name) do |payload|
+          payloads.push(payload) if name == :info
+          return nil
+        end
+      end
+      subject = song.source
+      subject.instance_variable_set(:@logger, logger)
+      subject.call(jst(9, 1))
+      subject.posted(jst(9, 1))
+
+      assert_equal([expected[:dedupe_key]], payloads.map {|payload| payload[:dedupe_key]})
+    end
+
+    # ⚠ **引いていない枠では何も出さない**（#284）。🔴 **「出した」と読める行を
+    # 出さないこと自体が、`posted` の約束**（→ 下記）。
+    def test_posted_logs_nothing_for_a_slot_it_did_not_draw
+      payloads = []
+      logger = Object.new
+      [:info, :warn, :debug, :error].each do |name|
+        logger.define_singleton_method(name) do |payload|
+          payloads.push(payload) if name == :info
+          return nil
+        end
+      end
+      subject = song.source
+      subject.instance_variable_set(:@logger, logger)
+      subject.call(jst(9, 1))
+      subject.posted(jst(9, 2))
+
+      assert_empty(payloads)
+    end
+
     # ⚠ **枠が食い違えば書かない。**⚠⚠ **`tick` は重なりうる**ので、**`call` と
     # `posted` のあいだに別の枠が割り込むことがある** — 🔴 **1 本書き漏らすほうが、
     # 違う曲を「出した」と覚えるより害が小さい。**
@@ -119,16 +162,55 @@ module Makoto
     # ⚠⚠ **前置きが 0 件でも壊れない。**🔴 **原稿を書く前から機能として成立する**
     # （**曲だけを出す**）。
     def test_without_a_prefix_the_song_stands_alone
-      text = source.call(jst(9, 1))
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      text = subject.call(jst(9, 1))
 
       assert_not_nil(text)
       assert_equal('♪', text.lines.first[0])
       assert_not_include(text, "\n\n")
+      # 🔴 **黙った成功にしない**（#313）。
+      assert_equal(['no prefix'], logged.map {|payload| payload[:message]})
+    end
+
+    # ⚠⚠ **行が引けても本文が空なら鳴らす**（Codex の P2）。🔴 **`makoto message add` は
+    # 空の本文を弾かない**ので、**投稿は曲だけになる。**
+    def test_a_blank_prefix_is_logged_as_missing
+      @repository.create(type: config['/song/type'], body: '')
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      text = subject.call(jst(9, 1))
+
+      assert_equal('♪', text.lines.first[0])
+      assert_equal(['no prefix'], logged.map {|payload| payload[:message]})
+    end
+
+    # ⚠ **前置きが引ければ何も出さない**（平常日に鳴らない）。
+    def test_a_prefix_logs_nothing
+      add_prefixes(4)
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.call(jst(9, 1))
+
+      assert_empty(logged)
+    end
+
+    # ⚠ **下見（`compose`）は鳴らさない**（何十枠も組むのでログを汚さない）。
+    def test_compose_does_not_log_a_missing_prefix
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.compose(jst(9, 1))
+
+      assert_empty(logged)
     end
 
     # ⚠ **本文の最後は URL**（→ プレビューカードは SNS 側の機能）。
     def test_the_last_line_is_the_url
-      assert_match(%r{\Ahttps://example\.test/track/}, source.call(jst(9, 1)).lines.last.chomp)
+      assert_match(%r{\Ahttps://music\.apple\.com/test/track/}, source.call(jst(9, 1)).lines.last.chomp)
     end
 
     # ⚠⚠ **断りの後ろは 1 行アキ**（#122・`TrackPresenter` と同じ形）。
@@ -295,6 +377,22 @@ module Makoto
       assert_equal('spoken table unreadable', logged.first[:message])
     end
 
+    # 🔴 **ファイルシステムの例外でも枠を落とさない**（#312）。⚠⚠ **表がディレクトリ・権限 0000。**
+    def test_a_filesystem_error_falls_to_the_common
+      common = add_prefixes(3)
+      [Errno::EISDIR, Errno::EACCES, TypeError].each do |error|
+        subject = spoken_source(-> {raise error, 'broken'})
+        logged = []
+        subject.define_singleton_method(:logger) {Recorder.new(logged)}
+        entry = subject.compose(jst(9, 1))
+
+        assert_true(entry[:spoken], error.name)
+        assert_include(common, entry[:prefix][:body])
+        # ⚠⚠ **どの例外だったかがログに残る**（ロガーは例外のクラス名を潰す・Codex の P2）。
+        assert_equal(error.name, logged.first[:error_class])
+      end
+    end
+
     # 🔴 **同じ枠なら何度呼んでも同じ前置き**（状態を持たない）。⚠ **落ちて戻って
     # きても・別の箱で下見しても同じ**（→ docs/CLAUDE.md）。
     def test_the_same_slot_gives_the_same_prefix
@@ -387,6 +485,34 @@ module Makoto
       assert_nil(source.call(jst(11, 4, 19)))
     end
 
+    # 🔴 **正しく黙ったことがログに残る**（#277）。⚠ **どの type で黙ったかまで。**
+    def test_a_quiet_day_is_logged
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.call(jst(11, 4, 12))
+      subject.call(jst(11, 3, 19))
+
+      assert_equal(['quiet day', 'quiet day'], logged.map {|payload| payload[:message]})
+      assert_equal('2026-11-04T03:00:00Z', logged.first[:slot])
+      assert_equal('quiet', logged.first[:phase])
+      assert_equal(['live_open', 'live_close'], logged.first[:types])
+      assert_equal(['live_eve'], logged.last[:types])
+    end
+
+    # ⚠ **平常日・枠の外・下見では鳴らさない。**
+    def test_an_ordinary_day_logs_no_quiet_day
+      add_prefixes(3)
+      subject = source
+      logged = []
+      subject.define_singleton_method(:logger) {Recorder.new(logged)}
+      subject.call(jst(9, 1, 12))
+      subject.call(jst(11, 4, 9))
+      subject.compose(jst(11, 4, 12))
+
+      assert_empty(logged)
+    end
+
     # ⚠ **前日増量の日も黙る**（`live-eve` が 12:00〜20:00 の毎正時）。
     def test_silent_on_the_eve
       assert_true(source.quiet?(jst(11, 3, 12)))
@@ -473,6 +599,10 @@ module Makoto
       end
 
       def warn(payload)
+        return @logged.push(payload)
+      end
+
+      def info(payload)
         return @logged.push(payload)
       end
     end

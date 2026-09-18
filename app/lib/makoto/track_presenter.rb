@@ -40,7 +40,8 @@ module Makoto
     # @param collection [Boolean] ⚠ アルバム名を出すか（#16）
     def initialize(track, prefix: nil, plain_name: false, artist: true, collection: false)
       @track = track
-      @prefix = prefix.to_s
+      # 🔴 **本文の材料は入口で UTF-8 へ寄せる**（#280 → `Text`）。
+      @prefix = Text.utf8(prefix)
       @plain_name = plain_name
       @artist = artist
       @collection = collection
@@ -48,14 +49,14 @@ module Makoto
 
     # 表示する曲名。⚠ **感嘆符・疑問符は常に揃える**（#120・ライブでも日常でも）。
     def name
-      value = @plain_name ? TrackName.display(@track[:name]) : @track[:name].to_s
+      value = @plain_name ? TrackName.display(field(:name)) : field(:name)
       return TrackName.normalize_marks(value)
     end
 
     # 表示する名義。⚠ **出さないときは空**（→ `to_s` が行ごと落とす）。
     def credit
       return nil unless @artist
-      return @track[:artist_name]
+      return field(:artist_name)
     end
 
     # 表示するアルバム名。⚠ **出さないときは空**（→ `to_s` が行ごと落とす）。
@@ -64,7 +65,7 @@ module Makoto
     # 🔴 **空でも行を作らない**（`compact_blank` が落とす）。
     def collection
       return nil unless @collection
-      return @track[:collection_name]
+      return field(:collection_name)
     end
 
     # ⚠ **名義より先にアルバム名を置く**（#16）。🔴 **劇伴では、どのシリーズかのほうが
@@ -72,7 +73,7 @@ module Makoto
     def to_s
       # ⚠ url が無い曲はそもそも母集合から外れている（`TrackRepository#linkable`）が、
       # ここでも空行を作らないようにしておく。
-      body = [headline, collection, credit, @track[:url]].compact_blank.join("\n")
+      body = [headline, collection, credit, field(:url)].compact_blank.join("\n")
       # 🔴 **組み上げてから当てる**（→ `StatusText`）。⚠⚠ **`#` がタグになるかは
       # 「本文のどこに居るか」で決まる**ので、**欄ごとに当てても判定できない**
       # （アルバム名と名義は行頭に来る）。⚠ **`HashtagSource` が足すタグは
@@ -81,6 +82,22 @@ module Makoto
     end
 
     private
+
+    # 🔴 **供給元の 1 欄を、本文に使える形で取り出す**（#280）。
+    #
+    # ⚠ **`Sequel` / SQLite は非 ASCII を ASCII-8BIT で返しうる**（#124 / #79）ので、
+    # ⚠⚠ **素で触ると `Encoding::CompatibilityError` になり、`PostingJob#create_text` の
+    # `rescue` がその枠を丸ごと落とす**（#280 ＝ #192 で塞いだのと同じ形が、
+    # **毎日出る枠に残っていた**）。
+    #
+    # 🔴 **落ちるのは連結の行とは限らない**（実測）— ⚠⚠ **曲名はいちばん先に
+    # `TrackName.normalize_marks` の正規表現で落ちる**ので、**「連結の直前で寄せる」
+    # のでは足りない。**⚠ **欄を取り出すところで寄せる。**
+    #
+    # ⚠ **空の欄は空文字**（→ `to_s` の `compact_blank` が行ごと落とす）。
+    def field(key)
+      return Text.utf8(@track[key])
+    end
 
     # ⚠⚠ **断りの後ろは 1 行アキ**（#122）。⚠ **断りと曲名が地続きだと、断りが曲名の
     # 一部に見える**（2026-08-19 の当日通しで目視）。
