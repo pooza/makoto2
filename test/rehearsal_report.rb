@@ -327,5 +327,16 @@ module Makoto
     def test_a_log_without_a_revision_is_not_broken
       assert_include(report(HEARTBEAT).to_s, 'リビジョン (不明)')
     end
+
+    # 🔴 **持つ行と持たない行が混ざった回を見逃さない**（#348・Codex の P2）。
+    # ⚠⚠ **`revision` の無い行を捨てると、見出しが「全部この 1 つのリビジョン」に見え、
+    # 警告も出ない** — ⚠ **#242 より前の版へ／から起き直した窓がこの形。**
+    def test_a_log_mixing_revision_and_no_revision_is_flagged
+      subject = report(HEARTBEAT, HEARTBEAT_REV)
+
+      assert_equal(2, subject.revisions.size)
+      assert_include(subject.to_s, '(不明)')
+      assert_include(subject.to_s, '途中でリビジョンが変わった（2 種）')
+    end
   end
 end

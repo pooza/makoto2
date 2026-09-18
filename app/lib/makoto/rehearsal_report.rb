@@ -40,16 +40,18 @@ module Makoto
     # 枠あたりの想定 exec 回数。⚠ **これ以外は赤にする。**
     EXPECTED_EXECS = 1
 
-    # 🔴 **`exec` ではない行の目印**（#284 → `PostingJob#notify`）。
-    NOTIFY_PHASE = 'notify'.freeze
+    # ⚠ **`revision` を持たないハートビートの印**（→ `count_heartbeat`・Codex の P2）。
+    UNKNOWN_REVISION = '(不明)'.freeze
 
-    # 🔴 **予算を超えて長くかかった枠の目印**（#92 → `PostingJob#warn_slow`）。
-    # ⚠⚠ **この行も `post` と `slot` を両方持つ**ので、**捨てないと `exec` 2 回になる**
-    # （→ #348・`notify` と同じ形）。
-    SLOW_PHASE = 'slow'.freeze
-
-    # ⚠ **`phase` ごとの受け皿**（→ `count_phase`）。⚠⚠ **ここに無い `phase` は捨てる。**
-    PHASE_COUNTERS = {NOTIFY_PHASE => :count_notify, SLOW_PHASE => :count_slow}.freeze
+    # ⚠ **`phase` ごとの受け皿**（→ `count_phase`）。⚠⚠ **ここに無い `phase` は捨てる**
+    # （#277 の `quiet` — 黙る日に黙ったことの 1 行）。
+    #
+    # - `notify` — **履歴の通知**（#284 → `PostingJob#notify`）
+    # - `slow` — **予算を超えて長くかかった枠**（#92 → `PostingJob#warn_slow`）
+    #
+    # 🔴 **どちらも `post` と `slot` を両方持つ**ので、⚠⚠ **受け皿に入れずに数えると
+    # `exec` 2 回の偽の赤になる**（→ #348 / #284）。
+    PHASE_COUNTERS = {'notify' => :count_notify, 'slow' => :count_slow}.freeze
 
     # ⚠ 人が読む順。**赤の判定に関わるものを上に置く。**
     # ⚠ **`slow` は赤に掛からない**ので、赤の判定に関わる 3 つより下に置く（→ #348）。
@@ -248,13 +250,16 @@ module Makoto
     def count_heartbeat(entry)
       @heartbeats += 1
       @versions.add(entry[:version].to_s) if entry[:version]
-      @revisions.add(entry[:revision].to_s) if entry[:revision]
+      # 🔴 **持たない行も 1 種として覚える**（Codex の P2）。⚠⚠ **`if` で捨てると、
+      # 混ざったログで「全部この 1 つのリビジョン」に見え、警告も出ない** — ⚠ **#242 より
+      # 前の版や、git 以外から置いた箱のハートビートは `revision` を持たない。**
+      @revisions.add(entry[:revision].presence || UNKNOWN_REVISION)
       return @heartbeats
     end
 
     def format_header
       out = ["ログ #{@lines} 行 / バージョン #{@versions.to_a.join(', ').presence || '(不明)'}" \
-        " / リビジョン #{@revisions.to_a.join(', ').presence || '(不明)'}"]
+        " / リビジョン #{@revisions.to_a.join(', ').presence || UNKNOWN_REVISION}"]
       # 🔴 **途中でデプロイが挟まった回は、結果を 1 つの版のものとして読めない**（#348 / #242）。
       # ⚠ **赤にはしない**（**リハーサルの終わり際に当てた回もここに出る**）が、⚠⚠ **見出しで言う。**
       out.push("⚠ 途中でリビジョンが変わった（#{@revisions.size} 種）") if @revisions.size > 1
