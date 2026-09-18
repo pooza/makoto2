@@ -249,6 +249,10 @@ module Makoto
     # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
     def count_heartbeat(entry)
       @heartbeats += 1
+      # 🔴 **痕跡の書き込みが落ちた行は版を持たない**（Codex の P2）— ⚠ **`Scheduler`
+      # の `rescue` が `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）。
+      # ⚠⚠ **これに `(不明)` を足すと、1 つの版で通した回が「途中で変わった」に化ける。**
+      return @heartbeats if entry[:error]
       @versions.add(entry[:version].to_s) if entry[:version]
       # 🔴 **持たない行も 1 種として覚える**（Codex の P2）。⚠⚠ **`if` で捨てると、
       # 混ざったログで「全部この 1 つのリビジョン」に見え、警告も出ない** — ⚠ **#242 より

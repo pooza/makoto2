@@ -24,6 +24,9 @@ module Makoto
     SLOW_ERROR = '{"error":{"message":"boom"},"post":"song","phase":"slow"}'.freeze
     # ⚠ **`revision` を持つハートビート**（#242 → `MakotoDaemon`）。
     HEARTBEAT_REV = '{"scheduler":"heartbeat","version":"0.6.0","revision":"689b795","jobs":7}'.freeze
+    # 🔴 **痕跡の書き込みが落ちた行**（`Scheduler#schedule_heartbeat` の `rescue`）。
+    # ⚠⚠ **版もリビジョンも持たない。**
+    HEARTBEAT_ERROR = '{"error":{"message":"boom"},"scheduler":"heartbeat"}'.freeze
 
     # 🔴 **黙る日に黙ったことの 1 行**（#277 → `SongSource#log_quiet_day`）。⚠ **これも `exec` ではない。**
     QUIET = '{"post":"song","slot":"2026-11-04T03:00:00Z","phase":"quiet","message":"quiet day","types":["live_open","live_close"]}'.freeze
@@ -326,6 +329,15 @@ module Makoto
     # リハーサルのログを流し込む形は残っている。**
     def test_a_log_without_a_revision_is_not_broken
       assert_include(report(HEARTBEAT).to_s, 'リビジョン (不明)')
+    end
+
+    # 🔴 **痕跡の書き込みが落ちた行を版として数えない**（#348・Codex の P2 の 2 巡目）。
+    # ⚠⚠ **`(不明)` を足すと、1 つの版で通した回が「途中でリビジョンが変わった」に化ける。**
+    def test_a_heartbeat_error_does_not_count_as_a_revision
+      subject = report(HEARTBEAT_REV, HEARTBEAT_ERROR)
+
+      assert_equal(['689b795'], subject.revisions.to_a)
+      assert_not_include(subject.to_s, '途中でリビジョンが変わった')
     end
 
     # 🔴 **持つ行と持たない行が混ざった回を見逃さない**（#348・Codex の P2）。
