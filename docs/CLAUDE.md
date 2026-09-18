@@ -1692,6 +1692,48 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 🔴 **待たずに出す判断**（2026-08-29・オーナー）— ⚠ **`config/application.yaml` が 7 件を列挙しているので実運用では踏まず**、**#213 が `0.5` の受け皿になるので `0.4` の箱は空にできる。**
 
+### 🔴 `0.8` に着手した（2026-09-19）
+
+#### ✅ 疎通確認のリダイレクト先を検証し、投稿の口の暫定を上流へ畳んだ（2026-09-19・#349 / PR #359）
+
+✅ **`bydo` = `a12eca8`**（08:31 JST 再起動・**974 tests / 0 failures**）。⚠ **Codex は 4 経路とも成果物 0 の 👍**（＝ **ある巡が指摘なしで終わった**）。
+
+##### ✅ 上流 `v2.0.1` へ引き上げ、`post` の上書きを消した（挙動ゼロ）
+
+🔴 **上流が #282 の塞ぎを取り込んだ** — [`v2.0.1`](https://github.com/pooza/ginseng-fediverse/releases/tag/v2.0.1)（**2026-09-17**・security の patch・**こちらの依頼 ＝ 向こうの #279 / PR #278**）。⚠ **`v2.0.0` との差は `lib/` では `post` の +8 行だけ。**
+
+⚠⚠ **「挙動ゼロ」を読みで言わずに差分で見せた**（#327 (a) と同じ形・2 例目）— 🔴 **上流の `post` は、消したメソッドと空行 1 つ以外の差が無い**（実測）。
+
+⚠ **テスト `test_post_status_does_not_follow_a_redirect` は残した** — 🔴 **こちらに `post` が無くなったので、守るのは「引いている gem がこの性質を持ち続けること」**（⚠⚠ **上流が `follow_redirects` を落とせば、黙ってトークンが漏れるのではなくここが赤くなる** ＝ #280 で採った置き方）。
+
+##### 🔴 `account` は `follow_redirects: false` ではなく `host_validator` に倒した
+
+⚠ **`ginseng-core` が用意した口**（`options[:host_validator]`）に渡した。**ホップごとにホストを検証し、オリジンが変わる先へは資格情報のヘッダとオプションを落とす**（`redirect_options` の `CREDENTIAL_HEADERS`）。
+
+| | `follow_redirects: false` | 🔴 **`host_validator`（採用）** |
+| --- | --- | --- |
+| 別ホストへの 302 | ✅ 追わない | ✅ **追わない**（`GatewayError "Rejected host '...'"`） |
+| ⚠ 同一ホストの 301（証明書切替・パスの整理） | 🔴 **落ちる** | ✅ **追える** |
+| 落ち方 | 🔴 **3xx は 400 未満なのでそのまま返り、`parsed_response` が `nil` → `account['acct']` が `NoMethodError`** | ✅ **分類できる例外** |
+
+⚠ **`base_uri` という読み口は無い** — 🔴 **上流 `Ginseng::Fediverse::Service` の accessor は `uri`**（中身は `http.base_uri`）。⚠ **実装は `http.base_uri.host` で書いた。**
+
+##### 🔴 待っても塞がらない「上流待ち」を自分で作りかけた
+
+⚠⚠ **同日朝の同期で #349 に「上流 [`ginseng-fediverse#280`](https://github.com/pooza/ginseng-fediverse/issues/280) を待つ」案を書いたが、成り立たなかった** — 🔴 **上流の `MastodonService` は `verify_credentials` を持たない**（`v2.0.1` の `lib/` に `def account` が無い）ので、**`account` は最初からこちらの呼び出し口。**⚠ **Issue にコメントで訂正した。**
+
+🔴 **教訓＝「上流が受け皿を作った」を見たら、その受け皿が*こちらの*呼び出し口を含むかまで見る**（⚠⚠ **上流の Issue の射程は上流のコードだけ** — **#282 で塞いだ投稿の口は上流の実装を写していたので暫定だったが、`account` は分界が違う**）。⚠ **2026-09-15 のデッドロック（片方に書いた「待ち」をもう片方への理由に使う）と同じ族の誤り。**
+
+##### ⚠ 実機で見たのは「変えた口が素の `get` と同じに通ること」
+
+| | |
+| --- | --- |
+| 常駐の起動 | ✅ **`{"mastodon":"verify_credentials","acct":"makoto","statuses":1560}`**（⚠ 直前の起動は `1559`） |
+| CLI | ✅ **`makoto whoami` が `acct: makoto@st2.precure.ml` / `bot: true`** |
+| ほか | ⚠ **warn / error 0 行**・`/healthz` 3 口 200・**7 枠の名前まで確認**・drop-in なし |
+
+🔴 **テストは webmock なので、`PinnedAddressAdapter` と `repeat` を通る実経路は実機でしか見えない。**⚠⚠ **残りは投稿の口（上流のコードを通る最初の 1 通）**で、**次の曲紹介 12:00 を見るまで #349 は open。**
+
 ### ✅ 2026-09-15 の同期
 
 ⚠ **読むだけで済まなかったのは 2 件**（**#284 を閉じた／#327 を起票した**）。🔴 **手順 2 / 4 / 5 / 7 / 9 / 10 はずれ 0。**⚠ **手順 11 は前回が 2026-09-11 なので回していない。**
@@ -1803,6 +1845,8 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 ⚠ **`Gemfile` の `tag:` を `v2.0.0` へ。**🔴 **`Gemfile.lock` で動いたのは `ginseng-fediverse` の 1 行だけ**（⚠ **`revision` は `4bc0d96`** — **`v2.0.0` は lightweight タグなので commit の SHA そのもの**。→ 手順 8.3 の「`revision:` がタグオブジェクトの SHA になる」の**逆の例**）。
 
 ⚠ **`rubocop` no offenses / `rake config:lint` OK / `rake test` 891 tests・0 failures。**⚠⚠ **`#327` は (b) が残るので open のまま。**
+
+⚠ **いまの `tag:` は `v2.0.1`**（🔴 **2026-09-19 に #349 で上げた** — **上流が投稿の口のリダイレクトを塞いだぶん**。→ 下記「`0.8` に着手した」）。⚠⚠ **`#327` (b) は `v2.0.1` を起点に読む。**
 
 #### ⚠ 読むだけで済んだもの
 
