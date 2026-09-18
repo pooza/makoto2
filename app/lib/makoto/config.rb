@@ -13,7 +13,7 @@ module Makoto
     #
     # ⚠ **設定を書き換えたら `reload` で捨てる。**
     def validation_errors
-      @validation_errors ||= errors.map {|message| message.to_s.sub(/ in schema .*\z/, '')}
+      @validation_errors ||= errors.map {|message| sanitize_error(message)}
       return @validation_errors
     end
 
@@ -57,6 +57,34 @@ module Makoto
       return each_with_object({}) do |(key, value), dest|
         dest[key] = fields.intersect?(key.split('/').map(&:downcase)) ? '(masked)' : value
       end
+    end
+
+    private
+
+    # 🔴 **検査エラーは値そのものを本文に載せる** — ⚠ **json-schema がそうするのは
+    # `pattern` / `enum` / `const` の 3 つだけ**（`type` などは載せない）。
+    #
+    # ⚠⚠ **この文字列は外へ出る** — **`Health#config_warnings` を通って `/healthz` の 503 の
+    # 本文になり**、⚠ **起動時は `MakotoDaemon#validate_config` の `logger.error` にも載る。**
+    # 🔴 **ログのマスクでは落ちない** — ⚠⚠ **`mask_url_candidate?` が見るのはクエリと
+    # `user:pass` の形**なので、**`https://<鍵>@o1.ingest.sentry.io/456` のように鍵が
+    # userinfo のユーザ名側だけに埋まった DSN は、1 文字も伏せられない。**
+    #
+    # ⚠ **schema の URI も落とす**（読む側の役に立たないうえ長い）。
+    #
+    # ⚠⚠ **判定の正本は `secure_dump` と同じ `logger.mask_fields`**（**gem の既定 ＋
+    # `/logger/mask_fields`**）。🔴 **ここで列を書き起こさない** — **2 か所に分かれると必ずズレる。**
+    def sanitize_error(message)
+      text = message.to_s.sub(/ in schema .*\z/, '')
+      return text unless masked_property?(text)
+      return text.sub(/(?<= value ).+?(?= did not )/, '(masked)')
+    end
+
+    # ⚠ **`#/sentry/dsn` のような指し先を、`secure_dump` と同じ形で照合する。**
+    def masked_property?(text)
+      pointer = text[%r{\AThe property '#/([^']*)'}, 1]
+      return false unless pointer
+      return logger.mask_fields.intersect?(pointer.split('/').map(&:downcase))
     end
   end
 end

@@ -11,6 +11,8 @@ module Makoto
     # ⚠ 既定にも makoto2 の設定にも無いキー。既にマスク対象のキーを使うと判定にならない。
     PROBE_FIELD = 'makoto_reload_probe'.freeze
     PROBE_VALUE = 'PROBEPLAINTEXT'.freeze
+    # ⚠ **鍵は userinfo のユーザ名側だけに入る**（`user:pass` の形ではないので、URL のマスクに当たらない）。
+    DSN = 'https://publickey@o1.ingest.sentry.io/456'.freeze
 
     def setup
       super
@@ -115,6 +117,58 @@ module Makoto
       config.reload
     end
 
+    # 🔴 **DSN があるときの配線は、ここでしか通らない**（v0.6.0 のリリース前レビュー・黄）。
+    # ⚠⚠ **`before_send` に scrubber を挿す行を消しても、これが無ければ緑のまま通る。**
+    def test_setup_with_a_dsn_wires_the_scrubber
+      with_dsn(DSN) do
+        Makoto.setup_sentry
+
+        assert_true(Sentry.initialized?)
+        assert_not_nil(Sentry.configuration.before_send, 'マスクが配線されていない')
+        scrubbed = Sentry.configuration.before_send.call(
+          error_event(Ginseng::GatewayError.new("Bad response 502 (#{TOKEN_URL})")), nil
+        )
+
+        assert_not_include(payload(scrubbed), TOKEN)
+      end
+    end
+
+    # 🔴 **外向きの要求に DSN の鍵を載せない**（v0.6.0 のリリース前レビュー・黄）。
+    # ⚠⚠ **既定の `true` は `Baggage: ...sentry-public_key=<鍵>` を投稿 1 本ごとに付ける。**
+    # ⚠ **`traces_sample_rate` が 0 でも止まらない**ので、ここで明示的に落とす。
+    def test_setup_does_not_propagate_traces
+      with_dsn(DSN) do
+        Makoto.setup_sentry
+
+        assert_false(Sentry.configuration.propagate_traces)
+      end
+    end
+
+    # 🔴 **初期化が落ちたことを黙って捨てない**（v0.6.0 のリリース前レビュー・赤）。
+    # ⚠⚠ **`bin/makoto_daemon.rb` が `require 'makoto'` の前に `$stderr` を `/dev/null` へ繋ぐ**
+    # ので、**`warn` では本番に 1 行も残らない。**
+    def test_setup_logs_when_initialization_fails
+      logged = []
+      original = $stderr
+      $stderr = StringIO.new
+      sink = Object.new
+      sink.define_singleton_method(:error) {|arg| logged.push(arg)}
+      Logger.define_singleton_method(:new) {|*| sink}
+      begin
+        with_dsn("#{DSN}\n") {assert_nothing_raised {Makoto.setup_sentry}}
+        written = $stderr.string
+      ensure
+        Logger.singleton_class.remove_method(:new)
+        $stderr = original
+      end
+
+      assert_false(Sentry.initialized?, '壊れた DSN で立ち上げない（fail closed）')
+      assert_empty(written, 'stderr は本番で /dev/null へ落ちる')
+      assert_equal(1, logged.size, '初期化の失敗が 1 行も残っていない')
+      assert_equal('init', logged.first[:sentry])
+      assert_not_include(logged.first.to_s, 'publickey', 'DSN を載せない')
+    end
+
     # 🔴 **DSN が空でも警告を出さない。**⚠⚠ **`dsn: null` は `Config#[]` で例外になる**ので、
     # 素で読むとすべての起動が「Sentry initialization skipped」を出していた。
     def test_setup_without_a_dsn_is_silent
@@ -154,6 +208,17 @@ module Makoto
     ensure
       config.raw[key]['logger'] = original
       config.reload
+    end
+
+    # ⚠ **設定ではなく読み出しを差し替える**（`config['/sentry/dsn']` は `@raw` を見ないため）。
+    # 🔴 **必ず `Sentry.close` する** — ⚠⚠ **初期化したままにすると、後続のテストが
+    # 「DSN が無ければ何もしない」を確かめられなくなる。**
+    def with_dsn(dsn)
+      Makoto.define_singleton_method(:sentry_dsn) {dsn}
+      return yield
+    ensure
+      Makoto.singleton_class.remove_method(:sentry_dsn)
+      Sentry.close
     end
 
     def error_event(error)
