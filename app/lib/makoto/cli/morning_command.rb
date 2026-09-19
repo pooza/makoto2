@@ -62,7 +62,9 @@ module Makoto
       return nil
     end
 
-    # ⚠ **月別の件数。**🔴 **穴がそのまま見える**（実データは 5 月が 1 本）。
+    # ⚠ **月別の件数。**🔴 **穴がそのまま見える**（⚠ **旧 237 件では 5 月が 1 本だった**
+    # — **#225 で 12 か月すべて 16 本以上に揃えた**。🔴 **だからこそここで見る** ＝
+    # **底が戻っていないかは、この出力でしか分からない**）。
     def dump_seasons
       counts = (1..12).map do |month|
         morning.selector.season_list(Date.new(today.year, month, 1)).size
