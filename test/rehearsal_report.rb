@@ -273,11 +273,12 @@ module Makoto
       assert_false(report(SUCCESS, SLOW).red?)
     end
 
-    # ⚠ **早送りの回は「この節は赤ではない」と書く**（#348）。🔴 **読む人が「本番でも
-    # 遅い」と取り違えないため。**
-    def test_a_slow_entry_notes_the_scale
-      assert_include(report(TRAVEL, SUCCESS, SLOW).to_s, '早送り中は実時間が伸びる')
-      assert_not_include(report(SUCCESS, SLOW).to_s, '早送り中は実時間が伸びる')
+    # 🔴 **早送りを「割引」と読ませない**（#348・Codex の P2 の 3 巡目）。⚠⚠ **`warn_slow` は
+    # `CLOCK_MONOTONIC` で測り、予算も実秒**なので、**`Timecop.scale` はこの数字を動かさない** —
+    # ⚠ **伸びるのは予定の側**（同じ所要が枠の scale 倍を食う → #90）。
+    def test_a_slow_entry_does_not_blame_the_scale
+      assert_include(report(TRAVEL, SUCCESS, SLOW).to_s, '計測は実時間（monotonic）')
+      assert_not_include(report(SUCCESS, SLOW).to_s, '計測は実時間（monotonic）')
     end
 
     # ⚠ **計測そのものが落ちた行は別に数える**（#348）。🔴 **`slot` を持たないので
