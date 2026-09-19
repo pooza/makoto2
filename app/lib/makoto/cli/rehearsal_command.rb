@@ -6,8 +6,22 @@ module Makoto
   # ログをそのまま流し込める）。
   #
   # ```
-  # journalctl -t makoto2 --since '01:20' --until '02:10' -o cat | makoto rehearsal report
+  # journalctl _SYSTEMD_UNIT=makoto2.service SYSLOG_IDENTIFIER=makoto2 \
+  #   --since '01:20' --until '02:10' -o cat | makoto rehearsal report
   # ```
+  #
+  # 🔴 **常駐のユニットで絞る**（#165）。⚠⚠ **`bin/makoto` の CLI は常駐と同じ ident
+  # （`makoto2`）でログを出す**ので、⚠ **`-t makoto2` だけで拾うと、リハーサル中に人が
+  # 叩いた CLI の HTTP まで同じ入力に混ざる** — 🔴 **`red?` は `http_errors` を見るので、
+  # CLI が 1 本 4xx を踏むだけで `exit 1`**（2026-08-22 に実際に踏んだ）。
+  #
+  # ⚠ **絞るのは journald の側で、この道具は journald に依存しない形のまま。**
+  # ⚠⚠ **ログの行にプロセスを見分ける印を足す案は採らない** — 🔴 **ログの形を変えると
+  # 「日付以外は全く同じ」が崩れる**（この道具の前提そのもの）。⚠ **journald は
+  # どの行にも `_SYSTEMD_UNIT` を持っている**ので、**足さずに絞れる。**
+  #
+  # ⚠ **実測**（2026-09-19・`bydo`）— **手で叩いた CLI の行は `session-c437.scope`、
+  # 常駐の行は `makoto2.service`。**同じ窓で **4 行 → 3 行**（CLI の `GET` が落ちた）。
   #
   # 🔴 **終了コードで赤を返す**（0 = 想定どおり / 1 = 赤あり）。⚠⚠ **毎リリース回す
   # ものなので、人が表を読まなくても落ちること**が要る。

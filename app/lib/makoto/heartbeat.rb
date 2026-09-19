@@ -122,6 +122,12 @@ module Makoto
       #
       # 🔴 **`revision` と `job_names` も残す**（#242）。⚠⚠ **`version` と `jobs` の本数だけでは、
       # 「マージしたあの修正が載っているか」「morning が登録されているか」に答えられない。**
+      #
+      # 🔴 **日付を騙していることも書く**（#174）。⚠⚠ **これを痕跡に置かないと、外から
+      # 誰も知る手段が無い** — ⚠ **`MAKOTO_FAKE_TIME` は systemd の drop-in で常駐にだけ
+      # 渡る**ので、**あとから人が叩く CLI の `ENV` には入っていない**（→ #154）。
+      # ⚠⚠ **騙していなければ `nil` を書く** — **書かずに残すと、撤収したあとも前の
+      # リハーサルの値が居座る。**
       def touch(jobs:, job_names: nil, now: nil)
         return update do |record|
           record.merge(
@@ -131,6 +137,7 @@ module Makoto
             version: Package.version,
             revision: Package.revision,
             pid: Process.pid,
+            travel: TimeTravel.active? ? TimeTravel.describe : nil,
           )
         end
       end
@@ -277,6 +284,15 @@ module Makoto
       # 最後に常駐が起き上がった時刻。⚠ **一度も無ければ nil**（→ `record_start`）。
       def started_at
         return parse_time(stored[:started_at])
+      end
+
+      # 🔴 **痕跡を書いた常駐が日付を騙していたか**（#174 → `touch`）。⚠ **騙していなければ nil。**
+      #
+      # ⚠⚠ **旧い痕跡（#174 より前の常駐）にはこの項目が無い**ので、**同じく nil になる** —
+      # ⚠ **「騙していない」と「分からない」を分けていない。**🔴 **分けても人にできることが
+      # 変わらない**（どちらでも `systemctl show makoto2 -p Environment` を見る）。
+      def travel
+        return stored[:travel]
       end
 
       def jobs
