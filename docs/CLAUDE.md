@@ -2164,7 +2164,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 🔴 **DSN が空なら初期化しない**（開発機・CI・テスト）。⚠⚠ **`dsn: null` は `Config#[]` で「キーが無い」例外になる**ので、**素で読むとすべての起動が「Sentry initialization skipped」を出していた**（**テストで留めた**）。
 
-⚠ **DSN の置き場の正本は chubo2 の `docs/infra-services.md`**（`4931e50`）。⚠⚠ **Client Key のレート制限は作成時点で未設定**（API で `rateLimit: null`）— **Web UI で当てる**（目安 1 時間 500 件）。
+⚠ **DSN の置き場の正本は chubo2 の `docs/infra-services.md`**（`4931e50`）。⚠⚠ **Client Key のレート制限は作成時点で未設定**（API で `rateLimit: null`）— **WebUI で当てる**（目安 1 時間 500 件）。
 
 #### ✅ 予算を超えて長くかかった枠を 1 行残す（2026-09-17・#92）
 
@@ -2676,7 +2676,7 @@ bin/makoto corpus stat     # 件数を確認する
   - ⚠ **マスクの設定が無いときは既定のリストへ倒す。**⚠⚠ **マスクしない方向へは倒さない**（設定の不備で秘密が平文に戻るほうが事故が大きい）
   - ⚠ **「不正なバイト列の Symbol は作れない」で済ませない**（2026-08-15 に一度これで落ち残した）。**`String#to_sym` が `EncodingError` を上げるのは不正なバイト列のときだけ**で、⚠⚠ **Windows-31J のように「別の符号化として妥当」な文字列は、その符号化を持ったまま Symbol になれる**
   - ⚠ **踏むのは「壊れた／切り詰められたバイト列」**（`Net::HTTPBadResponse` の `wrong status line: "..."` など）。**ASCII-8BIT でも中身が妥当な UTF-8 なら落ちない**ので、Sequel の例外では踏まない。⚠⚠ **確率は低いが、踏むと `logger.error` 自身が再送出し、`Scheduler#tick` の rescue も貫通して stderr へ抜け、`bin/makoto_daemon.rb` が `/dev/null` に落とすので 1 行も残らなかった**
-  - ⚠ **いま入っている ginseng-core（1.15.28）の `mask` はキー名でしか落とせない。**⚠⚠ **値の文字列に埋まったトークン（`url: "...?access_token=xxx"`）は素通りする**（上流の新しい版には `mask_url` がある）。**MAKOTO は Bearer ヘッダで投げ、cure-api の URL にも秘密が無い**ので、いまは踏まない
+  - ✅ **値の文字列に埋まったトークンも落ちる**（🔴 **2026-09-19 に記述を実測へ直した** ＝ #353）。⚠ **`mask` は String を `mask_urls_in` へ通し、`mask_url` が `access_token` などのクエリを落とす**（`ginseng-core` v1.23.7 の `lib/ginseng/masking.rb`）。⚠⚠ **`SentryScrubber#initialize` はその `mask_url` をプローブに使い、読めなければ Sentry ごと立てない**（fail closed・`test/sentry_scrubber.rb` の `test_scrub_exception_message` が正テスト）。🔴 **「キー名でしか落とせない／いまは踏まない」と書いてあった段は 1.15.28 の話**で、**新しい安全機構の前提と正面から逆だった**（⚠ **版を書いた記述は、版を上げた日に探す**）
 - ⚠ **テストの共通処理は `setup` メソッドではなくコールバック（`setup do ... end`）で登録する。** メソッドにすると、サブクラスが `setup` を定義して `super` を忘れた瞬間に外れる。**忘れても落ちない**ので素通しに気付けない（WebMock の通信遮断で実際に起きうる形だった）
 - **秘密情報はログに出さない。** OAuth 認可コード・アクセストークン・API キーは scrub 対象に入れる
 
