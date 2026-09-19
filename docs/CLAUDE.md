@@ -1732,7 +1732,11 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 | CLI | ✅ **`makoto whoami` が `acct: makoto@st2.precure.ml` / `bot: true`** |
 | ほか | ⚠ **warn / error 0 行**・`/healthz` 3 口 200・**7 枠の名前まで確認**・drop-in なし |
 
-🔴 **テストは webmock なので、`PinnedAddressAdapter` と `repeat` を通る実経路は実機でしか見えない。**⚠⚠ **残りは投稿の口（上流のコードを通る最初の 1 通）**で、**次の曲紹介 12:00 を見るまで #349 は open。**
+🔴 **テストは webmock なので、`PinnedAddressAdapter` と `repeat` を通る実経路は実機でしか見えない。**⚠⚠ **残りは投稿の口（上流のコードを通る最初の 1 通）**だったので、**12:00 の曲紹介まで待った。**
+
+✅ **2026-09-19 12:00 の枠が上流のコードで出た**（`bydo` / `a12eca8`）— `{"post":"song","slot":"2026-09-19T03:00:00Z","status_id":"117295468435829625"}`・`phase:"notify","recorded":true`・🔴 **`{"mastodon":"post", ..., "mulukhiya":true}`**（⚠ **経路も維持**）・**error 0 行。**
+⚠ **見たのは「200 が返った」ではなく 3 点**: 🔴 **`status_id` が付いたか**（`validate_status` を通った証拠）・⚠ **`mulukhiya: true` か**（#124 の迂回が戻っていないか）・⚠ **`recorded: true` か**（履歴が伸びたか）。
+⚠⚠ **ローカルの `post` 上書きが消えた状態で確認している** — 実機の `grep -c "def post"` が `1`（`post_status` だけ）。
 
 #### ✅ リハーサルの報告書が `slow` / `recorded:false` / `revision` を読むようにした（2026-09-19・#348 / PR #361）
 
