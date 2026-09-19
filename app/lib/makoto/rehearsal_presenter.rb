@@ -10,8 +10,11 @@ module Makoto
   class RehearsalPresenter
     include Package
 
-    # ⚠ 人が読む順。**赤の判定に関わるものを上に置く。**
-    # ⚠ **`slow` は赤に掛からない**ので、赤の判定に関わる 3 つより下に置く（→ #348）。
+    # ⚠ 人が読む順。**投稿の経路を上から下へ追える並び。**
+    # 🔴 **赤に関わる節は 1 か所に固まっていない**（`posts` / `notify` / `slow` / `http` /
+    # `heartbeat`）— ⚠⚠ **2026-09-19 に `slow` と `heartbeat` が赤に入った**（#368 / #362）
+    # ので、**「赤の判定に関わるものを上に置く」では並べられなくなった。**
+    # ⚠ **赤の在り処は `RehearsalReport#red?` が正本**で、**この並びは読みやすさのため。**
     SECTIONS = [
       :header, :execs, :posts, :notify, :slow, :http, :heartbeat, :blind
     ].freeze
@@ -97,12 +100,13 @@ module Makoto
     # 🔴 **予算を超えて長くかかった枠**（#348 / #92）。⚠ **1 行も無いのが普通**なので、
     # **無ければ節そのものを出さない**（`format_notify` と同じ扱い）。
     def format_slow
-      return nil if @report.slows.empty? && @report.slow_errors.zero?
+      errors = @report.slow_errors
+      return nil if @report.slows.empty? && errors.zero?
       out = ['', "予算を超えた枠: #{@report.slows.size} 回"]
       out += @report.slows.map do |row|
-        "⚠ #{row[:post]} #{row[:slot]}: #{row[:seconds]} 秒（予算 #{row[:budget]} 秒）"
+        "🔴 #{row[:post]} #{row[:slot]}: #{row[:seconds]} 秒（予算 #{row[:budget]} 秒）"
       end
-      out.push("⚠ 計測そのものが #{@report.slow_errors} 回落ちた") if @report.slow_errors.positive?
+      out.push("🔴 計測そのものが #{errors} 回落ちた（測れていない窓がある）") if errors.positive?
       # 🔴 **早送りを「割引」と読ませない**（Codex の P2・3 巡目）— ⚠⚠ **計測は monotonic なので
       # scale では伸びない。**⚠ **伸びるのは予定の側**（同じ所要が枠の scale 倍を食う → #90）
       # なので、**早送りの回はむしろ重く読む。**
@@ -123,7 +127,13 @@ module Makoto
     end
 
     def format_heartbeat
-      return "\nハートビート: #{@report.heartbeats} 回"
+      out = ['', "ハートビート: #{@report.heartbeats} 回"]
+      # 🔴 **痕跡が書けなかった回を名指しする**（#362）。⚠⚠ **`/healthz` はこの痕跡を読む**ので、
+      # ⚠ **書けていない間は死活監視が古い値を見ている** — **赤にしてある**（→ `RehearsalReport#red?`）。
+      if @report.heartbeat_errors.positive?
+        out.push("🔴 痕跡の書き込みが #{@report.heartbeat_errors} 回落ちた（監視が古い値を見ていた）")
+      end
+      return out.join("\n")
     end
 
     # ⚠⚠ **読めていないものを毎回書く。**🔴 **「集計が緑だから大丈夫」と読ませない。**
@@ -132,9 +142,9 @@ module Makoto
       out.push('- 沈黙した枠の exec 回数（本文が無いときの 1 行は `debug` → #114）') if @report.silenced.zero?
       out.push('- 実時間の経過に依存するもの（メモリ・接続の寿命・ログのローテート）')
       # 🔴 **数えているが赤にしないものを名指しする**（#348）。⚠⚠ **「集計が緑 ＝ 何も
-      # 起きていない」と読ませない** — ⚠ **どちらも上の節に出ているので、見落とすのは
-      # 終了コードだけを見たとき。**
-      out.push('- 予算を超えた枠と recorded:false は赤にしない（履歴を切った構成では毎枠出る）')
+      # 起きていない」と読ませない** — ⚠ **節には出ているので、見落とすのは終了コードだけを
+      # 見たとき。**🔴 **`slow` は 2026-09-19 にここから外した**（**赤になったため** → #368）。
+      out.push('- recorded:false は赤にしない（履歴を切った構成では毎枠出るため → #284）')
       out.push('- 外部が実時間で持つ制限（Mastodon のレート制限窓）')
       out.push('- 投稿が枠を跨ぐか（早送りでは見かけ上 scale 倍かかる → #90 / #92）') if scaled?
       return out.join("\n")

@@ -68,12 +68,13 @@ module Makoto
       @notify_misses = 0
       @slows = []
       @slow_errors = 0
+      @heartbeat_errors = 0
       @revisions = Set.new
       lines.each {|line| consume(parse(line))}
     end
 
     attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
-      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions
+      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -135,9 +136,21 @@ module Makoto
     # ⚠ **`silenced`（本文が無い）は赤にしない。**⚠⚠ **「今日は投稿しない」であって
     # 失敗ではない**（→ `PostingJob#exec`）。**出るべき日に出なかったことを言えるのは
     # 中身を知っている側だけ**（→ #114 が入るまでこの集計には現れない）。
+    # 🔴 **痕跡の書き込みが落ちた回も赤**（#362・2026-09-19 オーナー判断）。⚠⚠ **痕跡は
+    # `/healthz` が読むもの**（→ `Health`）なので、**書けていない間は死活監視が古い値を
+    # 見ている ＝ 監視が盲目。**⚠ **`Heartbeat` が fail-open で常駐を止めないこととは両立する**
+    # — 🔴 **止めない設計と、リハーサルの合否は別。**
+    #
+    # 🔴 **予算を超えた枠も赤**（#368・同じ判断。⚠ **#92 が「観測まで」で引いた線を引き直した**）。
+    # ⚠⚠ **打ち切らない判断はそのまま**（`Timeout.timeout` は二重投稿の入口 → #92）で、
+    # **「合否に数えない」線だけを動かした** — ⚠ **`warn_slow` は monotonic で測り予算も実秒**
+    # なので、🔴 **この行が出たら早送りでも実時間で本当に予算を超えている。**
+    # ⚠ **計測そのものが落ちた回（`@slow_errors`）も倒す** — **測れていない窓は、この集計が
+    # 嘘をつきうる窓**（#362 と同じ理屈）。
     def red?
       return true if anomalous_slots.any? || duplicated_slots.any?
-      return true if @notify_failures.positive?
+      return true if @notify_failures.positive? || @heartbeat_errors.positive?
+      return true if @slows.any? || @slow_errors.positive?
       return http_errors.positive? || failed.positive?
     end
 
@@ -248,11 +261,12 @@ module Makoto
     # 進む**ので、⚠⚠ **見出しが「バージョン 0.6.0」だけだと、リハーサルの途中でデプロイが
     # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
     def count_heartbeat(entry)
+      # 🔴 **痕跡の書き込みが落ちた行は別に数える**（#362）。⚠ **`Scheduler` の `rescue` が
+      # `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）ので、⚠⚠ **1 回の
+      # tick が 2 行出る** — **素で数えると落ちた tick だけ「2 回」になる**（報告書は「回」と書く）。
+      # ⚠ **版も持たない**ので、**`(不明)` を足すと 1 つの版で通した回が「途中で変わった」に化ける。**
+      return @heartbeat_errors += 1 if entry[:error]
       @heartbeats += 1
-      # 🔴 **痕跡の書き込みが落ちた行は版を持たない**（Codex の P2）— ⚠ **`Scheduler`
-      # の `rescue` が `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）。
-      # ⚠⚠ **これに `(不明)` を足すと、1 つの版で通した回が「途中で変わった」に化ける。**
-      return @heartbeats if entry[:error]
       @versions.add(entry[:version].to_s) if entry[:version]
       # 🔴 **持たない行も 1 種として覚える**（Codex の P2）。⚠⚠ **`if` で捨てると、
       # 混ざったログで「全部この 1 つのリビジョン」に見え、警告も出ない** — ⚠ **#242 より
