@@ -115,6 +115,51 @@ module Makoto
       assert_include(status_output, "jobs: 1\n")
     end
 
+    # 🔴 **騙した日付を画面の先頭で言う**（#174）。⚠⚠ **`systemctl restart` の 1 手が
+    # 当日通しを始める**ので、⚠ **人が最初に叩くこのコマンドで言う。**
+    def test_the_time_travel_is_printed_first
+      with_time_travel {Heartbeat.touch(jobs: 1, now: now)}
+
+      assert_match(%r{\A🔴 time travel: from 2026-11-04T11:58:00\+09:00 / scale 10 /}, status_output)
+    end
+
+    # ⚠ **撤収すれば消える。**🔴 **平常時の画面を変えない**（#154 の完了条件）。
+    def test_no_time_travel_line_in_real_time
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_not_include(status_output, 'time travel')
+    end
+
+    # 🔴 **CLI 自身が騙している場合は別に言う**（#154）。⚠⚠ **向きが逆で、経過が
+    # 大きく出る** — ⚠ **常駐が実時間に居るのに `heartbeat is stale` の偽の赤になる。**
+    def test_the_cli_says_when_it_is_the_one_faking_the_date
+      Heartbeat.touch(jobs: 1, now: now)
+      output = with_time_travel {status_output}
+
+      assert_include(output, '🔴 time travel (this CLI): from 2026-11-04T11:58:00+09:00')
+    end
+
+    # 🔴 **負の経過を数字で出さない**（#154）。⚠⚠ **騙した時刻の原点はプロセスごと**
+    # なので、⚠ **あとから起動した CLI は常に常駐より過去に居る。**
+    def test_a_trace_from_the_future_is_not_printed_as_a_negative_number
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_tick(now: now + 6_360_337)
+
+      line = command.send(:format_tick, health)
+
+      assert_not_match(/-\d/, line)
+      assert_match(/\Aahead of this process \(limit \d+s\)\z/, line)
+    end
+
+    # ⚠ **ハートビートの側も同じ**（`format_age` — #150 より前から同じ引き算だった）。
+    def test_a_heartbeat_from_the_future_is_not_printed_as_a_negative_number
+      Heartbeat.touch(jobs: 1, now: now + 6_360_337)
+      line = command.send(:format_age, health.heartbeat_age)
+
+      assert_not_match(/-\d/, line)
+      assert_match(/\Aahead of this process \(limit \d+s\)\z/, line)
+    end
+
     def test_tick_with_a_trace
       Heartbeat.record_start(now: now - 120)
       Heartbeat.record_tick(now: now - 90)

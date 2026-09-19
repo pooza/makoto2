@@ -2,6 +2,10 @@ module Makoto
   class MainCommand < Thor
     include Package
 
+    # ⚠ **痕跡の時刻がこのプロセスの「いま」より後ろにあるときの印**（#154 →
+    # `format_elapsed`）。🔴 **経過が負になる** ＝ **常駐のほうが未来に居る。**
+    AHEAD_OF_PROCESS = 'ahead of this process'.freeze
+
     def self.exit_on_failure?
       return true
     end
@@ -72,6 +76,10 @@ module Makoto
       ⚠ 生死だけでなく「仕事をしているか」を見る。systemd はプロセスの死しか
       見ないので、常駐したまま何もしていない状態を拾えない。
 
+      🔴 日付を騙している間は、先頭に time travel の行が出る（#174）。⚠⚠ リハーサルの
+      drop-in が残っていると、次の再起動が黙って当日通しを始める（＝ 162 投稿）ので、
+      ⚠ 人が最初に叩くこのコマンドで言う。撤収の確認は systemctl show makoto2 -p Environment。
+
       出す行は 6 つ:
 
       running — 生死と PID。🔴 常駐が起動時に読み込んだリビジョンも（#242）。
@@ -93,13 +101,9 @@ module Makoto
     TEXT
     def status
       health = Health.new
+      travel_lines(health).each {|line| puts line}
       if health.alive?
-        puts "running (PID #{health.pid}, revision #{health.revision || '(unknown)'})"
-        puts "jobs: #{format_jobs(health)}"
-        puts "heartbeat: #{format_age(health.heartbeat_age)}"
-        puts "tick: #{format_tick(health)}"
-        puts "posting: #{format_posting(health)}"
-        puts "orphans: #{health.orphans&.join(', ') || '(unknown)'}"
+        print_health(health)
       else
         puts 'not running'
       end
@@ -109,6 +113,42 @@ module Makoto
     end
 
     private
+
+    # ⚠ **生きているときに出す 6 行**（→ `status` の `long_desc`）。⚠⚠ **死んでいれば
+    # `not running` の 1 行だけ**なので、ここは呼ばれない。
+    def print_health(health)
+      puts "running (PID #{health.pid}, revision #{health.revision || '(unknown)'})"
+      puts "jobs: #{format_jobs(health)}"
+      puts "heartbeat: #{format_age(health.heartbeat_age)}"
+      puts "tick: #{format_tick(health)}"
+      puts "posting: #{format_posting(health)}"
+      puts "orphans: #{health.orphans&.join(', ') || '(unknown)'}"
+      return nil
+    end
+
+    # 🔴 **日付を騙していることを画面の先頭で言う**（#174）。
+    #
+    # ⚠⚠ **`systemctl restart` は「いまのコードで上げ直す」つもりの操作**なのに、
+    # 🔴 **リハーサルの drop-in が残っていると、その 1 手が当日通しを始める**
+    # （⚠ **2026-08-23 に実際に踏んだ** — 162 投稿）。⚠⚠ **起動ログの `time_travel` は
+    # 出ているが、再起動のたびに人が読むとは限らない。**
+    #
+    # ⚠ **常駐の側は自分の `ENV` からは分からない**（→ `Heartbeat.touch` が痕跡に書く）。
+    # 🔴 **drop-in の env が渡るのは常駐だけ**で、⚠⚠ **あとから人が叩く CLI には付かない。**
+    #
+    # ⚠ **CLI 自身が騙している場合は別に言う**（#154）。🔴 **向きが逆で、経過が大きく
+    # 出る** — ⚠⚠ **常駐が実時間に居るのに `heartbeat is stale` の偽の赤になる。**
+    def travel_lines(health)
+      lines = []
+      lines.push("🔴 time travel: #{format_travel(health.travel)}") if health.travel
+      lines.push("🔴 time travel (this CLI): #{format_travel(TimeTravel.describe)}") \
+        if TimeTravel.active?
+      return lines
+    end
+
+    def format_travel(travel)
+      return "from #{travel[:start]} / scale #{travel[:scale]} / mastodon #{travel[:mastodon]}"
+    end
 
     # ⚠ **名前が無ければ本数だけ**（#242 より前の常駐が書いた痕跡）。
     def format_jobs(health)
@@ -120,7 +160,7 @@ module Makoto
 
     def format_age(seconds)
       return '(unknown)' unless seconds
-      return "#{seconds.round}s ago (limit #{Heartbeat.limit.round}s)"
+      return "#{format_elapsed(seconds)} (limit #{Heartbeat.limit.round}s)"
     end
 
     # 最後に枠を見に行った時刻（#150）。⚠ **`Health#errors` は見ているのに、人が叩く
@@ -140,9 +180,9 @@ module Makoto
     # 形になる。**赤に見えるのに緑、が画面でいちばん困る。**
     def format_tick(health)
       limit = "limit #{Heartbeat.tick_limit.round}s"
-      last = health.ticked_at ? "#{format_seconds(health.now - health.ticked_at)} ago" : 'never'
+      last = health.ticked_at ? format_elapsed(health.now - health.ticked_at) : 'never'
       return "#{last} (#{limit})" unless tick_grace?(health)
-      return "#{last} (started #{format_seconds(health.now - health.started_at)} ago, #{limit})"
+      return "#{last} (started #{format_elapsed(health.now - health.started_at)}, #{limit})"
     end
 
     # 猶予が「起き上がった時刻」から数えられているか。⚠ **`Heartbeat.tick_stale?` が
@@ -152,8 +192,22 @@ module Makoto
       return health.ticked_at.nil? || health.ticked_at < health.started_at
     end
 
-    def format_seconds(seconds)
-      return "#{seconds.round}s"
+    # 経過を人が読む形に。🔴 **負の数を出さない**（#154）。
+    #
+    # ⚠⚠ **騙した時刻の原点はプロセスごと。**⚠ **`Timecop.travel` は「そのプロセスが
+    # 起動した瞬間」を `MAKOTO_FAKE_TIME` に合わせる**ので、🔴 **あとから起動した CLI は
+    # 常に常駐より過去に居る** — **`now - ticked_at` が負になる。**⚠ **CLI 側に同じ env を
+    # 与えても直らない**（実測・#154。**そちらも 11:58 から数え直すだけ**）。
+    #
+    # ⚠⚠ **数字を出さずに向きだけ言う。**🔴 **`-6360337s ago` は読めないうえに、どの
+    # 上限と比べても小さい** — ⚠ **画面のいちばん赤い場所が、負の数のあいだだけ緑に見える。**
+    #
+    # ⚠ **直すのは画面だけ**（#154 の案 A）。⚠⚠ **CLI の原点を常駐に合わせる案（B）は
+    # `TimeTravel` そのものを触る** — 🔴 **あれは「偽の日付で本番へ投稿する」を止める
+    # 安全装置**なので、**11/4 より前に触らない。**
+    def format_elapsed(seconds)
+      return AHEAD_OF_PROCESS if seconds.negative?
+      return "#{seconds.round}s ago"
     end
 
     # ⚠ **「一度も投稿していない」を異常に見せない。**⚠⚠ **11/1 まではこれが正常**

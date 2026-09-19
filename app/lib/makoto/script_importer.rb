@@ -100,13 +100,13 @@ module Makoto
       return records.map.with_index {|record, index| entry(record, file, index)}
     end
 
-    # ⚠ **`date: 2026-11-03` は Psych が `Date` にする**ので許可する。
-    # ⚠⚠ **`safe_load` を使う**（原稿のファイルに Ruby のオブジェクトを書かせない）。
     def budget
       @budget ||= PostBudget.new
       return @budget
     end
 
+    # ⚠ **`date: 2026-11-03` は Psych が `Date` にする**ので許可する。
+    # ⚠⚠ **`safe_load` を使う**（原稿のファイルに Ruby のオブジェクトを書かせない）。
     def load_yaml(file)
       return YAML.safe_load_file(file, permitted_classes: [Date])
     rescue Psych::Exception => e

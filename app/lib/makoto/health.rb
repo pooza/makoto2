@@ -134,6 +134,16 @@ module Makoto
       return Heartbeat.started_at
     end
 
+    # 🔴 **常駐が日付を騙しているか**（#174 → `Heartbeat.touch`）。⚠ **騙していなければ nil。**
+    #
+    # ⚠⚠ **`revision` と違って身元（`own_heartbeat?`）で落とさない。**⚠ **あちらは
+    # 「動いているもの」を言う行なので取り違えを隠すほうが危ない**が、🔴 **こちらは
+    # 危険の合図** — **取り違えのおそれより、黙るおそれを重く見る。**⚠⚠ **痕跡に
+    # 残っていれば言う**（誰が書いたかは `systemctl show makoto2 -p Environment` で確かめる）。
+    def travel
+      return Heartbeat.travel
+    end
+
     # 復旧させるべき問題。⚠ **空なら健全。**
     #
     # ⚠⚠ **tick を別に見る**（#80 の黄 7）。⚠ **ハートビートは tick とは別の rufus

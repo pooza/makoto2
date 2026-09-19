@@ -27,6 +27,24 @@ module Makoto
       config.reload
     end
 
+    # 🔴 **日付を騙している状態を作る**（#174 / #154）。
+    #
+    # ⚠⚠ **`TimeTravel.activate!` は `Environment.test?` で何もしない**（⚠ **時計を
+    # 動かすと固定時刻の期待値が壊れる**）ので、🔴 **時計は動かさず「発動した」という
+    # 状態だけを作る。**⚠ **痕跡に書かれるもの（`describe`）はこれで本物と同じ。**
+    def with_time_travel(start: '2026-11-04 11:58:00 +0900', scale: '10')
+      original = ENV.to_h.slice(TimeTravel::START_KEY, TimeTravel::SCALE_KEY)
+      ENV[TimeTravel::START_KEY] = start
+      ENV[TimeTravel::SCALE_KEY] = scale
+      TimeTravel.reset!
+      TimeTravel.instance_variable_set(:@active, TimeTravel.describe)
+      return yield
+    ensure
+      [TimeTravel::START_KEY, TimeTravel::SCALE_KEY].each {|key| ENV.delete(key)}
+      original.each {|key, value| ENV[key] = value}
+      TimeTravel.reset!
+    end
+
     # テスト用のコーパス。**メモリ上に作って捨てる。**
     # 開発用の `tmp/db/makoto.db` を掴むと、投入済みのコーパスを壊す。
     #
