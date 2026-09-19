@@ -1303,8 +1303,8 @@ HTTP: GET 200 = 1 回 / POST 200 = 162 回
    ```sh
    sudo systemctl edit makoto2      # 中身は下記（🔴 値は引用符で囲む）
    sudo systemctl daemon-reload
+   systemctl show makoto2 -p Environment   # 🔴 restart の前に見る（出発時刻が切れていないこと）
    sudo systemctl restart makoto2
-   systemctl show makoto2 -p Environment   # 🔴 出発時刻が切れていないことを先に見る
    sudo journalctl _SYSTEMD_UNIT=makoto2.service SYSLOG_IDENTIFIER=makoto2 \
      --since '<開始>' -o cat | makoto rehearsal report
    ```
@@ -1326,7 +1326,20 @@ HTTP: GET 200 = 1 回 / POST 200 = 162 回
 
    🔴 **これは「起動しない」ではなく「別のリハーサルが静かに始まる」形。**⚠⚠ **`Time.parse('2026-11-04')` は 00:00 になる**ので、⚠ **選んだ時刻ではなく、その日の頭から始まる** — **`scale 10` なら実時間 2.4 時間で 1 日ぶんの全枠を通す**（**意図した窓の外で 162 投稿**）。⚠⚠ **`TimeTravel` の fail-closed は「読めなければ例外」だが、これは読めてしまう。**
 
-   ✅ **見つけ方は 2 つとも上のコマンドにある** — 🔴 **`systemctl show makoto2 -p Environment`**（**systemd が実際に持っている値**）と、⚠ **`makoto status` の先頭の行**（**常駐が出発時刻を言う** → #174）。⚠⚠ **2026-09-19 はこの行で気付いた**（`from 2026-11-04T00:00:00+09:00` と出た）。
+   🔴 **⚠⚠ 確かめるのは `restart` の前**（Codex の P2・PR #376）。⚠ **後ろに置くと、切れた出発時刻のまま常駐が既に上がっている** — **見つける前に 162 投稿が始まりうる。**
+
+   ✅ **`daemon-reload` を通せば、`restart` を待たずに見える**（⚠ **実測**・2026-09-19・`bydo`）:
+
+   ```text
+   # drop-in を置いただけ（daemon-reload の前）
+   Environment=LANG=… LC_ALL=…                        # ⚠ まだ読まれていない
+   # daemon-reload の後（🔴 restart はしていない）
+   Environment=LANG=… LC_ALL=… MAKOTO_FAKE_TIME=2026-11-04   # ✅ 切れているのが見える
+   ```
+
+   ⚠⚠ **境目は撤収と同じ `daemon-reload`** — 🔴 **systemd がファイルを読み直すのはここだけ**なので、**武装するのも解除するのも、確かめるのもこの線の後ろ側**（→ 下記「撤収の完了条件は `ls` ではなく systemd が持っている値」）。
+
+   ✅ **見つけ方はもう 1 つある** — ⚠ **`makoto status` の先頭の行**（**常駐が出発時刻を言う** → #174）。⚠⚠ **2026-09-19 はこちらで気付いた**（`from 2026-11-04T00:00:00+09:00` と出た）が、🔴 **こちらは上がったあとにしか出ない** — **`systemctl show` を先に見るほうが安い。**
 
    ⚠⚠ **集計は投稿の経路に手を入れない** — **常駐に数え上げを持たせると、それ自体が本番と違う挙動**になり「日付以外は全く同じ」が崩れる。🔴 **終了コードで赤を返す**（枠あたりの `exec` 回数・重複投稿・HTTP の 4xx / 5xx）ので、**人が表を読まなくても落ちる。**⚠ **同じ道具が 11/4 当日の本番のログにも使える。**
 
