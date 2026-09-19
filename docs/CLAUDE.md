@@ -1301,11 +1301,32 @@ HTTP: GET 200 = 1 回 / POST 200 = 162 回
    ✅ **回すのと集めるのは別の道具**（2026-08-19）。⚠ **仕掛けは `MAKOTO_FAKE_TIME` / `MAKOTO_TIME_SCALE`**（`TimeTravel`）、⚠ **集計は `makoto rehearsal report`**（`RehearsalReport`）:
 
    ```sh
-   sudo systemctl edit makoto2      # Environment= で MAKOTO_FAKE_TIME / MAKOTO_TIME_SCALE を足す
+   sudo systemctl edit makoto2      # 中身は下記（🔴 値は引用符で囲む）
+   sudo systemctl daemon-reload
    sudo systemctl restart makoto2
+   systemctl show makoto2 -p Environment   # 🔴 出発時刻が切れていないことを先に見る
    sudo journalctl _SYSTEMD_UNIT=makoto2.service SYSLOG_IDENTIFIER=makoto2 \
      --since '<開始>' -o cat | makoto rehearsal report
    ```
+
+   ```ini
+   [Service]
+   Environment="MAKOTO_FAKE_TIME=2026-11-04 11:58:00 +0900"
+   Environment=MAKOTO_TIME_SCALE=10
+   ```
+
+   🔴 **⚠⚠ 引用符を外すと出発時刻が空白で切れる**（2026-09-19 に実際に踏んだ）。⚠ **systemd の `Environment=` は空白で区切る**ので、**素で書くと `MAKOTO_FAKE_TIME=2026-11-04` だけが渡り、`01:00:00` と `+0900` は落ちる:**
+
+   ```text
+   # 引用符なし（🔴 切れている）
+   Environment=LANG=… MAKOTO_FAKE_TIME=2026-11-04 MAKOTO_TIME_SCALE=10
+   # 引用符あり（✅）
+   Environment=LANG=… "MAKOTO_FAKE_TIME=2026-11-04 01:00:00 +0900" MAKOTO_TIME_SCALE=10
+   ```
+
+   🔴 **これは「起動しない」ではなく「別のリハーサルが静かに始まる」形。**⚠⚠ **`Time.parse('2026-11-04')` は 00:00 になる**ので、⚠ **選んだ時刻ではなく、その日の頭から始まる** — **`scale 10` なら実時間 2.4 時間で 1 日ぶんの全枠を通す**（**意図した窓の外で 162 投稿**）。⚠⚠ **`TimeTravel` の fail-closed は「読めなければ例外」だが、これは読めてしまう。**
+
+   ✅ **見つけ方は 2 つとも上のコマンドにある** — 🔴 **`systemctl show makoto2 -p Environment`**（**systemd が実際に持っている値**）と、⚠ **`makoto status` の先頭の行**（**常駐が出発時刻を言う** → #174）。⚠⚠ **2026-09-19 はこの行で気付いた**（`from 2026-11-04T00:00:00+09:00` と出た）。
 
    ⚠⚠ **集計は投稿の経路に手を入れない** — **常駐に数え上げを持たせると、それ自体が本番と違う挙動**になり「日付以外は全く同じ」が崩れる。🔴 **終了コードで赤を返す**（枠あたりの `exec` 回数・重複投稿・HTTP の 4xx / 5xx）ので、**人が表を読まなくても落ちる。**⚠ **同じ道具が 11/4 当日の本番のログにも使える。**
 
@@ -1989,11 +2010,24 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 
 ##### ⚠ 実機で確かめたこと
 
-✅ **常駐が `travel` を痕跡に書くことは実際の常駐で確認した**（`MAKOTO_FAKE_TIME` つきで起こし、`tmp/run/heartbeat.json` に `"travel":{"start":"2026-11-04T01:00:00+09:00","scale":10,"mastodon":"st2.precure.ml"}`）。⚠ **枠の無い時刻（01:00）を選んだ**ので **1 本も投稿していない。**
+✅ **`bydo` に drop-in を置いて通した**（**枠の無い時刻（11/4 01:00）を選んだ**ので **1 本も投稿していない**・**集計は「投稿: 成功 0 回」**）:
 
-✅ **平常時の画面が変わらないことは `bydo` で実測**（`heartbeat: 563s ago` / `tick: 3s ago`・**time travel の行は出ない**・`Environment` に残留なし）。
+```text
+🔴 time travel: from 2026-11-04T01:00:00+09:00 / scale 10 / mastodon st2.precure.ml
+running (PID 230709, revision 65d9aa5)
+jobs: 7 (announcement, morning, song, live-eve, live-open, live, live-close)
+heartbeat: ahead of this process (limit 10800s)     # ← -6360337s ago だった
+tick: ahead of this process (limit 300s)
+posting: last success 2026-09-19T06:30:10Z, 0 failures in a row (limit 3)
+orphans:
+exit=0                                              # ⚠ 判定は変えていない
+```
 
-⚠ **`bydo` に drop-in を置いた通しはまだ** — 🔴 **次のリリースのリハーサルで、新しい撤収チェックごと通す。**
+✅ **撤収も新しいチェックで通した** — **drop-in 削除・`daemon-reload` ＋ 再起動・`systemctl show makoto2 -p Environment` に残留なし・`makoto status` の先頭に time travel 無し・経過は正の数（`9s ago`）・再起動後のログに `time_travel` 0 行・`/healthz` の 3 口すべて 200。**
+
+🔴 **この通しで、置いた drop-in の書き間違いを画面が捕まえた** — ⚠⚠ **指定は `01:00:00 +0900` なのに、先頭の行が `from 2026-11-04T00:00:00+09:00` と出た**（→ 上記 リリース手順 4 の「引用符を外すと出発時刻が空白で切れる」）。⚠ **#174 の行が最初に見つけたのは、撤収漏れではなく仕掛けの書き間違いだった。**
+
+⚠ **`posting` は絶対時刻なので騙している間も読める**（#154 の本文どおり）。⚠⚠ **集計の側も `⚠ 日付を騙している: 出発 … / scale 10` を出す**ので、**画面とログの両方で出発時刻を突き合わせられる。**
 
 **996 tests / 0 failures**（+7）・`rubocop` 127 files / no offenses。
 
