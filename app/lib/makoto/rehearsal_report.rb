@@ -53,12 +53,6 @@ module Makoto
     # `exec` 2 回の偽の赤になる**（→ #348 / #284）。
     PHASE_COUNTERS = {'notify' => :count_notify, 'slow' => :count_slow}.freeze
 
-    # ⚠ 人が読む順。**赤の判定に関わるものを上に置く。**
-    # ⚠ **`slow` は赤に掛からない**ので、赤の判定に関わる 3 つより下に置く（→ #348）。
-    SECTIONS = [
-      :header, :execs, :posts, :notify, :slow, :http, :heartbeat, :blind
-    ].freeze
-
     # @param lines [Enumerable<String>] ログの行。⚠ **JSON でない行は捨てる**
     #   （例外のバックトレースは `  /path:12:in …` の素の行で出る）
     def initialize(lines)
@@ -74,12 +68,13 @@ module Makoto
       @notify_misses = 0
       @slows = []
       @slow_errors = 0
+      @heartbeat_errors = 0
       @revisions = Set.new
       lines.each {|line| consume(parse(line))}
     end
 
     attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
-      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions
+      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -141,9 +136,21 @@ module Makoto
     # ⚠ **`silenced`（本文が無い）は赤にしない。**⚠⚠ **「今日は投稿しない」であって
     # 失敗ではない**（→ `PostingJob#exec`）。**出るべき日に出なかったことを言えるのは
     # 中身を知っている側だけ**（→ #114 が入るまでこの集計には現れない）。
+    # 🔴 **痕跡の書き込みが落ちた回も赤**（#362・2026-09-19 オーナー判断）。⚠⚠ **痕跡は
+    # `/healthz` が読むもの**（→ `Health`）なので、**書けていない間は死活監視が古い値を
+    # 見ている ＝ 監視が盲目。**⚠ **`Heartbeat` が fail-open で常駐を止めないこととは両立する**
+    # — 🔴 **止めない設計と、リハーサルの合否は別。**
+    #
+    # 🔴 **予算を超えた枠も赤**（#368・同じ判断。⚠ **#92 が「観測まで」で引いた線を引き直した**）。
+    # ⚠⚠ **打ち切らない判断はそのまま**（`Timeout.timeout` は二重投稿の入口 → #92）で、
+    # **「合否に数えない」線だけを動かした** — ⚠ **`warn_slow` は monotonic で測り予算も実秒**
+    # なので、🔴 **この行が出たら早送りでも実時間で本当に予算を超えている。**
+    # ⚠ **計測そのものが落ちた回（`@slow_errors`）も倒す** — **測れていない窓は、この集計が
+    # 嘘をつきうる窓**（#362 と同じ理屈）。
     def red?
       return true if anomalous_slots.any? || duplicated_slots.any?
-      return true if @notify_failures.positive?
+      return true if @notify_failures.positive? || @heartbeat_errors.positive?
+      return true if @slows.any? || @slow_errors.positive?
       return http_errors.positive? || failed.positive?
     end
 
@@ -151,8 +158,9 @@ module Makoto
       return @http.sum {|(_, status), count| status.to_i >= 400 ? count : 0}
     end
 
+    # ⚠ **本文の組み立ては `RehearsalPresenter`**（🔴 **数える側と分けた** — 2026-09-19）。
     def to_s
-      return SECTIONS.filter_map {|section| send(:"format_#{section}")}.join("\n")
+      return RehearsalPresenter.new(self).to_s
     end
 
     private
@@ -253,130 +261,18 @@ module Makoto
     # 進む**ので、⚠⚠ **見出しが「バージョン 0.6.0」だけだと、リハーサルの途中でデプロイが
     # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
     def count_heartbeat(entry)
+      # 🔴 **痕跡の書き込みが落ちた行は別に数える**（#362）。⚠ **`Scheduler` の `rescue` が
+      # `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）ので、⚠⚠ **1 回の
+      # tick が 2 行出る** — **素で数えると落ちた tick だけ「2 回」になる**（報告書は「回」と書く）。
+      # ⚠ **版も持たない**ので、**`(不明)` を足すと 1 つの版で通した回が「途中で変わった」に化ける。**
+      return @heartbeat_errors += 1 if entry[:error]
       @heartbeats += 1
-      # 🔴 **痕跡の書き込みが落ちた行は版を持たない**（Codex の P2）— ⚠ **`Scheduler`
-      # の `rescue` が `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）。
-      # ⚠⚠ **これに `(不明)` を足すと、1 つの版で通した回が「途中で変わった」に化ける。**
-      return @heartbeats if entry[:error]
       @versions.add(entry[:version].to_s) if entry[:version]
       # 🔴 **持たない行も 1 種として覚える**（Codex の P2）。⚠⚠ **`if` で捨てると、
       # 混ざったログで「全部この 1 つのリビジョン」に見え、警告も出ない** — ⚠ **#242 より
       # 前の版や、git 以外から置いた箱のハートビートは `revision` を持たない。**
       @revisions.add(entry[:revision].presence || UNKNOWN_REVISION)
       return @heartbeats
-    end
-
-    def format_header
-      out = ["ログ #{@lines} 行 / バージョン #{@versions.to_a.join(', ').presence || '(不明)'}" \
-        " / リビジョン #{@revisions.to_a.join(', ').presence || UNKNOWN_REVISION}"]
-      # 🔴 **途中でデプロイが挟まった回は、結果を 1 つの版のものとして読めない**（#348 / #242）。
-      # ⚠ **赤にはしない**（**リハーサルの終わり際に当てた回もここに出る**）が、⚠⚠ **見出しで言う。**
-      out.push("⚠ 途中でリビジョンが変わった（#{@revisions.size} 種）") if @revisions.size > 1
-      # ⚠⚠ **騙していたことを必ず出す。**⚠ **後から読む人が「本番のログ」と
-      # 取り違えないため**（→ `TimeTravel` が毎ハートビートに `warn` を出すのと同じ理由）。
-      out.push(format_travel) if @travel
-      out.push('⚠ 日付を騙した痕跡が無い（実時間のログか、水準が warn を落としている）') unless @travel
-      return out.join("\n")
-    end
-
-    def format_travel
-      return "⚠ 日付を騙している: 出発 #{@travel[:start]} / scale #{@travel[:scale]}" \
-        " / 投稿先 #{@travel[:mastodon]}"
-    end
-
-    def format_execs
-      out = ['', "枠あたりの exec 回数（想定 #{EXPECTED_EXECS} 回）"]
-      by_name.each do |name, row|
-        mark = row[:range] == [EXPECTED_EXECS, EXPECTED_EXECS] ? '  ' : '🔴'
-        out.push("#{mark} #{name}: #{row[:slots]} 枠 / exec #{row[:execs]} 回" \
-          " / 枠あたり #{format_range(row[:range])}")
-      end
-      out.push('  （枠が 1 つも無い）') if @slots.empty?
-      out.push("🔴 #{anomalous_slots.size} 枠が想定と違う") if anomalous_slots.any?
-      return out.join("\n")
-    end
-
-    def format_range(range)
-      return "#{range.first} 回" if range.first == range.last
-      return "#{range.first}〜#{range.last} 回"
-    end
-
-    def format_posts
-      out = ['', "投稿: 成功 #{posted} 回（status #{unique_posts} 件）" \
-        " / 失敗 #{failed} 回 / 沈黙 #{silenced} 回"]
-      # ⚠⚠ **赤にした理由を本文にも書く**（#127）。⚠ **終了コードだけが赤で、読んでも
-      # どこが赤か分からない形にしない。**
-      out.push("🔴 #{failed} 回の投稿が落ちた") if failed.positive?
-      # 🔴 **500 が止まった世界で現れる壊れ方。**⚠ 回数の異常とは別に名指しする。
-      duplicated_slots.each do |(name, slot), row|
-        out.push("🔴 #{name} #{slot} が #{row[:posts].uniq.size} 件の status を作った（重複投稿）")
-      end
-      return out.join("\n")
-    end
-
-    # ⚠ **履歴の通知**（#284）。🔴 **1 行も無いのが普通**（`posted` を持つのは曲紹介だけ）
-    # なので、**出ていないこと自体は異常ではない。**
-    def format_notify
-      return nil if @notifies.zero?
-      out = ['', "履歴の通知: #{@notifies} 回 / 失敗 #{@notify_failures} 回"]
-      # ⚠⚠ **赤にした理由を本文にも書く**（#127 と同じ）。
-      out.push("🔴 #{@notify_failures} 回の通知が落ちた（投稿は出ているが履歴が伸びていない）") \
-        if @notify_failures.positive?
-      # 🔴 **落ちた回とは別に数える**（#348）。⚠⚠ **こちらは例外にならない** —
-      # **`posted` が `nil` を返しただけ**なので、**ログの上では成功した枠と同じ形に見える。**
-      # ⚠ **赤にしないのは、履歴を切ってあれば毎枠出るから**（→ `count_notify`）。
-      out.push("⚠ #{@notify_misses} 回が履歴を伸ばさなかった（recorded:false）") if @notify_misses.positive?
-      return out.join("\n")
-    end
-
-    # 🔴 **予算を超えて長くかかった枠**（#348 / #92）。⚠ **1 行も無いのが普通**なので、
-    # **無ければ節そのものを出さない**（`format_notify` と同じ扱い）。
-    def format_slow
-      return nil if @slows.empty? && @slow_errors.zero?
-      out = ['', "予算を超えた枠: #{@slows.size} 回"]
-      out += @slows.map do |row|
-        "⚠ #{row[:post]} #{row[:slot]}: #{row[:seconds]} 秒（予算 #{row[:budget]} 秒）"
-      end
-      out.push("⚠ 計測そのものが #{@slow_errors} 回落ちた") if @slow_errors.positive?
-      # 🔴 **早送りを「割引」と読ませない**（Codex の P2・3 巡目）— ⚠⚠ **計測は monotonic なので
-      # scale では伸びない。**⚠ **伸びるのは予定の側**（同じ所要が枠の scale 倍を食う → #90）
-      # なので、**早送りの回はむしろ重く読む。**
-      out.push('⚠ 計測は実時間（monotonic）。伸びるのは予定の側（scale 倍 → #90）') if scaled?
-      return out.join("\n")
-    end
-
-    def format_http
-      out = ['', 'HTTP']
-      sorted = @http.sort_by {|(method, status), _| [method.to_s, status.to_i]}
-      sorted.each do |(method, status), count|
-        mark = status.to_i >= 400 ? '🔴' : '  '
-        out.push("#{mark} #{method} #{status}: #{count} 回")
-      end
-      out.push('  （1 本も無い）') if @http.empty?
-      out.push("⚠ 再送 #{@retries} 回") if @retries.positive?
-      return out.join("\n")
-    end
-
-    def format_heartbeat
-      return "\nハートビート: #{@heartbeats} 回"
-    end
-
-    # ⚠⚠ **読めていないものを毎回書く。**🔴 **「集計が緑だから大丈夫」と読ませない。**
-    def format_blind
-      out = ['', '⚠ この集計では読めないもの']
-      out.push('- 沈黙した枠の exec 回数（本文が無いときの 1 行は `debug` → #114）') if silenced.zero?
-      out.push('- 実時間の経過に依存するもの（メモリ・接続の寿命・ログのローテート）')
-      # 🔴 **数えているが赤にしないものを名指しする**（#348）。⚠⚠ **「集計が緑 ＝ 何も
-      # 起きていない」と読ませない** — ⚠ **どちらも上の節に出ているので、見落とすのは
-      # 終了コードだけを見たとき。**
-      out.push('- 予算を超えた枠と recorded:false は赤にしない（履歴を切った構成では毎枠出る）')
-      out.push('- 外部が実時間で持つ制限（Mastodon のレート制限窓）')
-      out.push('- 投稿が枠を跨ぐか（早送りでは見かけ上 scale 倍かかる → #90 / #92）') if scaled?
-      return out.join("\n")
-    end
-
-    def scaled?
-      return @travel.present? && @travel[:scale].to_i > 1
     end
   end
 end

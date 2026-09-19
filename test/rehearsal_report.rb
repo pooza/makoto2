@@ -267,10 +267,12 @@ module Makoto
       assert_include(subject.to_s, '12.3 秒（予算 9.0 秒）')
     end
 
-    # 🔴 **赤にはしない**（#348 / #92）。⚠⚠ **早送りでは実時間が伸びる**ので、
-    # **赤にすると毎回鳴る** — ⚠ **#92 は「観測まで」で線を引いている。**
-    def test_a_slow_entry_is_not_red
-      assert_false(report(SUCCESS, SLOW).red?)
+    # 🔴 **赤にする**（#368・2026-09-19 オーナー判断で #92 の線を引き直した）。
+    # ⚠⚠ **`warn_slow` は `CLOCK_MONOTONIC` で測り予算も実秒**なので、**この行が出たら
+    # 早送りでも実時間で本当に予算を超えている。**⚠ **打ち切らない判断はそのまま**
+    # （`Timeout.timeout` は二重投稿の入口 → #92）で、**「合否に数えない」線だけを動かした。**
+    def test_a_slow_entry_is_red
+      assert_true(report(SUCCESS, SLOW).red?)
     end
 
     # 🔴 **早送りを「割引」と読ませない**（#348・Codex の P2 の 3 巡目）。⚠⚠ **`warn_slow` は
@@ -290,6 +292,8 @@ module Makoto
       assert_empty(subject.slows)
       assert_equal(0, subject.failed)
       assert_include(subject.to_s, '計測そのものが 1 回落ちた')
+      # 🔴 **これも赤**（#368）。⚠⚠ **測れていない窓は、この集計が嘘をつきうる窓。**
+      assert_true(subject.red?)
     end
 
     # 🔴 **`recorded: false` を数えて名指しする**（#348）。⚠⚠ **数えなかった頃は、
@@ -304,8 +308,12 @@ module Makoto
 
     # ⚠ **数えているが赤にしないものを「読めないもの」に書く**（#348）。
     # 🔴 **終了コードだけを見る人に、節が出ていることを知らせる。**
+    # ⚠⚠ **残っているのは `recorded:false` だけ**（🔴 **`slow` は #368 で赤に移った**）。
     def test_the_blind_spot_names_what_is_not_red
-      assert_include(report(SUCCESS).to_s, '赤にしない')
+      subject = report(SUCCESS)
+
+      assert_include(subject.to_s, 'recorded:false は赤にしない')
+      assert_not_include(subject.to_s, '予算を超えた枠と')
     end
 
     # ⚠ **リビジョンを見出しに出す**（#348 / #242）。🔴 **`version` は `0.6.0` のまま
@@ -350,6 +358,32 @@ module Makoto
       assert_equal(2, subject.revisions.size)
       assert_include(subject.to_s, '(不明)')
       assert_include(subject.to_s, '途中でリビジョンが変わった（2 種）')
+    end
+
+    # 🔴 **落ちた tick を 2 回に数えない**（#362）。⚠⚠ **`Scheduler#schedule_heartbeat` は
+    # 1 回の tick で 2 行出しうる**（情報の行が先に出て、`Heartbeat.touch` が落ちたら
+    # `error` の行も出る）— ⚠ **報告書は「回」と書くので、行のまま数えると嘘になる。**
+    def test_a_heartbeat_error_is_not_counted_as_a_heartbeat
+      subject = report(HEARTBEAT_REV, HEARTBEAT_ERROR)
+
+      assert_equal(1, subject.heartbeats)
+      assert_equal(1, subject.heartbeat_errors)
+      assert_include(subject.to_s, 'ハートビート: 1 回')
+    end
+
+    # 🔴 **痕跡が書けなかったことを名指しする**（#362）。⚠⚠ **数えなかった頃は完全に無言で、
+    # 全部書けた回と出力が 1 文字も変わらなかった。**
+    def test_a_heartbeat_error_is_named_in_the_report
+      assert_include(report(HEARTBEAT_REV, HEARTBEAT_ERROR).to_s, '痕跡の書き込みが 1 回落ちた')
+    end
+
+    # 🔴 **赤にする**（#362・2026-09-19 オーナー判断）。⚠⚠ **痕跡は `/healthz` が読むもの**
+    # なので、**書けていない間は死活監視が古い値を見ている ＝ 監視が盲目。**
+    # ⚠ **`Heartbeat` が fail-open で常駐を止めないこととは両立する** — 🔴 **止めない設計と、
+    # リハーサルの合否は別。**
+    def test_a_heartbeat_error_is_red
+      assert_true(report(SUCCESS, HEARTBEAT_ERROR).red?)
+      assert_false(report(SUCCESS, HEARTBEAT_REV).red?)
     end
   end
 end
