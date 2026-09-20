@@ -2185,7 +2185,7 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 🔴 **(a) が挙動ゼロなのは、makoto2 が変わった関数を 1 つも呼んでいないから。**
 
-- ⚠ **`escape_status` / `escape_toot` / `escape_note` / `sanitize_status` の `grep` のヒットは、コメントとテストのコメントだけ**（当時の `app/lib/makoto/status_text.rb` の「🔴 `escape_status` は使わない」・`test/status_text.rb:17`・`test/track_presenter.rb:46`。⚠ **どちらのファイルも 2026-09-20 に畳んだ**）
+- ⚠ **`escape_status` / `escape_toot` / `escape_note` / `sanitize_status` の `grep` のヒットは、コメントとテストのコメントだけ**（当時の `app/lib/makoto/status_text.rb` の「🔴 `escape_status` は使わない」・`test/status_text.rb:17`・`test/track_presenter.rb:46`。🔴 **2026-09-20 に畳んだのは `app/lib/makoto/status_text.rb` だけ** — ⚠⚠ **テスト 2 本は残し、上流の `escape_sigils` を当てる形へ書き替えた** → 下記）
 - ⚠⚠ **`using Refines` も書いていない。**🔴 **refinement はレキシカルスコープ**なので、gem 側の `lib/ginseng/fediverse.rb` の `using Refines` はあのファイルの中だけに効く
 - ⚠ **投稿の口は素通し** — `Makoto::MastodonService#post_status` は `body = {status: text.to_s}`
 
