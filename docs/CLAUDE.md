@@ -3492,7 +3492,14 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
     🔴 **見るのは `updatedAt`（無音の長さ）と `mergeStateStatus`（緑か）の 2 つ**。⚠⚠ **`createdAt` だけで判断しない** — **前回「起票が新しいから眠っていない」で外したのがこの誤り。**
 
-    ⚠⚠ **ただし `updatedAt` は**こちらの催促でも動く**。**🔴 **実測** — `ginseng-core#639` は **起票 `2026-09-18T23:04:59Z` / 最終 `2026-09-20T01:00:34Z`** だが、**後者は当方が催促を書いた時刻**（**上流は何もしていない**）。⚠ **催促した PR は、次の同期で「昨日動いた」に見える** — **無音の起点は相手の最後の動きで採る**（**`gh pr view --json comments,reviews` で最後の投稿者を見る**か、**催促した日を記録の側に残しておく**）。
+    ⚠⚠ **ただし `updatedAt` はこちらの催促でも動く。**🔴 **催促した PR は、次の同期で「昨日動いた」に見える** — ⚠ **無音の起点は相手の最後の動きで採る。**⚠⚠ **相手の動きはコメントとは限らない**（Codex の P2・5 巡目）— 🔴 **返事を書かずにコミットを積むことがある**ので、**`comments` / `reviews` だけ見ると「無音」と読んで二重に催促する**:
+
+    ```sh
+    gh pr view "$n" --repo "pooza/$r" --json comments,reviews,commits \
+      --jq '"comment=\([.comments[].createdAt]|max) review=\([.reviews[].submittedAt]|max) commit=\([.commits[].committedDate]|max)"'
+    ```
+
+    ⚠ **レビュースレッドの返信はここに出ない**（🔴 **`pulls/N/comments` の別経路** → 手順 5.）。⚠⚠ **いちばん安いのは、催促した日を記録の側に残しておくこと**（**こちらが書いた時刻は、こちらしか知らない**）。
 
     ⚠ **2026-09-04 の同期で [`pooza/ginseng-core#624`](https://github.com/pooza/ginseng-core/pull/624)（**`mask_fields` を公開する**）を「緑のまま眠っている」と拾った** — ✅ **ただし催促を書いているあいだにマージされた**（**17:37:51Z**・[v1.23.5](https://github.com/pooza/ginseng-core/releases/tag/v1.23.5)）。🔴 **こちらが状態を取ったのは 17:2x で、45 分古い値のまま催促を投げた。**
 
