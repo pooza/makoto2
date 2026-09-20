@@ -11,8 +11,8 @@ module Makoto
       @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
     end
 
-    # pid ファイルが指すプロセスの状態。⚠ **上流の `:alive` / `:dead` / `:unknown`
-    # に「身元」を足す**（#80 の黄 6）。
+    # 上流が読んだ番号 `found` が指すプロセスの状態。⚠ **上流の `:alive` / `:dead` /
+    # `:unknown` に「身元」を足す**（#80 の黄 6）。
     #
     # 🔴 **番号だけでは足りない。**⚠⚠ **`Process.alive_state` は「その番号が在るか」
     # しか見ない**ので、⚠ **pid が再利用されると無関係なプロセスを常駐だと答える**
@@ -23,44 +23,35 @@ module Makoto
     # 🔴 **ボットは一度も起動せず、理由もログに残らない**（warn は stderr →
     # `bin/makoto_daemon.rb` が `/dev/null` に落とす）。
     #
-    # 🔴 **`alive?` ではなくここを上書きする**（#101 / 2026-08-24）。⚠⚠ **上流が
-    # 起動と停止の判断に使うのは `alive_state` のほう**（`abort_if_running!` /
-    # `run_restart` / `run_status`）で、⚠ **`alive?` は「真偽 2 値のまま残した
-    # 既存の呼び出し側のため」の薄い述語**にすぎない。**あちらを上書きしても
-    # `run_start` は守れない。**
+    # ## 🔴 上書きするのは `alive_state` ではなく `alive_state_of`（#200・2026-09-20）
+    #
+    # ⚠⚠ **`alive_state` を上書きして `super` のあとに `pid` を読み直す形をやめた**
+    # （上流 [`ginseng-core#638`](https://github.com/pooza/ginseng-core/pull/638) が
+    # **「読んだ番号を受け取る上書き点」**を足したので移した・v1.24.0）。
+    #
+    # 🔴 **前の形は pid ファイルを 2 回読んでいた** — ⚠ **1 回目は `super` の中、
+    # 2 回目は身元を確かめるため**で、⚠⚠ **2 回の間に書き換わると「A の生死」に
+    # 「B の身元」を掛けた答え**になった（#200）。**ここで番号を受け取れば読み直さない。**
+    #
+    # ⚠ **`found` は nil にならない** — 🔴 **番号が取れなかったときの答えは上流の
+    # `alive_state` が決める**（**在るのに読めないなら `:unknown`・無いなら `:dead`**）。
+    # ⚠⚠ **したがって #257 で自分の箱に置いた `pid_file_unreadable?` の分岐は要らない**
+    # （**上流と同じ分け方が上流の側に入った**）。⚠ **ここで pid ファイルを読み直さないこと。**
+    #
+    # ## ⚠ 上書き点を選ぶ理由（`alive?` ではない・#101 / 2026-08-24）
+    #
+    # ⚠⚠ **上流が起動と停止の判断に使うのは `alive_state` のほう**（`abort_if_running!` /
+    # `run_restart` / `run_status`）で、⚠ **`alive?` は「真偽 2 値のまま残した既存の
+    # 呼び出し側のため」の薄い述語**にすぎない。**あちらを上書きしても `run_start` は
+    # 守れない。**🔴 **`alive_state_of` はその `alive_state` が通る唯一の点。**
     #
     # ⚠ **`:unknown`（`EPERM` ＝ 居るが触れない）はそのまま返す** — 🔴 **上流は
     # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
     # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
     # `:unknown` という 3 つ目の答えとして上流に入った。**
-    #
-    # 🔴 **番号が取れなかったら `:dead` に倒さない**（#257・上流 `ginseng-core#635`）。
-    # ⚠⚠ **`super` のあとに `pid` を呼び直すこの形を、上流が名指しで警告している**
-    # （`Daemon::PidFile#pid_file_unreadable?` のコメント）— **`pid` は「無い」も
-    # 「読めない」も `nil` に畳む**ので、⚠ **`daemon_pid?` の `pid&.positive?` が
-    # 「読めない」を `false` ＝「常駐ではない」に化けさせる。**
-    #
-    # 🔴 **帰結は二重起動。**⚠⚠ **`run_restart` は `run_stop unless alive_state == :dead`**
-    # なので、**生きている常駐を止めずに 2 本目を立てる**（⚠ **`run_start` のほうは
-    # 上流が `abort_if_running!` で先に拒むので届かない** — **こちらが塞ぐのは
-    # `restart` と `status` の経路**）。
-    #
-    # ⚠ **`1.23.5` までは踏まなかった** — **`pid` が `File.read(...).to_i` で、
-    # 読めなければ例外、空なら `0` だった**（🔴 **`nil` を返す枝そのものが無かった**）。
-    #
-    # 🔴🔴 **ただし `nil` を全部 `:unknown` に倒すと、今度は `restart` が止まる**
-    # （Codex の P2）。⚠⚠ **`super` が見たあとに常駐が終了して pid ファイルを消した**
-    # なら、**それは「読めない」ではなく「もう居ない」** — ⚠ **`:unknown` と答えると
-    # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
-    # **後継を起動しないまま終わる。**
-    #
-    # ⚠ **上流の `alive_state` と同じ分け方にする** — 🔴 **`pid_file_unreadable?` が
-    # 「在るのに読めなかった」だけを指す**（`ENOENT` では立たない）。
-    def alive_state
+    def alive_state_of(found)
       state = super
       return state unless state == :alive
-      # ⚠⚠ **確かめる番号が無いときだけ、読めなかったのか消えたのかを分ける。**
-      return pid_file_unreadable? ? :unknown : :dead unless (found = pid)
       return daemon_pid?(found, proc_dir: @proc_dir) ? :alive : :dead
     end
 

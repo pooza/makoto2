@@ -74,11 +74,35 @@ module Makoto
       # ⚠ url が無い曲はそもそも母集合から外れている（`TrackRepository#linkable`）が、
       # ここでも空行を作らないようにしておく。
       body = [headline, collection, credit, field(:url)].compact_blank.join("\n")
-      # 🔴 **組み上げてから当てる**（→ `StatusText`）。⚠⚠ **`#` がタグになるかは
-      # 「本文のどこに居るか」で決まる**ので、**欄ごとに当てても判定できない**
-      # （アルバム名と名義は行頭に来る）。⚠ **`HashtagSource` が足すタグは
-      # この後なので通らない。**
-      return StatusText.escape_unintended(body)
+      # 🔴 **投稿先に本文を再解釈させない**（#270 のレビュー・2026-09-08）。
+      # ⚠⚠ **曲名が `#` で始まると、投稿がその名前のタグのタイムラインにも載る**
+      # （実データは `#キボウレインボウ#` の 7 行）— ⚠ **MAKOTO が自分で付けるタグは
+      # `/live/hashtag` の 1 つだけ**（→ `HashtagSource`）という約束を、**供給元の
+      # 曲名が黙って破る**形。
+      #
+      # 🔴 **組み上げてから当てる。**⚠⚠ **`#` がタグになるかは「本文のどこに居るか」で
+      # 決まる**ので、**欄ごとに当てても判定できない**（アルバム名と名義は行頭に来る）。
+      # ⚠ **`HashtagSource` が足すタグはこの後なので通らない。**
+      #
+      # ## ✅ 判定は上流へ返した（#327・2026-09-20）
+      #
+      # ⚠ **`Makoto::StatusText` を置いていたのは、当時の上流 `escape_status` が
+      # `gsub!(/[@#]/, '\0 ')` で `#` `@` を**無条件に全部**置換していたから**
+      # （🔴 **`H@ppy Together!!!` が `H@ ppy` に変わる** — 実データは曲名 12 行・
+      # アルバム名 8 行がすべてこの形で、**投稿先のメンションに 1 件も当たらない**）。
+      #
+      # ✅ **`ginseng-fediverse` v3.0.0 が「実際にリンク化する `#` / `@` だけ」に
+      # 変わった**（[#273](https://github.com/pooza/ginseng-fediverse/issues/273) /
+      # #275）ので、**自前の写しを畳んで上流を呼ぶ。**⚠⚠ **曲データ 14,056 文字列で
+      # 実測して差 0 件。**
+      #
+      # 🔴 **返す先は `escape_status` ではなく `escape_sigils`** — ⚠⚠ **`escape_status`
+      # （＝ `sanitize_status`）は HTML の剥がしと `strip` まで含む**ので、**組み上げた
+      # 本文に当てると末尾の改行が落ちる**（⚠ **あちらの入口は遠隔のフィード本文**）。
+      #
+      # ⚠ **判定の正本は上流の `Parser`**（`config/lib.yaml`）に移った — 🔴 **投稿先
+      # 1 実装の正規表現をこちらで写さない**（写すと向こうが動いた日に黙ってずれる）。
+      return Ginseng::Fediverse::Service.escape_sigils(body)
     end
 
     private
