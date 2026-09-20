@@ -3499,7 +3499,7 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
     🔴 **催促する相手は「makoto2 を塞いでいるもの」だけに絞る**（2026-09-20・オーナー）。⚠⚠ **眠っている PR が 7 本あった日に、催促したのは 2 本**（[`ginseng-core#639`](https://github.com/pooza/ginseng-core/pull/639) → **#200**、[`ginseng-fediverse#284`](https://github.com/pooza/ginseng-fediverse/pull/284) → **#327**）。⚠ **上流には上流の順番がある**ので、**全部に催促を入れると「どれが急ぎか」がこちらから消える。**
 
-    ⚠⚠ **外す側こそ実測で外す。**🔴 **[`ginseng-core#642`](https://github.com/pooza/ginseng-core/issues/642)（`CommandLine#log_exec` が引数を丸ごと出す）は「利用側が private メソッドを写経している」という起票**だが、⚠ **makoto2 には写経が 1 件も無かった**（`grep -rn log_exec app/ lib/ bin/` が 0 件）。⚠ **「上流が `security` の PR を出している」だけでは、利用側が影響を受ける証拠にならない** — **呼んでいるか・写しているかを引いてから外す。**
+    ⚠⚠ **外す側こそ実測で外す。**🔴 **[`ginseng-core#642`](https://github.com/pooza/ginseng-core/issues/642)（`CommandLine#log_exec` が引数を丸ごと出す）は「利用側が private メソッドを写経している」という起票**だが、⚠ **makoto2 には写経が 1 件も無かった**（`grep -rn log_exec app/ bin/` が終了コード `1` ＝ 0 件）。⚠⚠ **`lib/` を並べない**（Codex の P2・3 巡目）— 🔴 **makoto2 に top-level の `lib/` は無く**（**Ruby は `app/lib/`**）、**無いディレクトリを渡すと `grep` は終了コード `2` で落ちる** — ⚠ **「0 件」と「引けなかった」が同じ見た目になる。**⚠ **「上流が `security` の PR を出している」だけでは、利用側が影響を受ける証拠にならない** — **呼んでいるか・写しているかを引いてから外す。**
 
     🔴 **待ちが明ける条件は「マージ」とは限らない。**⚠⚠ **#327 (b) が要るのは `ginseng-fediverse#284` のマージではなく、そのマージコミットを含む新しいタグ**（**makoto2 は `Gemfile` の `tag:` で固定しているため** → #291）。⚠ **催促の文面には「何が届けば明けるか」を書く** — 🔴 **書かないと、マージだけ入ってタグが出ない状態で上流の板は片付いて見え、こちらは待ったまま次の同期まで気づかない。**
 
