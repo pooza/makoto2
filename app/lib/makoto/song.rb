@@ -50,7 +50,7 @@ module Makoto
   # ⚠⚠ **供給元の曲名が `#` で始まると、投稿はそのタグのタイムラインにも載る**
   # （実データは `#キボウレインボウ#` の 7 行）。⚠ **自分で足していなくても、
   # 結果として付く。**✅ **`TrackPresenter#to_s` が組み上げた本文に
-  # `StatusText.escape_unintended` を当てて塞いだ**（→ `StatusText`）。
+  # 上流の `Service.escape_sigils` を当てて塞いだ**（→ `TrackPresenter#to_s`・#327）。
   #
   # ## ✅ 最近出した曲は避ける（#41）
   #

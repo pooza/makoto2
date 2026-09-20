@@ -301,7 +301,7 @@ module Makoto
       assert_empty(warnings)
     end
 
-    # 🔴 **メンションになる形は残す**（#283）。⚠ **落とさない**（投稿の側で `StatusText` が崩す）。
+    # 🔴 **メンションになる形は残す**（#283）。⚠ **落とさない**（投稿の側で上流の `escape_sigils` が崩す）。
     # ⚠⚠ **直前が語中文字なら当たらない**（`H@ppy Together!!!`）。
     def test_a_mention_shaped_name_is_reported
       db, warnings = import_edited_rows('mention') do |rows|
