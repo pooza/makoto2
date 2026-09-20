@@ -2077,7 +2077,7 @@ SIGI="♪ # キボウレインボウ#\n…\n"   ← escape_sigils（同じ）
 SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の改行が落ちる）
 ```
 
-✅ **条件（全角 `＃`）は [`ginseng-fediverse#275`](https://github.com/pooza/ginseng-fediverse/issues/275) が v3.0.0 で埋めた** — ⚠ **ハッシュタグの判定を現行 Mastodon（v4.7.2）へ写し直したので、`＃全角タグ` が抽出されるようになった**（🔴 **これが (b) の唯一の本物の待ちだった** → 上記「引き上げと『返す』は別の作業だった」）。
+✅ **条件（全角 `＃`）は [`ginseng-fediverse#275`](https://github.com/pooza/ginseng-fediverse/issues/275) が v3.0.0 で埋めた** — ⚠ **ハッシュタグの判定を現行 Mastodon（v4.7.2）へ写し直したので、`＃全角タグ` が抽出されるようになった**（🔴 **これが (b) の唯一の本物の待ちだった** → 下記「引き上げと『返す』は別の作業だった」）。
 
 ⚠⚠ **曲データ 14,056 文字列で実測して差 0 件**（`seed/makoto_tracks_daily.json` / `makoto_tracks_live.json` の全文字列欄・重複除去）。🔴 **`Makoto::StatusText` は消し、`TrackPresenter#to_s` から上流を呼ぶ。**
 
@@ -2085,7 +2085,7 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ##### ⚠ 畳まなかったもの
 
-🔴 **`MastodonService#account` の `host_validator` は残す。**⚠⚠ **上流の `MastodonService` は `verify_credentials` を持たず、この呼び出し口は makoto2 のもの**（→ 上記 `account` のコメント）。⚠ **投稿の口のほうは #349 で既に畳んである。**
+🔴 **`MastodonService#account` の `host_validator` は残す。**⚠⚠ **上流の `MastodonService` は `verify_credentials` を持たず、この呼び出し口は makoto2 のもの**（→ [`mastodon_service.rb`](../app/lib/makoto/service/mastodon_service.rb) の `account` のコメント）。⚠ **投稿の口のほうは #349 で既に畳んである。**
 
 ##### 🔴 v3.0.0 の破壊的変更のうち、こちらに効くのは 1 つだけだった
 
@@ -2122,7 +2122,7 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ⚠ **手順 8.3 で拾った。**🔴 **[`ginseng-fediverse#273`](https://github.com/pooza/ginseng-fediverse/issues/273)（こちらが 2026-09-08 に切り出した設計検討）が [`4bc0d96`](https://github.com/pooza/ginseng-fediverse/commit/4bc0d96) で決着し、`Service.sanitize_status` が「実際にリンク化する `#` / `@` だけ」に区切りを入れる形になった**（2026-09-13）。
 
-⚠⚠ **こちらの `Makoto::StatusText` とまったく同じ方向。**（🔴 **2026-09-20 に畳んで上流へ返した** → 下記「上流待ちの 2 件を引き上げとあわせて畳んだ」）⚠ **判定に使う正本だけが違う**（🔴 **上流は gem 自身の `Parser` のパターン、こちらは投稿先の正規表現の写し**）。
+⚠⚠ **こちらの `Makoto::StatusText` とまったく同じ方向。**（🔴 **2026-09-20 に畳んで上流へ返した** → 上記「上流待ちの 2 件を引き上げとあわせて畳んだ」）⚠ **判定に使う正本だけが違う**（🔴 **上流は gem 自身の `Parser` のパターン、こちらは投稿先の正規表現の写し**）。
 
 ##### ⚠⚠ ただし、いま返すと保護が 1 段落ちる
 
@@ -2185,7 +2185,7 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 🔴 **(a) が挙動ゼロなのは、makoto2 が変わった関数を 1 つも呼んでいないから。**
 
-- ⚠ **`escape_status` / `escape_toot` / `escape_note` / `sanitize_status` の `grep` のヒットは、コメントとテストのコメントだけ**（当時の `app/lib/makoto/status_text.rb` の「🔴 `escape_status` は使わない」・`test/status_text.rb:17`・`test/track_presenter.rb:46`。🔴 **2026-09-20 に畳んだのは `app/lib/makoto/status_text.rb` だけ** — ⚠⚠ **テスト 2 本は残し、上流の `escape_sigils` を当てる形へ書き替えた** → 下記）
+- ⚠ **`escape_status` / `escape_toot` / `escape_note` / `sanitize_status` の `grep` のヒットは、コメントとテストのコメントだけ**（当時の `app/lib/makoto/status_text.rb` の「🔴 `escape_status` は使わない」・`test/status_text.rb:17`・`test/track_presenter.rb:46`。🔴 **2026-09-20 に畳んだのは `app/lib/makoto/status_text.rb` だけ** — ⚠⚠ **テスト 2 本は残し、上流の `escape_sigils` を当てる形へ書き替えた** → 上記「上流待ちの 2 件を引き上げとあわせて畳んだ」）
 - ⚠⚠ **`using Refines` も書いていない。**🔴 **refinement はレキシカルスコープ**なので、gem 側の `lib/ginseng/fediverse.rb` の `using Refines` はあのファイルの中だけに効く
 - ⚠ **投稿の口は素通し** — `Makoto::MastodonService#post_status` は `body = {status: text.to_s}`
 
