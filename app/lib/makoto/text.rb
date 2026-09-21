@@ -20,9 +20,10 @@ module Makoto
   #
   # ## 🔴 判断は上流の実装に任せ、期待はこちらのテストで留める
   #
-  # ⚠ **実体は `Ginseng::Fediverse::TagContainer.to_utf8`**（`ginseng-fediverse#248` /
-  # `#265` で決着した形）。⚠⚠ **こちらへ写さない** — **ラベルの貼り替えと `encode` の
-  # 使い分けは、一度こちらで間違えて上流に直してもらった箇所**（→ docs/CLAUDE.md
+  # ⚠ **実体は `Ginseng::Fediverse::Text.to_utf8`**（`ginseng-fediverse#248` /
+  # `#265` で決着し、`#277` で `TagContainer` から出た形・v3.1.0・#381）。
+  # ⚠⚠ **こちらへ写さない** — **ラベルの貼り替えと `encode` の使い分けは、
+  # 一度こちらで間違えて上流に直してもらった箇所**（→ docs/CLAUDE.md
   # 「`ginseng-*` との往復」・`HashtagSource#create_tags` の経緯）。
   #
   # | 来たもの | どうなる |
@@ -35,16 +36,26 @@ module Makoto
   # 落とすほうがよい** — ⚠ **`CompatibilityError` と違って、理由（元の符号化）が
   # `error` に残る。**
   #
-  # ⚠⚠ **上流の口はタグの容れ物の中にある**ので、**本文に使うのは形のうえでは
-  # 間合いが違う**（→ [`ginseng-fediverse#277`](https://github.com/pooza/ginseng-fediverse/issues/277)）。
-  # 🔴 **こちらが当てにしている 3 つの振る舞いは `test/text.rb` に書いてある** —
+  # 🔴 **`Text.relabel`（弾かない版）は使わない**（#381）。⚠⚠ **上流がそれを足したのは
+  # 投稿の口のためで、こちらは「寄せられないものは落として `error` を残す」を
+  # 明示の判断として持っている。**
+  #
+  # ## ⚠ 入口の名前を渡す（#381 ← `ginseng-fediverse#263`）
+  #
+  # 🔴 **呼び出し元は 4 つ**（`HashtagSource#join` / `MorningSource#call` /
+  # `TrackPresenter` の前置きと各欄）。⚠⚠ **`PostingJob#create_text` の `rescue` が残す
+  # `error` は、渡さないとどれで落ちたかを言わない** — **例外メッセージの末尾に
+  # `(at <entry>)` が付く。**
+  #
+  # 🔴 **こちらが当てにしている振る舞いは `test/text.rb` に書いてある** —
   # ⚠ **上流が動いたら、黙ってずれるのではなくテストが赤くなる。**
   module Text
     # @param value [Object] 本文の材料。⚠ **`to_s` される**
+    # @param entry [String, nil] ⚠ どの入口で寄せたか（弾かれたときのメッセージに付く）
     # @return [String] UTF-8 の文字列
     # @raise [Ginseng::ValidateError] 寄せられないとき
-    def self.utf8(value)
-      return Ginseng::Fediverse::TagContainer.to_utf8(value)
+    def self.utf8(value, entry = nil)
+      return Ginseng::Fediverse::Text.to_utf8(value, entry)
     end
   end
 end
