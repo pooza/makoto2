@@ -632,6 +632,30 @@ module Makoto
       assert_raise(Ginseng::ConfigError) {with_migrated_connection {@daemon.jobs}}
     end
 
+    # 🔴 **検査に通らない投稿は見送り、残りは登録する**（#350）。⚠⚠ **以前は起動ごと拒み、
+    # `/healthz` も開かないまま 5 秒ごとに落ち続けていた。**
+    def test_register_jobs_skips_a_rejected_source
+      Scheduler.instance.clear
+      config['/message/anniversary/11-04'] = []
+
+      with_migrated_connection {@daemon.register_jobs}
+
+      rejected = Scheduler.instance.rejected
+
+      assert_false(rejected.empty?)
+      assert_operator(Scheduler.instance.send(:jobs), :>, 0)
+      assert_operator(Scheduler.instance.send(:jobs), :<, 7)
+      assert_include(rejected.keys, Song::NAME)
+    ensure
+      Scheduler.instance.clear
+    end
+
+    # ⚠ **`ConfigError` 以外はクラス名を添える**（`EISDIR` か `EACCES` かが文に残らない）。
+    def test_describe_rejection
+      assert_equal('song: broken', @daemon.describe_rejection(Ginseng::ConfigError.new('song: broken')))
+      assert_equal('Errno::EISDIR: Is a directory - x', @daemon.describe_rejection(Errno::EISDIR.new('x')))
+    end
+
     # ⚠ 冪等キーの前半になる名前が衝突しないこと。⚠⚠ **同じ名前が 2 本あると、同じ
     # 枠の時刻で同じキーになり、片方の投稿が Mastodon 側で畳まれて消える。**
     def test_job_names_are_unique

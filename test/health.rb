@@ -70,6 +70,25 @@ module Makoto
       return Heartbeat.touch(jobs: jobs, now: at || now)
     end
 
+    # 🔴 **起動時に見送った投稿は赤**（#350）。⚠⚠ **常駐は起動を拒まない**ので、
+    # **ここが言わないと 1 本少ないまま健全になる。**
+    def test_a_rejected_job_is_an_error
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 6, rejected: {'song' => 'song: broken'}, now: now)
+      subject = health(pid: Process.pid)
+
+      assert_equal(Health::ERROR, subject.code)
+      assert_include(subject.errors, 'song is not registered: song: broken')
+    end
+
+    # ⚠ **別の常駐が書いた見送りは言わない**（→ `own_heartbeat?`）。
+    def test_a_rejected_job_of_another_process_is_ignored
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 6, rejected: {'song' => 'song: broken'}, now: now)
+
+      assert_equal([], health(pid: Process.pid + 1).rejected_errors)
+    end
+
     def test_healthy
       beat
 

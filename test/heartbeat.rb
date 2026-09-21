@@ -61,6 +61,17 @@ module Makoto
       assert_equal(Package.revision, Heartbeat.revision)
     end
 
+    # 🔴 **登録を見送った投稿を残す**（#350）。⚠ **無ければ空に戻す**（前の起動の値を居座らせない）。
+    def test_touch_records_and_clears_the_rejected_jobs
+      Heartbeat.touch(jobs: 6, rejected: {'song' => 'song: broken'}, now: now)
+
+      assert_equal({'song' => 'song: broken'}, Heartbeat.rejected)
+
+      Heartbeat.touch(jobs: 7, now: now)
+
+      assert_equal({}, Heartbeat.rejected)
+    end
+
     def test_read_without_file
       assert_nil(Heartbeat.read)
       assert_nil(Heartbeat.jobs)

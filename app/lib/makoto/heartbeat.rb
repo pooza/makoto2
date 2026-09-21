@@ -128,12 +128,17 @@ module Makoto
       # 渡る**ので、**あとから人が叩く CLI の `ENV` には入っていない**（→ #154）。
       # ⚠⚠ **騙していなければ `nil` を書く** — **書かずに残すと、撤収したあとも前の
       # リハーサルの値が居座る。**
-      def touch(jobs:, job_names: nil, now: nil)
+      #
+      # 🔴 **登録を見送った投稿も書く**（#350）。⚠⚠ **`jobs` の本数が減っただけでは、
+      # どれがなぜ減ったかを外から知る手段が無い。**⚠ **無ければ `{}` を書く**（前の起動の
+      # 値を居座らせない・`travel` と同じ）。
+      def touch(jobs:, job_names: nil, rejected: nil, now: nil)
         return update do |record|
           record.merge(
             at: (now || Time.now).getutc.iso8601,
             jobs: jobs,
             job_names: job_names,
+            rejected: rejected || {},
             version: Package.version,
             revision: Package.revision,
             pid: Process.pid,
@@ -308,6 +313,12 @@ module Makoto
 
       def revision
         return read&.dig(:revision)
+      end
+
+      # 起動時に登録を見送った投稿と理由（#350）。⚠ **旧い痕跡・見送り無しは空。**
+      def rejected
+        found = read&.dig(:rejected)
+        return found.is_a?(Hash) ? found.transform_keys(&:to_s) : {}
       end
 
       # 最後のハートビートからの経過（秒）。⚠ **読めなければ nil。**
