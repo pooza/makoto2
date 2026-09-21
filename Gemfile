@@ -30,7 +30,7 @@ group :development do
   gem 'bundler-audit', require: false
   # ⚠⚠ タグではなく SHA で固定する（pooza/ginseng-style#75）。タグは付け替えられる。
   gem 'ginseng-style', github: 'pooza/ginseng-style',
-    ref: 'ed862dcf9550d704ee670f65a30a333a694b883a', require: false # v1.1.12
+    ref: '05a9e5c997082bd75bd913190e0c947fdaff082d', require: false # v1.1.13
   gem 'rubocop-sequel'
   gem 'test-unit'
   gem 'webmock'
