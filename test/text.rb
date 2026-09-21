@@ -1,13 +1,13 @@
 require 'test/unit'
 
 module Makoto
-  # 🔴 **上流（`Ginseng::Fediverse::TagContainer.to_utf8`）に預けた判断を、こちらの
+  # 🔴 **上流（`Ginseng::Fediverse::Text.to_utf8`）に預けた判断を、こちらの
   # 期待として留める**（#280）。
   #
   # ⚠⚠ **`Text.utf8` は 1 行の委譲**なので、**ここで見ているのは上流の振る舞い**。
   # ⚠ **それでよい** — 🔴 **本文が UTF-8 で組めるかどうかは、毎日 4 枠が出るか
   # 出ないかを決めている**ので、**上流が動いたら黙ってずれるのではなく赤くなる
-  # ほうがよい**（→ [`ginseng-fediverse#277`](https://github.com/pooza/ginseng-fediverse/issues/277)）。
+  # ほうがよい**。
   class TextTest < TestCase
     # ⚠ **UTF-8 はそのまま。**
     def test_passes_utf8_through
@@ -41,6 +41,16 @@ module Makoto
     def test_rejects_an_invalid_byte_sequence
       assert_raise(Ginseng::ValidateError) {Text.utf8("本文\xE3\x81".dup.force_encoding(Encoding::ASCII_8BIT))}
       assert_raise(Ginseng::ValidateError) {Text.utf8("本文\xE3\x81")}
+    end
+
+    # 🔴 **弾いたときは入口の名前がメッセージに残る**（#381 ← `ginseng-fediverse#263`）。
+    # ⚠ **渡さなければ付かない**（従来どおり）。
+    def test_names_the_entry_when_rejecting
+      error = assert_raise(Ginseng::ValidateError) {Text.utf8("本文\xE3\x81", 'MorningSource#call')}
+      assert_match(/\(at MorningSource#call\)\z/, error.message)
+
+      error = assert_raise(Ginseng::ValidateError) {Text.utf8("本文\xE3\x81")}
+      assert_no_match(/\(at /, error.message)
     end
 
     # ⚠ **nil は空文字**（→ `TrackPresenter#to_s` の `compact_blank` が行ごと落とす）。

@@ -41,7 +41,7 @@ module Makoto
     def initialize(track, prefix: nil, plain_name: false, artist: true, collection: false)
       @track = track
       # 🔴 **本文の材料は入口で UTF-8 へ寄せる**（#280 → `Text`）。
-      @prefix = Text.utf8(prefix)
+      @prefix = Text.utf8(prefix, 'TrackPresenter#prefix')
       @plain_name = plain_name
       @artist = artist
       @collection = collection
@@ -119,8 +119,11 @@ module Makoto
     # のでは足りない。**⚠ **欄を取り出すところで寄せる。**
     #
     # ⚠ **空の欄は空文字**（→ `to_s` の `compact_blank` が行ごと落とす）。
+    #
+    # ⚠ **入口の名前に欄の名前まで入れる**（#381）— 🔴 **落ちたときに `error` だけで
+    # 「曲名か名義かアルバム名か」まで分かる。**
     def field(key)
-      return Text.utf8(@track[key])
+      return Text.utf8(@track[key], "TrackPresenter#field(#{key})")
     end
 
     # ⚠⚠ **断りの後ろは 1 行アキ**（#122）。⚠ **断りと曲名が地続きだと、断りが曲名の

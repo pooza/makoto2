@@ -87,7 +87,8 @@ module Makoto
       # ASCII-8BIT で返した原稿は、定型挨拶と繋いだ瞬間に
       # `Encoding::CompatibilityError`** — ⚠ **`PostingJob#create_text` の `rescue` が
       # 受けるので、その朝は 1 文字も出ない**（#192 で `HashtagSource` だけ塞いだ形）。
-      return [greeting_for(record, dated), record[:body]].compact.map {|v| Text.utf8(v)}.join("\n")
+      lines = [greeting_for(record, dated), record[:body]].compact
+      return lines.map {|v| Text.utf8(v, 'MorningSource#call')}.join("\n")
     end
 
     # その日の原稿。⚠ **`Date` をそのまま渡せる**（下見が時刻を作るとホストの TZ で
