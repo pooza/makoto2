@@ -3531,15 +3531,17 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
     ```sh
     for r in ginseng-core ginseng-fediverse ginseng-style; do
       gh issue list --repo "pooza/$r" --state open --label request --limit 20 \
-        --json number,title,labels > "/tmp/$r-issue.json" || exit 1
+        --json number,title,labels >| "/tmp/$r-issue.json" || exit 1
       gh pr list --repo "pooza/$r" --state open --limit 20 \
-        --json number,title,labels > "/tmp/$r-pr.json" || exit 1
+        --json number,title,labels >| "/tmp/$r-pr.json" || exit 1
       jq -r --arg r "$r" '.[] | "\($r)#\(.number) [\(.labels|map(.name)|join(","))] \(.title)"' \
         "/tmp/$r-issue.json" "/tmp/$r-pr.json"
     done
     ```
 
     🔴 **PR も引くこと。**⚠⚠ **`gh issue list` は PR を出さない**（`gh pr list` が別）。⚠ **依頼は PR で出すのが推奨**なので、Issue しか見ないと**この手順が拾いたかったもの（緑のまま眠っている PR）がまさに漏れる**。⚠ **PR には `request` ラベルが付かないことがある**ので、**PR 側は絞り込まない**
+
+    🔴 **書き出しは `>|`**（#383）— ⚠⚠ **このマシンの zsh は `noclobber` なので、素の `>` だと 2 回目以降は `gh` が走る前に `file exists` で落ち、上流の依頼を 1 件も引かないまま手順 8 を終える**（⚠ **下の「偽のゼロ」と同じ結果が別経路で出る**）。⚠ **見栄えの統一ではないので `>` へ戻さない**
 
     ⚠⚠ **`gh` を単独で走らせ、終了ステータスを見てから `jq` に渡す。**⚠ **パイプで繋ぐとパイプ全体の状態が `jq` のものになり、ページングの途中で失敗しても「出し終えた分だけ」を全件として読む ＝ 偽のゼロ**（`pooza/ginseng-style#34`）
 
