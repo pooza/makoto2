@@ -54,6 +54,9 @@ module Makoto
     # 「枠を跨ぐ」状態を人工的に作ってしまう**（→ このクラスの冒頭の表）。
     MAX_SCALE = 20
 
+    # 出発時刻に要る「時:分」（#375）。⚠ **`T01:00` の形も通す。**
+    TIME_OF_DAY = /(?:\A|[\sT])\d{1,2}:\d{2}/
+
     class << self
       # 発動を要求されているか。⚠ **要求と、実際に発動できるかは別。**
       def requested?
@@ -94,8 +97,21 @@ module Makoto
 
       # 出発時刻。⚠ **読めなければ例外**（既定値に逃がすと、書き間違いが
       # 「いまの時刻で普通に動く」に化ける）。
+      #
+      # 🔴 **時刻を持たない値も弾く**（#375）。⚠⚠ **systemd の `Environment=` は空白で
+      # 値を区切る**ので、**drop-in を引用符なしで書くと `2026-11-04` だけが残る** —
+      # **`Time.parse` はそれを 11/4 00:00 として通し、別のリハーサルが静かに始まる**
+      # （2026-09-19 に踏んだ）。⚠ **00:00 から始めたいときは `00:00:00` と明示する。**
       def start_time
-        return @start_time ||= Time.parse(ENV[START_KEY].to_s)
+        return @start_time ||= begin
+          value = ENV[START_KEY].to_s
+          unless value.match?(TIME_OF_DAY)
+            hint = 'quote the whole value in the drop-in, e.g. "2026-11-04 11:58:00 +0900"'
+            raise Ginseng::ConfigError,
+              "time travel: #{START_KEY} '#{value}' has no time of day (#{hint})"
+          end
+          Time.parse(value)
+        end
       rescue ArgumentError
         raise Ginseng::ConfigError,
           "time travel: bad #{START_KEY} '#{ENV.fetch(START_KEY, nil)}'"

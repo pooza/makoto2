@@ -55,6 +55,32 @@ module Makoto
       end
     end
 
+    # 🔴 **時刻が落ちた値で起動しない**（#375）。⚠⚠ **drop-in を引用符なしで書くと
+    # systemd が空白で切り、`2026-11-04` だけが残る** — **`Time.parse` は 11/4 00:00 として
+    # 通すので、選んだ時刻ではなくその日の頭から全枠が出る。**
+    def test_a_date_without_time_of_day_raises
+      with_env(start: '2026-11-04') do
+        error = assert_raise(Ginseng::ConfigError) {TimeTravel.start_time}
+        assert_match(/no time of day/, error.message)
+      end
+    end
+
+    # ⚠ **明示すれば 00:00 でも通る。**
+    def test_an_explicit_midnight_passes
+      with_env(start: '2026-11-04 00:00:00 +0900') do
+        assert_equal(Time.parse('2026-11-04 00:00:00 +0900'), TimeTravel.start_time)
+      end
+    end
+
+    # ⚠⚠ **既存のリハーサルの書き方**（→ docs/CLAUDE.md リリース手順 4）と ISO 8601 は通る。
+    def test_existing_forms_pass
+      ['2026-11-04 11:58:00 +0900', '2026-11-04T11:58:00+09:00', '2026-11-04 11:58'].each do |value|
+        with_env(start: value) do
+          assert_equal(Time.parse(value), TimeTravel.start_time)
+        end
+      end
+    end
+
     def test_scale_defaults_to_one
       with_env(start: '2026-11-04 11:55:00 +0900') do
         assert_equal(1, TimeTravel.scale)
