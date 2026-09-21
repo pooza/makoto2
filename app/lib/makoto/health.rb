@@ -157,8 +157,21 @@ module Makoto
       results.push('heartbeat is stale') if Heartbeat.stale?(now)
       results.push('scheduler tick is stale') if Heartbeat.tick_stale?(now)
       results.push('no posting job is registered') if jobs.to_i.zero?
+      results.push(*rejected_errors)
       results.push(*config_warnings)
       return results
+    end
+
+    # 🔴 **起動時の検査で登録を見送った投稿**（#350 → `MakotoDaemon#register_jobs`）。
+    #
+    # ⚠⚠ **常駐は起動を拒まない**ので、**ここが言わないと「`jobs` が 1 本少ないまま
+    # 健全」になる**（#15 の `jobs: 0` と同じ構図）。⚠ **設定エラーと同じく再起動では
+    # 直らないが、同じ理由で `errors` に置く**（→ `config_warnings`）。
+    #
+    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
+    def rejected_errors
+      return [] unless own_heartbeat?
+      return Heartbeat.rejected.map {|name, reason| "#{name} is not registered: #{reason}"}
     end
 
     # 設定が JSON Schema を通らないこと（#99）。⚠ **通れば空。**

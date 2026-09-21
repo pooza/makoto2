@@ -115,33 +115,89 @@ module Makoto
     # ⚠ **投稿の中身はここに書かない。**何を投稿するかは各機能が自分の `PostingJob`
     # を作って持つ（→ `Scheduler`）。ここは並べるだけ。
     # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
+    #
+    # ## 🔴 検査に通らない投稿は見送り、常駐は上げる（#350）
+    #
+    # ⚠⚠ **以前は 1 本の検査が落ちると起動ごと拒んでいた** — **`monitor_server.start` に
+    # 届かないので `/healthz` は赤ではなく接続拒否**、**`systemd` が 5 秒ごとに叩き直して
+    # 同じところで落ち続ける。**🔴 **同じ故障が、稼働中なら 1 枠の劣化（#274）なのに、
+    # 起動時なら 7 枠全滅**という非対称だった。⚠ **`validate_config` はもともとこちらに
+    # 倒してある。**
+    #
+    # ⚠ **見送った投稿は痕跡に残し、`/healthz` が名前と理由を言う**（→ `Health#rejected_errors`）。
+    # ⚠⚠ **検査そのものは緩めていない** — **`rake config:lint` はこれまでどおり落ちる。**
     def register_jobs
-      jobs.each {|job| Scheduler.instance.register(job)}
+      built, rejected = build_jobs
+      rejected.each {|name, error| reject_job(name, error)}
+      built.each do |job|
+        Scheduler.instance.register(job)
+      rescue => e
+        reject_job(job.name, e)
+      end
       return Scheduler.instance
     end
 
-    # 常駐が回す投稿の一覧（登録はしない）。
+    # 常駐が回す投稿の一覧（登録はしない）。⚠ **1 本でも検査に通らなければ例外。**
     #
     # 🔴 **作るだけで各機能の起動時の検査が走る**（`Song#validate` など）。⚠⚠ **`rake config:lint`
     # が同じものを 1 回作る**（#276）— **スキーマで書けない相互条件**（「この type が
-    # `/message/anniversary` に登録されているか」）**で常駐が起動を拒むと、`systemd` が 5 秒
-    # ごとに叩き直し、`/healthz` も開かない**ので、**デプロイの前に拾う。**
+    # `/message/anniversary` に登録されているか」）**は、ここを通さないと常駐の起動で
+    # 初めて分かる**ので、**デプロイの前に拾う。**
     def jobs
-      return [
-        Announcement.new.job,
-        # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
-        # 何も返さない**（→ Morning / MessageSelector）。
-        Morning.new.job,
-        # ⚠ 曲紹介は 1 日 3 本（#16 / #292）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
-        # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
-        Song.new.job,
-        # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
-        # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
-        *Live.new.jobs,
-      ]
+      built, rejected = build_jobs
+      raise rejected.values.first if rejected.any?
+      return built
+    end
+
+    # 投稿を作り、作れなかったものを分けて返す（#350）。⚠ **例外を上げない。**
+    #
+    # 🔴 **1 本の検査で他を巻き込まない**（→ `register_jobs`）。⚠ **ライブは 4 本を 1 つの
+    # 検査で作る**ので、**見送るときも `live` の名前で 4 本まとめて。**
+    #
+    # @return [Array(Array<PostingJob>, Hash{String => Exception})]
+    def build_jobs
+      built = []
+      rejected = {}
+      job_sources.each do |name, source|
+        built.concat(Array(source.call))
+      rescue => e
+        rejected[name] = e
+      end
+      return built, rejected
+    end
+
+    # 見送りの理由を人が読む 1 行にする。⚠ **`ConfigError` は文が既に投稿の名前で
+    # 始まる**ので重ねない。⚠⚠ **それ以外はクラス名を添える**（`EISDIR` か `EACCES` かが
+    # 文だけでは残らない・→ `SongSource#spoken?`）。
+    def describe_rejection(error)
+      return error_message(error) if error.is_a?(Ginseng::ConfigError)
+      return "#{error.class}: #{error_message(error)}"
     end
 
     private
+
+    def job_sources
+      return {
+        Announcement::NAME => -> {Announcement.new.job},
+        # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
+        # 何も返さない**（→ Morning / MessageSelector）。
+        Morning::NAME => -> {Morning.new.job},
+        # ⚠ 曲紹介は 1 日 3 本（#16 / #292）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
+        # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
+        Song::NAME => -> {Song.new.job},
+        # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
+        # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
+        'live' => -> {Live.new.jobs},
+      }
+    end
+
+    # ⚠ **起き上がれなかったときと同じく Sentry へ**（#28）— **`/healthz` を見に行かない
+    # 限り、1 本減ったことに気づけない。**
+    def reject_job(name, error)
+      logger.error(daemon: app_name, post: name, error_class: error.class.name, error: error)
+      report_error(error, daemon: app_name, post: name)
+      Scheduler.instance.reject(name, describe_rejection(error))
+    end
 
     # 🔴 **確かめた pid にだけ送る**（#162 / #169 / Codex の P1）。
     #

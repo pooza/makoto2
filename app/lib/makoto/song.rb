@@ -223,12 +223,19 @@ module Makoto
     #
     # ⚠ **投稿の瞬間に壊れても枠は落ちない**（→ `TrackHistory#exclude`）ので、
     # **「起動で落ちるか、落ちなければ投稿は出る」の二択になる。**
+    #
+    # 🔴 **DB の例外だけを受けない**（#350）。⚠⚠ **この経路は別名表
+    # （`TrackAliases#load_groups`）も通る**ので、**表がディレクトリ・権限が無い
+    # （`Errno::EISDIR` / `EACCES`）、行が Hash でない（`TypeError`）も来る** —
+    # ⚠ **`SongSource#spoken?`（#312）と揃える。**⚠ **クラス名を文に入れる**
+    # （`rake config:lint` の 1 行だけで、DB か表かが分かるように）。
     def validate_history
       return unless history.enabled?
       history.recent_keys
-    rescue Sequel::DatabaseError, Ginseng::ValidateError => e
+    rescue => e
+      reason = "#{e.class}: #{error_message(e)}"
       raise Ginseng::ConfigError,
-        "song: #{PREFIX}/history is not readable (rake migration:run?): #{error_message(e)}"
+        "song: #{PREFIX}/history is not readable (rake migration:run?): #{reason}"
     end
 
     # 🔴 **`kind` の綴りを間違えたら落とす**（#293）。⚠⚠ **`/track/weight` に無い `kind`
