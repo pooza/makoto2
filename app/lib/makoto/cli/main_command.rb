@@ -117,8 +117,10 @@ module Makoto
     # ⚠ **生きているときに出す 6 行**（→ `status` の `long_desc`）。⚠⚠ **死んでいれば
     # `not running` の 1 行だけ**なので、ここは呼ばれない。
     def print_health(health)
-      puts "running (PID #{health.pid}, revision #{health.revision || '(unknown)'})"
-      puts "jobs: #{format_jobs(health)}"
+      # ⚠ **痕跡は 1 回だけ読む**（→ `Health#identity`）。
+      identity = health.identity
+      puts "running (PID #{health.pid}, revision #{format_revision(identity)})"
+      puts "jobs: #{format_jobs(identity)}"
       puts "heartbeat: #{format_age(health.heartbeat_age)}"
       puts "tick: #{format_tick(health)}"
       puts "posting: #{format_posting(health)}"
@@ -150,12 +152,29 @@ module Makoto
       return "from #{travel[:start]} / scale #{travel[:scale]} / mastodon #{travel[:mastodon]}"
     end
 
+    # 🔴 **痕跡が自分のものでなければ、誰のものかを言う**（#354）。⚠⚠ **「再起動の直後・孤児が
+    # まだ書いている」を、無害な「#242 より前の常駐」と同じ `(unknown)` に畳まない。**
+    def format_revision(identity)
+      return foreign_heartbeat(identity) unless identity.own
+      return identity.revision || '(unknown)'
+    end
+
+    def foreign_heartbeat(identity)
+      return '(no heartbeat yet)' unless identity.owner
+      return "(heartbeat from PID #{identity.owner})"
+    end
+
     # ⚠ **名前が無ければ本数だけ**（#242 より前の常駐が書いた痕跡）。
-    def format_jobs(health)
-      return '(unknown)' unless health.jobs
-      names = Array(health.job_names)
-      return health.jobs.to_s if names.empty?
-      return "#{health.jobs} (#{names.join(', ')})"
+    #
+    # 🔴 **痕跡が自分のものでなければ、本数にもそう添える**（#354）。⚠⚠ **本数だけを出すと
+    # 「#242 より前の常駐」に見え、古い版が動いていると誤診する。**⚠ **本数そのものは消さない**
+    # （`/healthz` の「投稿を 1 本も持たない」と同じ値を見せる）。
+    def format_jobs(identity)
+      return '(unknown)' unless identity.jobs
+      return "#{identity.jobs} #{foreign_heartbeat(identity)}" unless identity.own
+      names = Array(identity.job_names)
+      return identity.jobs.to_s if names.empty?
+      return "#{identity.jobs} (#{names.join(', ')})"
     end
 
     def format_age(seconds)

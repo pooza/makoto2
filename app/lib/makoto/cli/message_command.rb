@@ -121,7 +121,7 @@ module Makoto
       file = ScriptExportFile.new(options[:out], force: options[:force])
       records = export_records(options[:type].split(','), exclude_ids(options[:exclude]))
       file.write(export_header(records) + records.to_yaml)
-      puts "#{records.size} 件を #{options[:out]} へ書き出しました"
+      puts "#{records.size} 件を #{file.path} へ書き出しました"
     rescue Errno::EEXIST
       warn "#{options[:out]} は既にあります（上書きするなら --force）"
       exit 1
