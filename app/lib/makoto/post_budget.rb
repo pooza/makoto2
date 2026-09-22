@@ -45,8 +45,30 @@ module Makoto
     #
     # ⚠⚠ **URL は 1 回の走査で置き換える**（Codex の P2）。🔴 **1 本ずつ `gsub` すると、前方一致
     # する URL（`/a` と `/a/b`）で短いほうが長いほうの中まで置き換え、長く数えてしまう。**
+    #
+    # ⚠ **TLD を持たないホスト（素の IP・`localhost`）は URL と数えない**（#351）。🔴 **投稿先
+    # （twitter-text）はそれを URL と認めず素の長さで数える**ので、**23 字に畳むと短く見積もる**
+    # （⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
     def self.length(text)
-      return text.to_s.gsub(URL_PATTERN) {'x' * URL_LENGTH}.grapheme_clusters.size
+      counted = text.to_s.gsub(URL_PATTERN) {|url| url?(url) ? 'x' * URL_LENGTH : url}
+      return counted.grapheme_clusters.size
+    end
+
+    def self.url?(value)
+      return URI.parse(value).host.to_s.match?(/\.\p{Alpha}{2,}\z/)
+    rescue URI::InvalidURIError
+      return false
+    end
+
+    # 投稿先の申告と設定を突き合わせる（#351）。
+    #
+    # 🔴 **危ないのは申告のほうが短いときだけ**（取り込みは設定の上限で通すので、投稿の瞬間に
+    # 422 ＝ 再送なしで枠が消える）。⚠ **長いぶんには弾きすぎるだけ。**⚠ **申告が無ければ判定しない。**
+    #
+    # @return [String, nil] ずれていれば、その説明
+    def limit_mismatch(declared)
+      return nil if declared.nil? || limit <= declared
+      return "/mastodon/max_length は #{limit} 字だが、投稿先の申告は #{declared} 字"
     end
 
     def limit
