@@ -44,7 +44,7 @@ module Makoto
       ['ライブの 1 曲目', '本編A', '本編B', '本編C', 'ライブの最終曲'].each_with_index do |name, i|
         corpus_db[:track].insert(
           id: 7000 + i, name: name, artist_name: "歌手#{i}",
-          release_date: Date.new(2013, 1, 1) + i, url: "https://example.test/t/#{i}",
+          release_date: Date.new(2013, 1, 1) + i, url: "https://music.apple.com/t/#{i}",
           kind: 'vocal', live: true, dedupe_key: TrackImporter.dedupe_key(name)
         )
       end
@@ -246,7 +246,7 @@ module Makoto
       output = capture {command(body: true, limit: 3).send(:dump, list, live.timetable, date)}
 
       assert_includes(output, '♪ ')
-      assert_includes(output, 'https://example.test/t/')
+      assert_includes(output, 'https://music.apple.com/t/')
       assert_includes(output, '#SONGBIRD_PARTY_TEST')
     end
 
@@ -258,7 +258,7 @@ module Makoto
       output = capture {command(limit: 3).send(:dump, list, live.timetable, date)}
 
       assert_not_includes(output, '#SONGBIRD_PARTY_TEST')
-      assert_not_includes(output, 'https://example.test/t/')
+      assert_not_includes(output, 'https://music.apple.com/t/')
     end
 
     # 🔴 **本文は「いま並べている枠」から作る**（Codex の指摘・PR #160）。

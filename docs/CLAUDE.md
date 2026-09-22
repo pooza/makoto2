@@ -2465,6 +2465,9 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ✅ **本物の `seed/` をメモリ DB へ取り込んで当てた**: **4,305 行すべて URL が残り、警告は 0 件**（Issue の実測どおり）。⚠ **テストの曲データの `trackViewUrl` は `https://music.apple.com/test/track/...` に揃えた**（**テストだけ別のホストを許す口は作らない**）。
 
+
+✅ **公開する直前（`TrackRepository#linkable`）でもホストを絞る**（2026-09-22・#355）。⚠⚠ **取り込みの検査は `TrackImporter#exec` を回したときしか効かない**ので、**実機で SQL を手で当てた日・別の経路で `url` を書いた日に黙って崩れる。**⚠ **`https://<URL_HOSTS>/` の前方一致**（末尾の `/` で `@` やポート・サフィックスで別ホストへ逃げる形を落とす）。⚠ **テストの曲の `url` も `https://music.apple.com/` に揃えた**（live / live_command / setlist）。
+
 #### ✅ 投稿の口でリダイレクトを追わない（2026-09-17・#282 の前半）
 
 🔴 **上流の `MastodonService#post` は `follow_redirects` を渡さない**ので HTTParty の既定（追従する）のまま — ⚠⚠ **301 / 302 で POST が GET に化けて body が捨てられ、`Authorization` と `Idempotency-Key` が別ホストのリダイレクト先へ送られる。**⚠ **Mastodon の投稿 API はリダイレクトを返さない**ので、3xx は「status ではない」として落とす（#272 の `validate_status`）。
