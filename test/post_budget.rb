@@ -27,6 +27,8 @@ module Makoto
 
       assert_equal(ip.length, PostBudget.length(ip))
       assert_equal(17, PostBudget.length('http://localhost/'))
+      # ⚠ **英字の TLD でも、実在しなければ URL ではない**（Codex の P2）。
+      assert_equal(26, PostBudget.length('https://foo.local/abcdefgh'))
       assert_equal(23, PostBudget.length("https://music.apple.com/jp/album/#{'x' * 40}"))
     end
 
@@ -42,7 +44,7 @@ module Makoto
 
     # ⚠⚠ **前方一致する URL を長く数えない**（Codex の P2）。
     def test_urls_sharing_a_prefix_count_as_23_each
-      assert_equal(23 + 1 + 23, PostBudget.length('https://x.test/a https://x.test/a/b'))
+      assert_equal(23 + 1 + 23, PostBudget.length('https://x.example.com/a https://x.example.com/a/b'))
     end
 
     # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。

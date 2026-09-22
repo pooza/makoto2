@@ -46,16 +46,17 @@ module Makoto
     # ⚠⚠ **URL は 1 回の走査で置き換える**（Codex の P2）。🔴 **1 本ずつ `gsub` すると、前方一致
     # する URL（`/a` と `/a/b`）で短いほうが長いほうの中まで置き換え、長く数えてしまう。**
     #
-    # ⚠ **TLD を持たないホスト（素の IP・`localhost`）は URL と数えない**（#351）。🔴 **投稿先
-    # （twitter-text）はそれを URL と認めず素の長さで数える**ので、**23 字に畳むと短く見積もる**
-    # （⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
+    # ⚠ **実在する TLD を持たないホスト（素の IP・`localhost`・`foo.local`）は URL と数えない**（#351）。
+    # 🔴 **投稿先（twitter-text）は IANA の TLD でしか URL と認めず、素の長さで数える**ので、
+    # **23 字に畳むと短く見積もる**（⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
+    # ⚠ **TLD の表は Public Suffix List**（`default_rule: nil` ＝ 表に無ければ URL でない・Codex の P2）。
     def self.length(text)
       counted = text.to_s.gsub(URL_PATTERN) {|url| url?(url) ? 'x' * URL_LENGTH : url}
       return counted.grapheme_clusters.size
     end
 
     def self.url?(value)
-      return URI.parse(value).host.to_s.match?(/\.\p{Alpha}{2,}\z/)
+      return PublicSuffix.valid?(URI.parse(value).host.to_s, default_rule: nil)
     rescue URI::InvalidURIError
       return false
     end
