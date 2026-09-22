@@ -89,6 +89,17 @@ module Makoto
       assert_equal([], health(pid: Process.pid + 1).rejected_errors)
     end
 
+    # 🔴 **持ち主・本数・名前・リビジョンを 1 回の読みから出す**（#354・Codex の P2）。
+    def test_identity
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+      own = health(pid: Process.pid).identity
+      foreign = health(pid: Process.pid + 1).identity
+
+      assert_equal([Process.pid, true, 2, ['morning', 'song']], [own.owner, own.own, own.jobs, own.job_names])
+      assert_equal([Process.pid, false, 2, nil, nil],
+        [foreign.owner, foreign.own, foreign.jobs, foreign.job_names, foreign.revision])
+    end
+
     def test_healthy
       beat
 
