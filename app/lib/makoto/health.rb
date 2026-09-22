@@ -97,8 +97,8 @@ module Makoto
       return recorded.to_i == pid.to_i
     end
 
-    # 痕跡の持ち主と、そこから読む身元（#354）。⚠ `own` が偽なら `job_names` / `revision` は nil。
-    Identity = Data.define(:owner, :own, :jobs, :job_names, :revision)
+    # 痕跡の持ち主と、そこから読む身元（#354）。⚠ `own` が偽なら `job_names` / `revision` / `sentry` は nil。
+    Identity = Data.define(:owner, :own, :jobs, :job_names, :revision, :sentry)
 
     # 🔴 **痕跡を 1 回だけ読み、持ち主・本数・名前・リビジョンを同じ版から出す**（#354・Codex の P2）。
     # ⚠⚠ **痕跡は別のプロセスも書く**ので、**`own_heartbeat?` と `job_names` を別々に読むと、間で
@@ -113,6 +113,7 @@ module Makoto
         jobs: record[:jobs],
         job_names: own ? record[:job_names] : nil,
         revision: own ? record[:revision] : nil,
+        sentry: own ? record[:sentry] : nil,
       )
     end
 
@@ -223,8 +224,20 @@ module Makoto
       results = []
       # ⚠ 死んでいるときは `errors` の側が言うので、ここでは重ねない。
       results.push(*posting_warnings) if alive?
+      results.push(*sentry_warnings) if alive?
       results.push(*orphan_warnings)
       return results
+    end
+
+    # 🔴 **常駐の Sentry が DSN を持つのに送れないこと**（#347・Codex の P2）。⚠ **画面に赤で出すだけ
+    # では、終了コードが 0 のまま**で自動の目が拾わない。
+    #
+    # ⚠⚠ **`errors`（＝ `/healthz` の 503・復旧させる）には置かない** — 🔴 **再起動しても DSN は
+    # 直らない**ので、**検知 → 再起動 → また検知**を繰り返すだけ（→ 投稿の警告を `warnings` に
+    # 置いた理由と同じ）。⚠ **見るのは常駐が痕跡に書いた状態だけ**（→ `identity`）。
+    def sentry_warnings
+      return [] unless identity.sentry == 'misconfigured'
+      return ['sentry is misconfigured (a DSN is set but nothing will be sent)']
     end
 
     # 投稿が続けて落ちていること（#78）。⚠ **`warnings` から分けて取れるようにして
