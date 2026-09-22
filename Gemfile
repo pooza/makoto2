@@ -17,6 +17,8 @@ gem 'tzinfo'
 # 監視の口（MonitorServer）を常駐の中で起こすためだけに使う（#84）。
 # ⚠ WebUI ではない。⚠⚠ 管理コンソールは作らないという決定は変えていない。
 gem 'puma'
+# addressable の依存として入るが、`PostBudget.url?` が TLD の判定に直接使うので明示する（#351）。
+gem 'public_suffix'
 gem 'thor'
 # リハーサルで日付だけを騙すために使う（#110）。⚠⚠ **本番の group に置く。**
 # ⚠ `bydo` と `rubicon` で gem 構成が違うと、それ自体が「日付以外は全く同じ」を崩す。

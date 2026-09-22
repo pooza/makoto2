@@ -87,6 +87,21 @@ module Makoto
       raise classify(e)
     end
 
+    # 投稿先が申告する本文の上限（#351）。⚠ **無ければ nil。**
+    #
+    # 🔴 **上流の `max_post_text_length` を使わない** — ⚠⚠ **取れないと設定の既定値（500）に
+    # 倒れる**ので、**「申告が 500」と「聞けなかった」の区別が付かない。**⚠ **聞けなければ例外。**
+    #
+    # ⚠ **トークンは付けない**（公開の口）。⚠ **経路の設定に関わらず直で聞く**（→ `#account`）。
+    def declared_max_length
+      response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
+      body = response.parsed_response
+      return nil unless body.is_a?(Hash)
+      return body.dig('configuration', 'statuses', 'max_characters')&.to_i
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
     # `idempotency_key` は再送で使い回すもの。既定では 1 回の呼び出しにつき 1 つ作る。
     # 呼び出し側が「同じ予定の投稿」を識別できるなら（スケジューラの再実行など）、
     # その識別子を渡せばプロセスをまたいだ重複も畳める。
@@ -101,6 +116,9 @@ module Makoto
         url: status['url'],
         visibility: status['visibility'],
         length: text.to_s.length,
+        # 🔴 **投稿先と同じ数え方の長さも並べる**（#351）。⚠⚠ **`length` はコードポイントで、
+        # 上限（`PostBudget`）は書記素 ＋ URL 23 字** — **422 の日に 1 行で突き合わせられない。**
+        post_length: PostBudget.length(text),
         # 🔴 **経路をログに出す**（#124）。⚠⚠ **「モロヘイヤを通っていない」ことに
         # 3 週間気付かなかったのは、投稿が 200 で返り、ログにも成功としか出ていな
         # かったから。**⚠ **経路の間違いは投稿の失敗として現れない。**
