@@ -251,6 +251,7 @@ DEPENDENCIES
   ginseng-core!
   ginseng-fediverse!
   ginseng-style!
+  public_suffix
   puma
   rubocop-sequel
   rufus-scheduler

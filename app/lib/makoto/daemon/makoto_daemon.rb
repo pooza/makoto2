@@ -90,6 +90,8 @@ module Makoto
       # 🔴 **トークンが生きているかを起き上がりで 1 回見る**（#106）。
       # ⚠ **投稿はしないので副作用は無い。**
       verify_credentials
+      # 🔴 **投稿先の本文の上限を、設定と突き合わせる**（#351）。
+      verify_max_length
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -366,6 +368,29 @@ module Makoto
       Sentry.configuration.release = "#{Package.version}+#{revision}"
     rescue => e
       logger.warn(sentry: 'release', error: e)
+    end
+
+    # 投稿先が申告する本文の上限と、`/mastodon/max_length` を突き合わせる（#351）。
+    #
+    # 🔴 **設定は手で書いた値**で、⚠⚠ **投稿先の上限は環境変数 1 つで変わる**（キュアスタ！の
+    # `MAX_CHARS`）。⚠ **下がった日は、取り込みが古い上限で全部通し、投稿の瞬間に 422 で枠が消える。**
+    #
+    # ⚠ **`verify_credentials` と同じく別スレッド・ログだけ・常駐は止めない。**
+    #
+    # @return [Thread] ⚠ テストが待ち合わせに使う
+    def verify_max_length
+      return Thread.new do
+        budget = PostBudget.new
+        declared = MastodonService.new.declared_max_length
+        payload = {mastodon: 'max_length', configured: budget.limit, declared: declared}
+        if (problem = budget.limit_mismatch(declared))
+          logger.error(payload.merge(message: problem))
+        else
+          logger.info(payload)
+        end
+      rescue => e
+        logger.warn(mastodon: 'max_length', message: 'could not read the limit', error: e)
+      end
     end
 
     # 起き上がったことを痕跡に残す（→ `Heartbeat.record_start`）。

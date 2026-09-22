@@ -2486,6 +2486,13 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ✅ **`makoto message add` も同じ壁を通す**（2026-09-22・#352）。⚠⚠ **それまで壁は取り込みにしか無く、人が直に足す口は `MessageRepository#create` を素通りしていた。**⚠ **空の本文も `PostBudget#validate` が弾く**（取り込みは手前で見ているので挙動は変わらない）。
 
+✅ **本文の長さの 3 つの数字のうち 2 つを裏取りの形にした**（2026-09-22・#351）:
+
+- **`/mastodon/max_length`** — ⚠ **起動時に投稿先の申告（`/api/v1/instance` の `max_characters`）と突き合わせ、申告のほうが短ければ `error` の 1 行**（`{"mastodon":"max_length",...}`・常駐は止めない）。🔴 **上流の `max_post_text_length` は使わない**（聞けないと 500 に倒れ、「申告 500」と区別が付かない）。⚠ **2026-09-22 の実測は st2 / 本番とも 3000 ＝ 設定どおり。**⚠⚠ **`rake config:lint` には入れていない**（CI は雛形の設定で実ホストを向いているので、lint から通信させない）
+- **投稿ログの `length`** — ⚠ **コードポイントのまま残し、`post_length`（`PostBudget.length` ＝ 投稿先と同じ数え方）を並べた**
+- ⚠ **URL の数え方** — **実在する TLD を持たないホスト（素の IP・`localhost`・`foo.local`）は 23 字に畳まず素の長さで数える**（TLD の表は Public Suffix List）（投稿先がそう数えるので、畳むと短く見積もる）
+- 🔴 **`/mastodon/proxy_reserve: 100` は見積もりのまま**（#351 に残した）— ⚠⚠ **測るにはモロヘイヤを通った投稿の本文が要るが、ボットのトークンは read を持たない**（`/api/v1/statuses/:id/source` が 403）
+
 #### ✅ Sentry を入れた（2026-09-17・#28）
 
 ✅ **`sentry-ruby`（7.0.0）で、枠が落ちた・tick が落ちた・常駐が起き上がれなかったを Sentry へ送る**（`Package#report_error`・**初期化されていなければ何もしない**）。

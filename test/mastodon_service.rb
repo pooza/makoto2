@@ -186,6 +186,55 @@ module Makoto
       assert_true(messages.first[:mulukhiya])
     end
 
+    # 🔴 **投稿先と同じ数え方の長さも出す**（#351）。
+    def test_post_status_logs_the_post_length
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status("あ https://example.com/#{'x' * 40}")
+
+      assert_equal(2 + 23, messages.first[:post_length])
+    end
+
+    def stub_instance(status, body)
+      url = "#{config['/mastodon/url']}/api/v1/instance"
+      headers = {'Content-Type' => 'application/json'}
+      return stub_request(:get, url).to_return(status: status, body: body.to_json, headers: headers)
+    end
+
+    # 🔴 **投稿先が申告する上限を読む**（#351）。⚠ **トークンは付けず、直で聞く。**
+    def test_declared_max_length
+      headers = nil
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance").to_return do |request|
+        headers = request.headers
+        {status: 200, headers: {'Content-Type' => 'application/json'},
+         body: {configuration: {statuses: {max_characters: 3000}}}.to_json}
+      end
+
+      assert_equal(3000, MastodonService.new.declared_max_length)
+      assert_equal(Package.full_name, headers['X-Mulukhiya'])
+      assert_false(headers.key?('Authorization'))
+    end
+
+    # ⚠ **書かれていなければ nil**（既定値に倒さない）。
+    def test_declared_max_length_without_the_field
+      stub_instance(200, {})
+
+      assert_nil(MastodonService.new.declared_max_length)
+    end
+
+    # ⚠⚠ **聞けなければ例外**（上流の `max_post_text_length` のように 500 に倒れない）。
+    def test_declared_max_length_raises_when_unreachable
+      config['/http/retry/seconds'] = 0
+      stub_instance(503, {})
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.declared_max_length}
+    end
+
     # ⚠ 「テストが本物のサーバーを叩かない」こと自体を見る。WebMock.enable! を忘れると
     # stub も disable_net_connect! も無言で素通りし、実サーバーへ書き込む。
     def test_net_connect_is_blocked

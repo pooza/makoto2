@@ -601,6 +601,36 @@ module Makoto
       Sentry.close
     end
 
+    def records_of_max_length(declared)
+      body = declared ? {configuration: {statuses: {max_characters: declared}}} : {}
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance")
+        .to_return(status: 200, body: body.to_json, headers: {'Content-Type' => 'application/json'})
+      records = Hash.new {|hash, key| hash[key] = []}
+      @daemon.instance_variable_set(:@logger, Recorder.new(records))
+      @daemon.send(:verify_max_length).join
+      return records
+    end
+
+    # 🔴 **投稿先の上限が設定より短ければエラー**（#351）。⚠ **長いぶんには情報どまり。**
+    def test_a_shorter_declared_limit_is_an_error
+      limit = config['/mastodon/max_length']
+
+      assert_equal(1, records_of_max_length(limit - 1)[:error].size)
+      assert_equal(limit + 1, records_of_max_length(limit + 1)[:info].first[:declared])
+    end
+
+    # ⚠ **聞けなくても常駐は止めない**（警告どまり）。
+    def test_an_unreadable_limit_is_only_a_warning
+      config['/http/retry/seconds'] = 0
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance").to_return(status: 503)
+      records = Hash.new {|hash, key| hash[key] = []}
+      @daemon.instance_variable_set(:@logger, Recorder.new(records))
+      @daemon.send(:verify_max_length).join
+
+      assert_equal('could not read the limit', records[:warn].first[:message])
+      assert_empty(records[:error])
+    end
+
     def test_pid_file
       assert_equal(File.join(Environment.dir, 'tmp/pids/MakotoDaemon.pid'), @daemon.pid_file)
     end
