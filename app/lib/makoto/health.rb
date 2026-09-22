@@ -92,18 +92,28 @@ module Makoto
     # とき**に、⚠ **新しい PID と古い／別のプロセスの `revision` を組み合わせて見せてしまう。**
     # 🔴 **「動いているもの」を言う行が、まさに取り違えを隠す形になる**ので、合わなければ出さない。
     def own_heartbeat?
-      recorded = heartbeat_pid
+      recorded = Heartbeat.read&.dig(:pid)
       return false unless recorded && pid
-      return recorded == pid.to_i
+      return recorded.to_i == pid.to_i
     end
 
-    # 痕跡を書いたプロセス（#354）。⚠ **痕跡が無ければ nil。**
-    #
-    # ⚠⚠ **`own_heartbeat?` が false のとき、画面が「誰のものか」を言うために使う** —
-    # 🔴 **「再起動の直後・孤児がまだ書いている」と「#242 より前の常駐」を同じ `(unknown)` に
-    # 畳まない。**
-    def heartbeat_pid
-      return Heartbeat.read&.dig(:pid)&.to_i
+    # 痕跡の持ち主と、そこから読む身元（#354）。⚠ `own` が偽なら `job_names` / `revision` は nil。
+    Identity = Data.define(:owner, :own, :jobs, :job_names, :revision)
+
+    # 🔴 **痕跡を 1 回だけ読み、持ち主・本数・名前・リビジョンを同じ版から出す**（#354・Codex の P2）。
+    # ⚠⚠ **痕跡は別のプロセスも書く**ので、**`own_heartbeat?` と `job_names` を別々に読むと、間で
+    # 持ち主が替わって「古い本数を、持ち主の注記なしで」出しうる。**⚠ **`makoto status` はこれを使う。**
+    def identity
+      record = Heartbeat.read || {}
+      owner = record[:pid]&.to_i
+      own = !owner.nil? && !pid.nil? && owner == pid.to_i
+      return Identity.new(
+        owner: owner,
+        own: own,
+        jobs: record[:jobs],
+        job_names: own ? record[:job_names] : nil,
+        revision: own ? record[:revision] : nil,
+      )
     end
 
     def heartbeat_age

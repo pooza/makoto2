@@ -117,8 +117,10 @@ module Makoto
     # ⚠ **生きているときに出す 6 行**（→ `status` の `long_desc`）。⚠⚠ **死んでいれば
     # `not running` の 1 行だけ**なので、ここは呼ばれない。
     def print_health(health)
-      puts "running (PID #{health.pid}, revision #{format_revision(health)})"
-      puts "jobs: #{format_jobs(health)}"
+      # ⚠ **痕跡は 1 回だけ読む**（→ `Health#identity`）。
+      identity = health.identity
+      puts "running (PID #{health.pid}, revision #{format_revision(identity)})"
+      puts "jobs: #{format_jobs(identity)}"
       puts "heartbeat: #{format_age(health.heartbeat_age)}"
       puts "tick: #{format_tick(health)}"
       puts "posting: #{format_posting(health)}"
@@ -152,19 +154,14 @@ module Makoto
 
     # 🔴 **痕跡が自分のものでなければ、誰のものかを言う**（#354）。⚠⚠ **「再起動の直後・孤児が
     # まだ書いている」を、無害な「#242 より前の常駐」と同じ `(unknown)` に畳まない。**
-    #
-    # ⚠ **`revision` は 1 回だけ読む**（Codex の P2）。⚠⚠ **痕跡は別のプロセスも書くので、2 回読むと
-    # 間で持ち主が替わり、空の `revision ` が出る。**
-    def format_revision(health)
-      revision = health.revision
-      return revision if revision
-      return foreign_heartbeat(health) unless health.own_heartbeat?
-      return '(unknown)'
+    def format_revision(identity)
+      return foreign_heartbeat(identity) unless identity.own
+      return identity.revision || '(unknown)'
     end
 
-    def foreign_heartbeat(health)
-      return '(no heartbeat yet)' unless health.heartbeat_pid
-      return "(heartbeat from PID #{health.heartbeat_pid})"
+    def foreign_heartbeat(identity)
+      return '(no heartbeat yet)' unless identity.owner
+      return "(heartbeat from PID #{identity.owner})"
     end
 
     # ⚠ **名前が無ければ本数だけ**（#242 より前の常駐が書いた痕跡）。
@@ -172,15 +169,12 @@ module Makoto
     # 🔴 **痕跡が自分のものでなければ、本数にもそう添える**（#354）。⚠⚠ **本数だけを出すと
     # 「#242 より前の常駐」に見え、古い版が動いていると誤診する。**⚠ **本数そのものは消さない**
     # （`/healthz` の「投稿を 1 本も持たない」と同じ値を見せる）。
-    #
-    # ⚠ **本数と名前も 1 回ずつ読む**（→ `format_revision`）。
-    def format_jobs(health)
-      jobs = health.jobs
-      return '(unknown)' unless jobs
-      names = health.job_names
-      return "#{jobs} #{foreign_heartbeat(health)}" if names.nil? && !health.own_heartbeat?
-      return jobs.to_s if names.blank?
-      return "#{jobs} (#{names.join(', ')})"
+    def format_jobs(identity)
+      return '(unknown)' unless identity.jobs
+      return "#{identity.jobs} #{foreign_heartbeat(identity)}" unless identity.own
+      names = Array(identity.job_names)
+      return identity.jobs.to_s if names.empty?
+      return "#{identity.jobs} (#{names.join(', ')})"
     end
 
     def format_age(seconds)
