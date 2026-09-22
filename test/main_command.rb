@@ -118,6 +118,23 @@ module Makoto
       assert_include(output, "jobs: 1\n")
     end
 
+    # 🔴 **Sentry の行は常駐が痕跡に書いた状態**（#347・Codex の P1）。⚠⚠ **CLI 自身の初期化では言わない。**
+    def test_status_shows_the_sentry_state_of_the_daemon
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 1, now: now)
+      Heartbeat.update {|record| record.merge(sentry: 'misconfigured')}
+
+      assert_include(status_output(pid: Process.pid), 'sentry: 🔴 misconfigured')
+      assert_include(status_output(pid: Process.pid + 1), "sentry: (heartbeat from PID #{Process.pid})\n")
+    end
+
+    # ⚠ **痕跡に書くのは書いたプロセスの状態**（テストは DSN を持たない）。
+    def test_the_heartbeat_records_the_sentry_state
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_equal('off', Heartbeat.read[:sentry])
+    end
+
     # ⚠ **#242 より前の常駐が書いた痕跡でも落ちない**（本数だけ出す）。
     def test_status_without_job_names
       Heartbeat.record_tick(now: now)

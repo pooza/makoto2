@@ -2508,7 +2508,7 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 | --- | --- |
 | **スキーマ** | 🔴 **`/sentry/dsn` の `pattern` を `^https://[^@/]+@[^/]+/.+`（DSN の形）へ締めた** — `rake config:lint` で先に止まる（⚠ **2026-09-22 に `bydo` / `rubicon` の DSN が合うことを確認済み**） |
 | **起動** | ⚠ **初期化に成功したのに送れなければ `{"sentry":"init","message":"initialized but will not send ..."}` を 1 行**（DSN は出さない） |
-| **`makoto status`** | ⚠ **7 行目 `sentry: on / off (no DSN) / 🔴 misconfigured`**（`Makoto.sentry_state`・見ているのは CLI 自身の初期化 ＝ 常駐と同じ設定） |
+| **`makoto status`** | ⚠ **7 行目 `sentry: on / off (no DSN) / 🔴 misconfigured`**（🔴 **常駐が痕跡に書いた `Makoto.sentry_state`** — CLI 自身の初期化で言うと、設定を変えて再起動していない日に常駐と逆のことを言う・Codex の P1） |
 | **`release`** | ⚠ **常駐だけ `<version>+<revision>`**（`MakotoDaemon#tag_sentry_release`）— 🔴 **require 時に `Package.revision` を呼ぶと全 CLI が `git` を fork する**ので CLI は `version` のまま |
 
 🔴 **送る内容の許可リスト（例外メッセージに何が載るか）は #347 に残した**（チャットボット #18 の前に決める）。

@@ -145,6 +145,9 @@ module Makoto
             version: Package.version,
             revision: Package.revision,
             pid: Process.pid,
+            # 🔴 **常駐自身の Sentry の状態**（#347・Codex の P1）。⚠⚠ **CLI が自分で初期化して言うと、
+            # 設定を変えて再起動していない日に、常駐と違う状態を言う。**
+            sentry: Makoto.sentry_state.to_s,
             travel: TimeTravel.active? ? TimeTravel.describe : nil,
           )
         end

@@ -96,7 +96,7 @@ module Makoto
 
       orphans — pid ファイルに無い常駐プロセス。⚠ 不明なら (unknown)
 
-      sentry — 🔴 例外の集約が送れる状態か（#347）。on / off (no DSN) / misconfigured
+      sentry — 🔴 常駐の例外の集約が送れる状態か（#347）。on / off (no DSN) / misconfigured
 
       ⚠⚠ 8/15〜10/31 は 1 本も投稿しないので posting は当てにならない。その間に
       「動いている」を確かめる手掛かりは tick（#150）。
@@ -127,18 +127,22 @@ module Makoto
       puts "tick: #{format_tick(health)}"
       puts "posting: #{format_posting(health)}"
       puts "orphans: #{health.orphans&.join(', ') || '(unknown)'}"
-      puts "sentry: #{format_sentry}"
+      puts "sentry: #{format_sentry(identity)}"
       return nil
     end
 
     # 🔴 **例外の集約が生きているか**（#347）。⚠⚠ **`0.6` は観測を Sentry に依存させたのに、その依存が
-    # どこにも出ていなかった。**⚠ **見ているのはこの CLI の初期化**（常駐と同じ設定・同じ `setup_sentry`）。
-    def format_sentry
+    # どこにも出ていなかった。**
+    #
+    # 🔴 **見るのは常駐が痕跡に書いた状態**（Codex の P1）。⚠⚠ **この CLI が自分で初期化した状態を
+    # 言うと、設定を変えて再起動していない日に、常駐と逆のことを言う**（DSN を足しても常駐は送らない）。
+    def format_sentry(identity)
+      return foreign_heartbeat(identity) unless identity.own
       return {
-        on: 'on',
-        off: 'off (no DSN)',
-        misconfigured: '🔴 misconfigured (a DSN is set but nothing will be sent)',
-      }[Makoto.sentry_state]
+        'on' => 'on',
+        'off' => 'off (no DSN)',
+        'misconfigured' => '🔴 misconfigured (a DSN is set but nothing will be sent)',
+      }[identity.sentry] || '(unknown)'
     end
 
     # 🔴 **日付を騙していることを画面の先頭で言う**（#174）。
