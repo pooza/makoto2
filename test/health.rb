@@ -100,6 +100,19 @@ module Makoto
         [foreign.owner, foreign.own, foreign.jobs, foreign.job_names, foreign.revision])
     end
 
+    # 🔴 **常駐の Sentry が送れなければ警告**（#347・Codex の P2）。⚠⚠ **`errors`（復旧させる）には置かない。**
+    def test_a_misconfigured_sentry_is_a_warning
+      beat
+      Heartbeat.touch(jobs: 1, now: now)
+      Heartbeat.update {|record| record.merge(sentry: 'misconfigured')}
+      subject = health(pid: Process.pid)
+
+      assert_include(subject.warnings, 'sentry is misconfigured (a DSN is set but nothing will be sent)')
+      assert_empty(subject.errors)
+      assert_equal(Health::WARNING, subject.code)
+      assert_empty(health(pid: Process.pid + 1).sentry_warnings)
+    end
+
     def test_healthy
       beat
 

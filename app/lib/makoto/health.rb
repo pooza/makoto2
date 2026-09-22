@@ -224,8 +224,20 @@ module Makoto
       results = []
       # ⚠ 死んでいるときは `errors` の側が言うので、ここでは重ねない。
       results.push(*posting_warnings) if alive?
+      results.push(*sentry_warnings) if alive?
       results.push(*orphan_warnings)
       return results
+    end
+
+    # 🔴 **常駐の Sentry が DSN を持つのに送れないこと**（#347・Codex の P2）。⚠ **画面に赤で出すだけ
+    # では、終了コードが 0 のまま**で自動の目が拾わない。
+    #
+    # ⚠⚠ **`errors`（＝ `/healthz` の 503・復旧させる）には置かない** — 🔴 **再起動しても DSN は
+    # 直らない**ので、**検知 → 再起動 → また検知**を繰り返すだけ（→ 投稿の警告を `warnings` に
+    # 置いた理由と同じ）。⚠ **見るのは常駐が痕跡に書いた状態だけ**（→ `identity`）。
+    def sentry_warnings
+      return [] unless identity.sentry == 'misconfigured'
+      return ['sentry is misconfigured (a DSN is set but nothing will be sent)']
     end
 
     # 投稿が続けて落ちていること（#78）。⚠ **`warnings` から分けて取れるようにして
