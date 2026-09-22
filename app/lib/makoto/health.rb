@@ -92,9 +92,18 @@ module Makoto
     # とき**に、⚠ **新しい PID と古い／別のプロセスの `revision` を組み合わせて見せてしまう。**
     # 🔴 **「動いているもの」を言う行が、まさに取り違えを隠す形になる**ので、合わなければ出さない。
     def own_heartbeat?
-      recorded = Heartbeat.read&.dig(:pid)
+      recorded = heartbeat_pid
       return false unless recorded && pid
-      return recorded.to_i == pid.to_i
+      return recorded == pid.to_i
+    end
+
+    # 痕跡を書いたプロセス（#354）。⚠ **痕跡が無ければ nil。**
+    #
+    # ⚠⚠ **`own_heartbeat?` が false のとき、画面が「誰のものか」を言うために使う** —
+    # 🔴 **「再起動の直後・孤児がまだ書いている」と「#242 より前の常駐」を同じ `(unknown)` に
+    # 畳まない。**
+    def heartbeat_pid
+      return Heartbeat.read&.dig(:pid)&.to_i
     end
 
     def heartbeat_age

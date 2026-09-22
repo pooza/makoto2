@@ -132,12 +132,15 @@ module Makoto
       # 🔴 **登録を見送った投稿も書く**（#350）。⚠⚠ **`jobs` の本数が減っただけでは、
       # どれがなぜ減ったかを外から知る手段が無い。**⚠ **無ければ `{}` を書く**（前の起動の
       # 値を居座らせない・`travel` と同じ）。
+      #
+      # ⚠ **`job_names` は渡されたときだけ書く**（#354）。🔴 **本数だけを渡す呼び出しを足した日に、
+      # 痕跡から名前が消えないように。**
       def touch(jobs:, job_names: nil, rejected: nil, now: nil)
         return update do |record|
+          record = record.merge(job_names: job_names) if job_names
           record.merge(
             at: (now || Time.now).getutc.iso8601,
             jobs: jobs,
-            job_names: job_names,
             rejected: rejected || {},
             version: Package.version,
             revision: Package.revision,
