@@ -133,6 +133,30 @@ module Makoto
       assert_include(capture_warning {command(types: '').preview}, 'no type given')
     end
 
+    # 🔴 **`add` も取り込みと同じ壁を通る**（#352）。⚠⚠ **上限を超えた本文も、空の本文も入れない。**
+    def test_add_rejects_a_body_over_the_budget
+      body = 'あ' * (PostBudget.new.budget('holiday') + 1)
+
+      before = @repository.by_type('holiday').count
+
+      assert_include(capture_warning {command(type: 'holiday').add(body)}, '本文が長すぎます')
+      assert_equal(before, @repository.by_type('holiday').count)
+    end
+
+    def test_add_rejects_an_empty_body
+      before = @repository.by_type('holiday').count
+
+      assert_include(capture_warning {command(type: 'holiday').add(" \n")}, '本文がありません')
+      assert_equal(before, @repository.by_type('holiday').count)
+    end
+
+    def test_add_accepts_a_body_within_the_budget
+      body = 'あ' * PostBudget.new.budget('holiday')
+      capture {command(type: 'holiday').add(body)}
+
+      assert_predicate(@repository.by_type('holiday').where(body: body), :any?)
+    end
+
     def test_export_refuses_to_overwrite
       File.write(path, '先にあるもの')
 

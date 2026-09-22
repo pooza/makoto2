@@ -81,5 +81,11 @@ module Makoto
       assert_nothing_raised {budget.validate('morning', 'あ' * allowed, 'ok')}
       assert_raise(Ginseng::ValidateError) {budget.validate('morning', 'あ' * (allowed + 1), 'ng')}
     end
+
+    # ⚠ **空の本文も弾く**（#352・`makoto message add` はここしか通らない）。
+    def test_validate_rejects_an_empty_body
+      assert_raise(Ginseng::ValidateError) {budget.validate('morning', " \n", 'empty')}
+      assert_raise(Ginseng::ValidateError) {budget.validate('morning', nil, 'nil')}
+    end
   end
 end

@@ -19,9 +19,13 @@ module Makoto
     option :feature, type: :string, desc: '人手のメタ情報（任意）'
     desc 'add BODY', '原稿を足す'
     def add(body)
+      type = options[:type]
       date = parse_date(options[:date])
-      id = MessageRepository.new.create(
-        type: options[:type],
+      # 🔴 **取り込みと同じ壁を通す**（#352）。⚠⚠ **素通りすると、上限を超えた本文が DB に入り、
+      # 当たった枠で 422 ＝ 再送なしで消える**（#282）。
+      PostBudget.new.validate(type, body, type, dated: date[:month].present?)
+      id = repository.create(
+        type: type,
         body: body,
         year: date[:year],
         month: date[:month],
