@@ -187,6 +187,20 @@ module Makoto
       assert_equal([nil], errors.map {|payload| payload[:phase]}.uniq)
     end
 
+    # ⚠⚠ **数えられない本文でも、失敗の扱いは潰さない**（Codex の P2）。
+    def test_a_post_failure_with_invalid_utf8_is_still_recorded
+      stub_request(:post, @url).to_return(status: 422, body: '{}')
+      errors = []
+      subject = job(proc {'いくよ！'})
+      subject.instance_variable_set(:@logger, recorder(:error, errors))
+      # ⚠ **`exec` は手前で落とす**ので、`post` を直に呼ぶ（上流の検査が緩んだ日の歯止め）。
+      subject.send(:post, "\xFF\xFE".dup.force_encoding('UTF-8'), jst(12, 0))
+
+      assert_equal(1, errors.size)
+      assert_nil(errors.first[:post_length])
+      assert_equal(1, Heartbeat.failures)
+    end
+
     # 🔴 **落ちた本文の長さを、投稿先と同じ数え方で残す**（#351・Codex の P2）。
     def test_a_post_failure_logs_the_post_length
       stub_request(:post, @url).to_return(status: 422, body: '{}')
