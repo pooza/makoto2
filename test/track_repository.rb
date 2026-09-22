@@ -26,6 +26,21 @@ module Makoto
       assert_not_include(tracks.linkable.select_map(:id), 1009)
     end
 
+    # 🔴 **公開する直前でもホストを絞る**（#355）。⚠⚠ **取り込みを通らずに書かれた `url` も出さない。**
+    def test_linkable_drops_rows_on_other_hosts
+      urls = [
+        'https://evil.example/t',
+        'http://music.apple.com/t',
+        'https://music.apple.com@evil.example/t',
+        'https://music.apple.com.evil.example/t',
+      ]
+      urls.each do |url|
+        track_db[:track].where(id: 1001).update(url: url)
+
+        assert_not_include(tracks.linkable.select_map(:id), 1001, url)
+      end
+    end
+
     # ⚠⚠ ここが #11 / #13 の入口。同じ曲を 2 度出さない。
     def test_distinct_collapses_duplicates
       assert_equal(8, tracks.distinct.count)

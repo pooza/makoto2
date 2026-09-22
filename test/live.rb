@@ -23,7 +23,7 @@ module Makoto
       ['ライブの 1 曲目', '本編A', '本編B', '本編C', 'ライブの最終曲'].each_with_index do |name, i|
         corpus_db[:track].insert(
           id: 7000 + i, name: name, artist_name: "歌手#{i}",
-          release_date: Date.new(2013, 1, 1) + i, url: "https://example.test/t/#{i}",
+          release_date: Date.new(2013, 1, 1) + i, url: "https://music.apple.com/t/#{i}",
           kind: 'vocal', live: true, dedupe_key: TrackImporter.dedupe_key(name)
         )
       end
@@ -405,7 +405,7 @@ module Makoto
 
     # ⚠ 名義だけを差し替えた 1 行。**投稿の見え方（#119 / #121）を見るのに使う。**
     def track_row(artist, name: '曲名')
-      return {name: name, artist_name: artist, url: 'https://example.test/t/9'}
+      return {name: name, artist_name: artist, url: 'https://music.apple.com/t/9'}
     end
 
     # 🔴 **ライブの本編では自分名義を出さない**（#121）。**歌っているのが自分であることが
