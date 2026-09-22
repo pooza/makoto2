@@ -69,7 +69,11 @@ module Makoto
     end
 
     # ⚠ **超えていれば `ValidateError`**（どれだけ超えたかを言う）。
+    #
+    # ⚠ **空の本文も弾く**（#352）。🔴 **取り込みは手前で見ているが、`makoto message add` は
+    # ここしか通らない。**
     def validate(type, body, slug, dated: false)
+      raise Ginseng::ValidateError, "#{slug}: 本文がありません" if body.to_s.strip.empty?
       length = self.class.length(body)
       allowed = budget(type, dated: dated)
       return if length <= allowed
