@@ -234,7 +234,10 @@ module Makoto
       notify(slot)
       return response
     rescue => e
-      logger.error(post: @name, slot: format_slot(slot), error: e)
+      # 🔴 **落ちた本文の長さを投稿先と同じ数え方で残す**（#351・Codex の P2）。⚠⚠ **422 の日に
+      # 上限と突き合わせたいのはこの行**で、**成功のログ（`MastodonService#post_status`）には出ない。**
+      logger.error(post: @name, slot: format_slot(slot), post_length: PostBudget.length(text),
+        error: e)
       # 🔴 **枠が落ちたことを Sentry へ**（#28）。⚠ **ライブ当日の 8 時間に静かに壊れると、
       # 気づくのは終わった後になる。**
       report_error(e, post: @name)

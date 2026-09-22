@@ -187,6 +187,14 @@ module Makoto
       assert_equal([nil], errors.map {|payload| payload[:phase]}.uniq)
     end
 
+    # 🔴 **落ちた本文の長さを、投稿先と同じ数え方で残す**（#351・Codex の P2）。
+    def test_a_post_failure_logs_the_post_length
+      stub_request(:post, @url).to_return(status: 422, body: '{}')
+      errors = error_payloads(proc {'いくよ！'})
+
+      assert_equal([4], errors.filter_map {|payload| payload[:post_length]}.uniq)
+    end
+
     def test_posts_at_the_top_of_a_slot
       stub_post
       job.exec(jst(12, 0))
