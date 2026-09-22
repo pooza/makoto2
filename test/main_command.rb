@@ -103,8 +103,19 @@ module Makoto
       Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
       output = status_output(pid: Process.pid + 1)
 
-      assert_include(output, "running (PID #{Process.pid + 1}, revision (unknown))\n")
-      assert_include(output, "jobs: 2\n")
+      assert_include(output, "running (PID #{Process.pid + 1}, revision (heartbeat from PID #{Process.pid}))\n")
+      assert_include(output, "jobs: 2 (heartbeat from PID #{Process.pid})\n")
+    end
+
+    # ⚠ **#242 より前の常駐（自分の痕跡だがリビジョンが無い）は `(unknown)`**（#354）。
+    def test_status_with_an_own_heartbeat_without_a_revision
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 1, now: now)
+      Heartbeat.update {|record| record.merge(revision: nil)}
+      output = status_output(pid: Process.pid)
+
+      assert_include(output, "running (PID #{Process.pid}, revision (unknown))\n")
+      assert_include(output, "jobs: 1\n")
     end
 
     # ⚠ **#242 より前の常駐が書いた痕跡でも落ちない**（本数だけ出す）。
@@ -112,7 +123,7 @@ module Makoto
       Heartbeat.record_tick(now: now)
       Heartbeat.touch(jobs: 1, now: now)
 
-      assert_include(status_output, "jobs: 1\n")
+      assert_include(status_output(pid: Process.pid), "jobs: 1\n")
     end
 
     # 🔴 **騙した日付を画面の先頭で言う**（#174）。⚠⚠ **`systemctl restart` の 1 手が

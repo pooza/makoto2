@@ -100,7 +100,7 @@ module Makoto
       live: true,
       kind: 'vocal',
       day: 1,
-      url: 'https://example.test/t',
+      url: 'https://music.apple.com/t',
       collection: nil,
     }.freeze
 
@@ -455,7 +455,7 @@ module Makoto
     # ⚠ 辞書に居ない名義の曲はカバーに選ばれない。
     def test_covers_are_limited_to_known_singers
       seed(songs: 8, covers: 0)
-      add('カラオケ盤', live: false, day: 200, url: 'https://example.test/k')
+      add('カラオケ盤', live: false, day: 200, url: 'https://music.apple.com/k')
       picky = Struct.new(:x) do
         def available? = true
         def singer?(name) = !name.to_s.include?('9')

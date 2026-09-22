@@ -1,3 +1,5 @@
+require 'tmpdir'
+
 module Makoto
   # 原稿の書き出し先（#273）。🔴 **public な作業ツリーの中へは書かない・0600 で書く。**
   class ScriptExportFileTest < TestCase

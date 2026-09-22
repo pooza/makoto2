@@ -31,8 +31,14 @@ module Makoto
 
     # 紹介できる曲だけ。⚠ **曲紹介はリンク付きで曲そのものを出す**ので、
     # `url` が無い行は紹介の形にならない（→ docs/track-corpus.md）。
+    #
+    # 🔴 **公開する直前でもホストを絞る**（#355）。⚠⚠ **`TrackImporter#sanitize_urls` は取り込みを
+    # 回したときしか効かない**ので、**実機で SQL を手で当てた日・別の経路で `url` を書いた日に黙って
+    # 崩れる。**⚠ **`https://<ホスト>/` の前方一致**（末尾の `/` があるので `@` やポートで別ホストへ
+    # 逃げる形は当たらない）。
     def linkable(records = dataset)
-      return records.exclude(url: nil)
+      hosts = TrackImporter::URL_HOSTS.map {|host| Sequel.like(:url, "https://#{host}/%")}
+      return records.where(hosts.reduce(:|))
     end
 
     # 重複を寄せた 1 曲につき 1 行。⚠ **同じ曲を 2 度出さないための入口はここ。**
