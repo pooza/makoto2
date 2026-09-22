@@ -590,6 +590,17 @@ module Makoto
       assert_nothing_raised {@daemon.send(:verify_credentials).join}
     end
 
+    # 🔴 **常駐は Sentry の `release` にリビジョンまで載せる**（#347）。⚠ **初期化していなければ何もしない。**
+    def test_the_sentry_release_carries_the_revision
+      assert_nothing_raised {@daemon.send(:tag_sentry_release)}
+      Sentry.init {|sentry| sentry.dsn = 'https://publickey@o1.ingest.sentry.io/456'}
+      @daemon.send(:tag_sentry_release)
+
+      assert_equal("#{Package.version}+#{Package.revision}", Sentry.configuration.release)
+    ensure
+      Sentry.close
+    end
+
     def test_pid_file
       assert_equal(File.join(Environment.dir, 'tmp/pids/MakotoDaemon.pid'), @daemon.pid_file)
     end

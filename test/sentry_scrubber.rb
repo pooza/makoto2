@@ -182,6 +182,32 @@ module Makoto
       end
     end
 
+    # 🔴 **送れるかを 3 つに分けて言う**（#347）。⚠⚠ **`https://` だが DSN でない値は、初期化に
+    # 成功して 1 件も送らない**（Web UI のプロジェクトの URL を貼った形）。
+    def test_sentry_state
+      assert_equal(:off, Makoto.sentry_state)
+      with_dsn(DSN) do
+        Makoto.setup_sentry
+
+        assert_equal(:on, Makoto.sentry_state)
+      end
+      with_dsn('https://sentry.example.com/organizations/x/projects/y/') do
+        logged = capture_logger_errors {Makoto.setup_sentry}
+
+        assert_equal(:misconfigured, Makoto.sentry_state)
+        assert_equal(['initialized but will not send (the DSN is not valid)'], logged.map {|v| v[:message]})
+        assert_not_include(logged.to_s, 'sentry.example.com', 'DSN を載せない')
+      end
+    end
+
+    # 🔴 **スキーマが DSN の形まで見る**（#347）。
+    def test_the_schema_rejects_a_project_url
+      pattern = Regexp.new(config.schema.dig('properties', 'sentry', 'properties', 'dsn', 'pattern'))
+
+      assert_match(pattern, DSN)
+      assert_no_match(pattern, 'https://sentry.example.com/organizations/x/projects/y/')
+    end
+
     # 🔴 **DSN が空でも警告を出さない。**⚠⚠ **`dsn: null` は `Config#[]` で例外になる**ので、
     # 素で読むとすべての起動が「Sentry initialization skipped」を出していた。
     def test_setup_without_a_dsn_is_silent
@@ -196,6 +222,21 @@ module Makoto
     end
 
     private
+
+    def capture_logger_errors
+      logged = []
+      # ⚠ **`SentryScrubber.new` も `Logger.new` を掴む**ので、`error` 以外は黙って受ける。
+      sink = Class.new(BasicObject) do
+        define_method(:error) {|arg| logged.push(arg)}
+        define_method(:method_missing) {|*| nil}
+        define_method(:respond_to_missing?) {|*| true}
+      end.new
+      Logger.define_singleton_method(:new) {|*| sink}
+      yield
+      return logged
+    ensure
+      Logger.singleton_class.remove_method(:new)
+    end
 
     def broken_event
       event = error_event(StandardError.new('boom'))

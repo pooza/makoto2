@@ -80,7 +80,7 @@ module Makoto
       Heartbeat.touch(jobs: 1, now: now)
       output = status_output
 
-      ['running (PID ', 'jobs: ', 'heartbeat: ', 'tick: ', 'posting: ', 'orphans: '].each do |line|
+      ['running (PID ', 'jobs: ', 'heartbeat: ', 'tick: ', 'posting: ', 'orphans: ', 'sentry: '].each do |line|
         assert_include(output, line)
       end
     end

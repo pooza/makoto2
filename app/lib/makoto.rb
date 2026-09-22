@@ -40,8 +40,35 @@ module Makoto
       # ⚠ `send_default_pii` は既定 false のまま。
       sentry.before_send = proc {|event, _hint| scrubber.scrub(event)}
     end
+    report_sentry_unsendable unless sentry_state == :on
   rescue => e
     report_sentry_setup_error(e)
+  end
+
+  # Sentry が送れる状態か（#347）。
+  #
+  # | 値 | 意味 |
+  # | --- | --- |
+  # | `:off` | DSN が無い（開発機・CI・テスト）＝ 正常 |
+  # | `:on` | 送れる |
+  # | 🔴 `:misconfigured` | DSN はあるのに送れない（初期化に失敗した・DSN の形でない） |
+  #
+  # ⚠⚠ **`Sentry.initialized?` だけでは足りない** — 🔴 **`https://` だが DSN でない値（Web UI の
+  # プロジェクトの URL など）は、初期化に成功して 1 件も送らない**（`sending_allowed?` が偽）。
+  def self.sentry_state
+    return :off unless sentry_dsn
+    return :misconfigured unless defined?(Sentry) && Sentry.initialized?
+    return :misconfigured unless Sentry.configuration.sending_allowed?
+    return :on
+  rescue
+    return :misconfigured
+  end
+
+  # 🔴 **初期化に成功したのに送れない形を 1 行残す**（#347）。⚠⚠ **sentry-ruby 自身の警告は
+  # `STDOUT` へ出る**ので、常駐では消える（→ `report_sentry_setup_error`）。⚠ **DSN は出さない。**
+  def self.report_sentry_unsendable
+    Logger.new.error(sentry: 'init',
+      message: 'initialized but will not send (the DSN is not valid)')
   end
 
   # 🔴 **`warn` で出さない**（v0.6.0 のリリース前レビュー・赤）。⚠⚠ **`bin/makoto_daemon.rb` は

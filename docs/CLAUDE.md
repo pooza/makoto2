@@ -2497,6 +2497,17 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ⚠ **DSN の置き場の正本は chubo2 の `docs/infra-services.md`**（`4931e50`）。⚠⚠ **Client Key のレート制限は作成時点で未設定**（API で `rateLimit: null`）— **WebUI で当てる**（目安 1 時間 500 件）。
 
+✅ **Sentry が送れる状態かを見えるようにした**（2026-09-22・#347）。⚠⚠ **`https://` だが DSN でない値（Web UI のプロジェクトの URL を貼った形）は、初期化に成功して 1 件も送らなかった**（`sending_allowed?` が偽・sentry-ruby の警告は `STDOUT` なので常駐では消える）。
+
+| 口 | 何が出るか |
+| --- | --- |
+| **スキーマ** | 🔴 **`/sentry/dsn` の `pattern` を `^https://[^@/]+@[^/]+/.+`（DSN の形）へ締めた** — `rake config:lint` で先に止まる（⚠ **2026-09-22 に `bydo` / `rubicon` の DSN が合うことを確認済み**） |
+| **起動** | ⚠ **初期化に成功したのに送れなければ `{"sentry":"init","message":"initialized but will not send ..."}` を 1 行**（DSN は出さない） |
+| **`makoto status`** | ⚠ **7 行目 `sentry: on / off (no DSN) / 🔴 misconfigured`**（`Makoto.sentry_state`・見ているのは CLI 自身の初期化 ＝ 常駐と同じ設定） |
+| **`release`** | ⚠ **常駐だけ `<version>+<revision>`**（`MakotoDaemon#tag_sentry_release`）— 🔴 **require 時に `Package.revision` を呼ぶと全 CLI が `git` を fork する**ので CLI は `version` のまま |
+
+🔴 **送る内容の許可リスト（例外メッセージに何が載るか）は #347 に残した**（チャットボット #18 の前に決める）。
+
 #### ✅ 予算を超えて長くかかった枠を 1 行残す（2026-09-17・#92）
 
 ⚠ **HTTParty の `timeout` は socket 操作ごと**なので、**チャンクを少しずつ送り続ける相手は、設定の予算（タイムアウト 30 秒 × 再送 3 回 ＋ 待ち ＝ 92 秒）を超えて投稿を掴んでいられる。**

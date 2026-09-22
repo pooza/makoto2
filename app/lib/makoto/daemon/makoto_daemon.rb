@@ -71,6 +71,8 @@ module Makoto
       logger.info(
         daemon: app_name, version: Package.version, revision: Package.revision, message: 'start',
       )
+      # 🔴 **Sentry の `release` にリビジョンまで載せる**（#347）。
+      tag_sentry_release
       # 🔴 **設定を起動時に 1 回検証する**（#99）。⚠ **止めない**（→ `validate_config`）。
       validate_config
       # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。
@@ -353,6 +355,17 @@ module Makoto
       rescue => e
         logger.warn(mastodon: 'verify_credentials', message: 'could not verify the token', error: e)
       end
+    end
+
+    # ⚠⚠ **`Package.version` だけでは `0.6.0` のまま何コミットでも進む**ので、Sentry の「初出」
+    # 「regression」が箱の中で区別できない（#242 と同じ粗さ）。⚠ **常駐だけ**で上書きする —
+    # 🔴 **require 時に `Package.revision` を呼ぶと、全 CLI が `git` を fork する。**
+    def tag_sentry_release
+      revision = Package.revision
+      return unless revision && defined?(Sentry) && Sentry.initialized?
+      Sentry.configuration.release = "#{Package.version}+#{revision}"
+    rescue => e
+      logger.warn(sentry: 'release', error: e)
     end
 
     # 起き上がったことを痕跡に残す（→ `Heartbeat.record_start`）。
