@@ -152,8 +152,12 @@ module Makoto
 
     # 🔴 **痕跡が自分のものでなければ、誰のものかを言う**（#354）。⚠⚠ **「再起動の直後・孤児が
     # まだ書いている」を、無害な「#242 より前の常駐」と同じ `(unknown)` に畳まない。**
+    #
+    # ⚠ **`revision` は 1 回だけ読む**（Codex の P2）。⚠⚠ **痕跡は別のプロセスも書くので、2 回読むと
+    # 間で持ち主が替わり、空の `revision ` が出る。**
     def format_revision(health)
-      return health.revision if health.revision
+      revision = health.revision
+      return revision if revision
       return foreign_heartbeat(health) unless health.own_heartbeat?
       return '(unknown)'
     end
@@ -168,12 +172,15 @@ module Makoto
     # 🔴 **痕跡が自分のものでなければ、本数にもそう添える**（#354）。⚠⚠ **本数だけを出すと
     # 「#242 より前の常駐」に見え、古い版が動いていると誤診する。**⚠ **本数そのものは消さない**
     # （`/healthz` の「投稿を 1 本も持たない」と同じ値を見せる）。
+    #
+    # ⚠ **本数と名前も 1 回ずつ読む**（→ `format_revision`）。
     def format_jobs(health)
-      return '(unknown)' unless health.jobs
-      return "#{health.jobs} #{foreign_heartbeat(health)}" unless health.own_heartbeat?
-      names = Array(health.job_names)
-      return health.jobs.to_s if names.empty?
-      return "#{health.jobs} (#{names.join(', ')})"
+      jobs = health.jobs
+      return '(unknown)' unless jobs
+      names = health.job_names
+      return "#{jobs} #{foreign_heartbeat(health)}" if names.nil? && !health.own_heartbeat?
+      return jobs.to_s if names.blank?
+      return "#{jobs} (#{names.join(', ')})"
     end
 
     def format_age(seconds)
