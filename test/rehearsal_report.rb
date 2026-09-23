@@ -8,6 +8,11 @@ module Makoto
     HTTP_OK = '{"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","status":200,"seconds":0.447}'.freeze
     HTTP_500 = '{"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","status":500,"seconds":0.1}'.freeze
     RETRY = '{"error":{"message":"Bad response 500","file":"lib/ginseng/http.rb","line":70},"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","count":2}'.freeze
+    # ⚠ **所要の長い 1 本**（#201）。🔴 **`seconds` は `ginseng-core` の `HTTP#log` が入れる。**
+    HTTP_SLOW = '{"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","status":200,"seconds":9.0}'.freeze
+    # ⚠ **メソッドが混ざること自体を固定する**（🔴 **#201 の 1 回目の数え直しは GET 2 本の
+    # 混入だった** — ⚠⚠ **`0.275` は投稿ではなく `verify_credentials`**）。
+    HTTP_GET = '{"method":"GET","url":"https://st2.precure.ml/api/v1/accounts/verify_credentials","status":200,"seconds":0.275}'.freeze
     HEARTBEAT = '{"scheduler":"heartbeat","version":"0.3.0","jobs":5}'.freeze
     TRAVEL = '{"time_travel":{"start":"2026-11-04T11:55:00+09:00","scale":10,"mastodon":"st2.precure.ml"}}'.freeze
     # ⚠ **`slot` を持たないので exec には数えない。**
@@ -156,6 +161,60 @@ module Makoto
       assert_equal(2, subject.retries)
       assert_true(subject.http.empty?)
       assert_equal(0, subject.http_errors)
+    end
+
+    # 🔴 **1 本あたりの所要をメソッドごとに出す**（#201 の 1.）。
+    #
+    # ⚠⚠ **メソッドで割る。**🔴 **#201 の 1 回目の集計は GET 2 本を混ぜていて、
+    # 「投稿 1 本の最小」が `verify_credentials` の `0.275` になっていた**（2026-08-29 に
+    # 数え直した）— ⚠ **手で `grep` するかぎり毎回同じ取り違えが起きる。**
+    def test_durations_are_grouped_by_method
+      subject = report(HTTP_OK, HTTP_500, HTTP_SLOW, HTTP_GET).http_durations
+
+      assert_equal(3, subject['POST'][:count])
+      assert_in_delta(0.1, subject['POST'][:min], 0.0001)
+      assert_in_delta(0.447, subject['POST'][:median], 0.0001)
+      assert_in_delta(9.0, subject['POST'][:max], 0.0001)
+      assert_equal(1, subject['GET'][:count])
+      assert_in_delta(0.275, subject['GET'][:min], 0.0001)
+    end
+
+    # ⚠ **偶数本は中央 2 つの平均**（`(0.1 + 0.447) / 2`）。
+    def test_the_median_of_an_even_count_is_the_middle_two
+      subject = report(HTTP_500, HTTP_OK).http_durations
+
+      assert_in_delta(0.274, subject['POST'][:median], 0.0001)
+    end
+
+    # 🔴 **落ちた試行の行は `seconds` を持たない**（`log_retry_error` は `start` を素で出す）。
+    # ⚠⚠ **再送で食った時間は「1 本の所要」に現れない** — ⚠ **読めないものとして本文に書く。**
+    def test_retry_lines_carry_no_duration
+      subject = report(RETRY, RETRY)
+
+      assert_empty(subject.http_durations)
+      assert_include(subject.to_s, '再送で食った時間')
+      assert_not_include(report(HTTP_OK).to_s, '再送で食った時間')
+    end
+
+    # 🔴🔴 **早送りの回の `seconds` は見かけ**（2026-09-23 に実測）。⚠⚠ **`HTTP#log` は
+    # `Time.now` の差で秒を作り、`Timecop.thread_safe` の既定は `false`** なので、
+    # **投稿を投げる別スレッドにも scale が効く。**
+    # 🔴 **実時間として読むと、そこへもう一度 scale を掛けることになる** — ⚠ **docs も #201 も
+    # 「中央値 6.772 秒 ＝ 見かけ 67 秒」と書いていたが、6.772 秒がすでに見かけ。**
+    def test_durations_are_labelled_as_apparent_time_when_scaled
+      subject = report(TRAVEL, HTTP_SLOW).to_s
+
+      assert_include(subject, 'POST の所要（見かけ）: 1 本 / min 9.0 / median 9.0 / max 9.0 秒')
+      assert_include(subject, 'POST の所要（実時間）: min 0.9 / median 0.9 / max 0.9 秒')
+    end
+
+    # ⚠ **等速の回は見かけと実時間が同じ**なので、🔴 **名乗りも割り算も出さない。**
+    def test_durations_are_not_relabelled_when_not_scaled
+      subject = report(HTTP_SLOW).to_s
+
+      assert_include(subject, 'POST の所要: 1 本 / min 9.0 / median 9.0 / max 9.0 秒')
+      assert_not_include(subject, '見かけ')
+      assert_not_include(subject, '（実時間）')
     end
 
     def test_heartbeat_and_version

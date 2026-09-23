@@ -23,6 +23,12 @@ module Makoto
   # scale 倍に伸びる**（実測 0.13〜0.91 秒／投稿）ので、⚠ **`/scheduler/tolerance`
   # （30 秒）を食い尽くす倍率にしない。**
   #
+  # 🔴 **ログの `seconds` は「見かけ」の側**（2026-09-23・#201）。⚠⚠ **`ginseng-core` の
+  # `HTTP#log` は `Time.now` の差で秒を作り、`Timecop.thread_safe` の既定は `false`** なので、
+  # ⚠ **投稿を投げる別スレッドにも scale が効く** — **実時間へ戻すには `÷ scale`。**
+  # ⚠⚠ **この表の右列と同じ単位**なので、**突き合わせるときはログの値をそのまま読む。**
+  # 🔴 **`PostingJob#warn_slow` の `seconds` は `CLOCK_MONOTONIC` ＝ 実時間で、別物。**
+  #
   # | scale | 投稿 1 本 = 見かけ | |
   # | --- | --- | --- |
   # | 60 | 8〜55 秒 | 🔴 tolerance を食い尽くす。rufus の分解能も足りず枠あたりの exec 回数が変わる |
