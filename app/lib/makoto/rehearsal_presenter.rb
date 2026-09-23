@@ -123,7 +123,33 @@ module Makoto
       end
       out.push('  （1 本も無い）') if @report.http.empty?
       out.push("⚠ 再送 #{@report.retries} 回") if @report.retries.positive?
-      return out.join("\n")
+      return (out + format_durations).join("\n")
+    end
+
+    # 🔴 **1 本あたりの所要**（#201）。⚠⚠ **早送りの回の `seconds` は見かけ**なので、
+    # ⚠ **単位を名乗ってから実時間を併記する**（→ `RehearsalReport#http_durations`）。
+    #
+    # 🔴 **2026-09-23 まで、docs も #201 も見かけを実時間と読み、そこへもう一度 scale を
+    # 掛けていた** — ⚠⚠ **「中央値 6.772 秒 ＝ scale 10 で見かけ 67 秒」と書いていたが、
+    # 6.772 秒がすでに見かけ**（**実時間 0.677 秒**）。🔴 **枠の間隔（見かけ 180 秒）に対して
+    # 37% ではなく 3.7%。**⚠ **毎回この行が出れば、同じ取り違えは二度と起きない。**
+    def format_durations
+      unit = scaled? ? '（見かけ）' : ''
+      return @report.http_durations.sort.flat_map do |method, row|
+        lines = ["   #{method} の所要#{unit}: #{row[:count]} 本 / #{format_stats(row)}"]
+        lines.push("   #{method} の所要（実時間）: #{format_stats(scale_down(row))}") if scaled?
+        lines
+      end
+    end
+
+    def format_stats(row)
+      return "min #{row[:min]} / median #{row[:median]} / max #{row[:max]} 秒"
+    end
+
+    # 🔴 **見かけ ÷ scale ＝ 実時間。**⚠ **`scaled?` が真のときだけ呼ぶ**（`scale` は 2 以上）。
+    def scale_down(row)
+      scale = @report.travel[:scale].to_f
+      return row.slice(:min, :median, :max).transform_values {|value| (value / scale).round(3)}
     end
 
     def format_heartbeat
@@ -146,6 +172,10 @@ module Makoto
       # 見たとき。**🔴 **`slow` は 2026-09-19 にここから外した**（**赤になったため** → #368）。
       out.push('- recorded:false は赤にしない（履歴を切った構成では毎枠出るため → #284）')
       out.push('- 外部が実時間で持つ制限（Mastodon のレート制限窓）')
+      # 🔴 **所要に再送ぶんが入っていないことを言う**（#201）。⚠⚠ **落ちた試行の行は
+      # `seconds` を持たない**ので、⚠ **再送が多い回ほど「1 本の所要」は実態より軽く出る。**
+      out.push('- 再送で食った時間（落ちた試行の行は seconds を持たない → #201）') \
+        if @report.retries.positive?
       out.push('- 投稿が枠を跨ぐか（早送りでは見かけ上 scale 倍かかる → #90 / #92）') if scaled?
       return out.join("\n")
     end

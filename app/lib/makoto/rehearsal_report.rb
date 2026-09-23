@@ -70,6 +70,7 @@ module Makoto
       @slow_errors = 0
       @heartbeat_errors = 0
       @revisions = Set.new
+      @http_seconds = {}
       lines.each {|line| consume(parse(line))}
     end
 
@@ -158,12 +159,42 @@ module Makoto
       return @http.sum {|(_, status), count| status.to_i >= 400 ? count : 0}
     end
 
+    # 🔴 **メソッドごとの 1 本あたりの所要**（#201）。⚠ **元は `ginseng-core` の `HTTP#log` が
+    # 入れる `seconds`**（`(Time.now - start).round(3)`）。
+    #
+    # 🔴🔴 **この秒は早送りの回では「見かけ」。**⚠⚠ **始点も差も `Time.now` で取る**ので、
+    # **`Timecop.scale(n)` の下では実時間の n 倍で出る** — ⚠ **`Timecop.thread_safe` の既定は
+    # `false`** なので、**投稿を投げる別スレッドにも効く**（2026-09-23 に実測。**scale 10 で
+    # 実時間 0.3 秒の待ちが、別スレッドの `Time.now` では 3.003 秒**）。
+    # ⚠ **`PostingJob#warn_slow` の `seconds` とは別物**（🔴 **あちらは `CLOCK_MONOTONIC` ＝
+    # 実時間**なので割り引けない → `count_slow`）。**同じ名前で単位が違う。**
+    # 🔴 **実時間へ戻すのは読ませる側の仕事**（→ `RehearsalPresenter#format_durations`）。
+    #
+    # ⚠ **応答が返った行だけが入る。**⚠⚠ **落ちた試行の行は `seconds` を持たない**
+    # （`log_retry_error` は `start` を素のまま出す）ので、🔴 **再送で食った時間はここに現れない。**
+    #
+    # ⚠ **4xx / 5xx も混ぜる**（🔴 **手で `grep POST` した #201 の数え方に合わせる** — ⚠⚠ **落ちた
+    # 応答は速く返るので、混ぜると中央値が下がる**。**ただし応答が 400 台なら `red?` が先に倒す**）。
+    def http_durations
+      return @http_seconds.transform_values do |seconds|
+        sorted = seconds.sort
+        {count: sorted.size, min: sorted.first, median: median(sorted), max: sorted.last}
+      end
+    end
+
     # ⚠ **本文の組み立ては `RehearsalPresenter`**（🔴 **数える側と分けた** — 2026-09-19）。
     def to_s
       return RehearsalPresenter.new(self).to_s
     end
 
     private
+
+    # ⚠ **偶数本は中央 2 つの平均。**🔴 **ログ自身が 3 桁で丸めている**ので、同じ桁で返す。
+    def median(sorted)
+      half = sorted.size / 2
+      return sorted[half] if sorted.size.odd?
+      return ((sorted[half - 1] + sorted[half]) / 2).round(3)
+    end
 
     def parse(line)
       return JSON.parse(line.to_s, symbolize_names: true)
@@ -254,6 +285,9 @@ module Makoto
       return @retries += 1 if entry[:count]
       key = [entry[:method], entry[:status]]
       @http[key] = @http.fetch(key, 0) + 1
+      # ⚠ **所要はメソッド単位で貯める**（→ `http_durations`）。🔴 **status では割らない** —
+      # ⚠⚠ **#201 が読みたいのは「投稿 1 本にどれだけかかるか」**で、**結末ごとの分布ではない。**
+      (@http_seconds[entry[:method]] ||= []).push(entry[:seconds].to_f) if entry[:seconds]
       return @http[key]
     end
 
