@@ -3064,7 +3064,7 @@ bin/makoto corpus stat     # 件数を確認する
 
    🔴 **「モンキーテスト待ちで open」の Issue があったら、実機がその版で動いているかを見る**（2026-09-02 に踏んだ）。⚠⚠ **`bydo` は `develop` を追う箱だが、追うのは人がレシピを当てたときだけ** — ⚠ **PR をマージしても、`bin/chubo --nodes=bydo --recipes=makoto2` を叩くまで実機は動かない。**
 
-   🔴 **レシピを当てても常駐が起き直るとは限らない**（2026-09-04 に実測）。⚠⚠ **`bin/chubo --nodes=bydo --recipes=makoto2` はチェックアウトを `0465b97` まで進めたが、`ActiveEnterTimestamp` は 10 時間前のままだった** — ⚠ **`systemctl restart makoto2` を別に叩くまで、動いているのは古いコード。**🔴 **再起動の前に drop-in を確かめる**（`systemctl show makoto2 -p DropInPaths` が空であること → #174）。⚠ **起こし直したら 7 枠の登録ログで名前まで見る**（`announcement` / `morning` / `song` / `live-eve` / `live-open` / `live` / `live-close`）。
+   🔴 **レシピを当てても常駐が起き直るとは限らない**（2026-09-04 に実測）。⚠⚠ **`bin/chubo --nodes=bydo --recipes=makoto2` はチェックアウトを `0465b97` まで進めたが、`ActiveEnterTimestamp` は 10 時間前のままだった** — ⚠ **`systemctl restart makoto2` を別に叩くまで、動いているのは古いコード。**🔴 **再起動の前に drop-in を確かめる**（`systemctl show makoto2 -p DropInPaths` が空であること → #174）。⚠ **`ginseng-core` のピンが `v1.24.0` → `v1.25.0` を跨ぐ回だけは `restart` を使わない**（→ 下記「ただ 1 回だけ、`restart` ではなく stop → start で当てる」・#395）。⚠ **起こし直したら 7 枠の登録ログで名前まで見る**（`announcement` / `morning` / `song` / `live-eve` / `live-open` / `live` / `live-close`）。
 
    ⚠ **#17 / #224 が「翌朝 07:00 から出る」前提で締めてあったのに、`bydo` は 4 commits 前（v0.4.1）のままで、朝挨拶の枠を持つコードが入っていなかった**（`{"scheduler":"heartbeat","version":"0.4.1","jobs":5}` ＝ **`jobs` が 5**）。🔴 **待っている対象が動いていないので、何日待っても結果は出ない。**
 
@@ -3120,6 +3120,22 @@ bin/makoto corpus stat     # 件数を確認する
    🔴 **省いてよいのは許可リストの側**（Codex の P1）。⚠⚠ **「`app/` が動いていなければ要らない」と書くと、`config/` / `Gemfile` / `Gemfile.lock` / `bin/` が動いた回まで「古いままで正しい」と読める** — ⚠ **設定も gem も常駐が起動時に読む**ので、**枠の時刻や上流の修正が載らないまま動き続ける。**
 
    ⚠ **したがって、再起動を省いてよいのは差分が `docs/` と `tools/` と `README.md` に閉じているときだけ**（🔴 **どれも常駐が読まない**）。⚠⚠ **1 つでも外に出たら `systemctl restart makoto2` まで行く**（→ その前に drop-in の確認）。
+
+   #### 🔴 ただ 1 回だけ、`restart` ではなく stop → start で当てる（`ginseng-core` v1.24.0 → v1.25.0・#395）
+
+   ⚠⚠ **差分に `Gemfile` / `Gemfile.lock` が入っていて、`ginseng-core` のピンが `v1.24.0` から `v1.25.0` へ跨ぐ回だけ**、🔴 **`systemctl restart makoto2` を使わない:**
+
+   ```sh
+   ssh <host> 'sudo systemctl stop makoto2'
+   ssh <host> 'systemctl is-active makoto2'   # 🔴 inactive を確かめてから
+   ssh <host> 'sudo systemctl start makoto2'
+   ```
+
+   🔴 **理由は上流が閉じていない重なり方が 1 つ残っているから**（[`ginseng-core#652`](https://github.com/pooza/ginseng-core/issues/652)）。⚠⚠ **v1.25.0 は pid ファイルを「作って `rename`」へ変えた版**で、**移行期の旧版（1.24.0 まで）の start とは排他を合わせてあるが、「旧版の start と `stop` と新版の start が同時に重なる形」だけは閉じていない。**⚠ **`systemctl restart` は「旧版の stop → 新版の start」が連続する操作**なので、**まさにその形に当たる。**
+
+   ⚠ **起き直したあとに見るのは、いつもの `revision` / `jobs 7` / `/healthz` に 3 つ足す** — **`tmp/pids/MakotoDaemon.pid.lock` が `0600` で増えていること**（**消えないのが正しい**）・**pid ファイルの mode が `0644`**（🔴 **umask に関係なく**）・**`pid file is hard linked` の warn が出ないこと。**
+
+   🔴 **この節は「両ホストが v1.25.0 で起き直したら消す」**（⚠⚠ **跨ぐ回が終われば二度と当たらない条件**）。⚠ **残すと、次に読む人が毎回 stop → start を選び、`restart` の既定が崩れる。**
 
    🔴 **`README.md` は 2026-09-13 の夜の同期で足した** — ⚠⚠ **許可リストが `docs/` と `tools/` の 2 つだけだったので、`bydo` の差分（`README.md` ＋ `docs/` 2 ファイル）が形のうえでは「当て直す側」に落ちていた。**⚠ **実測で `app/` / `lib/` / `bin/` / `config/` のどこからも参照されていない**（`grep -rn README` が 0 件）。
 
