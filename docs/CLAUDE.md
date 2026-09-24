@@ -1197,7 +1197,8 @@ POST の所要（見かけ）: 163 本 / min 5.941 / median 7.025 / max 18.848 �
 POST の所要（実時間）: min 0.594 / median 0.703 / max 1.885 秒
 ```
 
-- ✅ **`rehearsal report` の終了コード 0**・**163 本すべて `"mulukhiya":true`**・`"level":"error"` / `"level":"warn"` / `_encoding_error` / `_mask_error` / `hashtag: skipped` / `phase: "slow"` / 4xx / 5xx は **すべて 0 件**
+- ✅ **`rehearsal report` の終了コード 0**・**163 本すべて `"mulukhiya":true`**・`_encoding_error` / `_mask_error` / `hashtag: skipped` / `phase: "slow"` / 4xx / 5xx は **すべて 0 件**
+- ✅ **journal の重さで数えて、err 以上 0 行・warn は 24 行ですべて `time_travel`**（`journalctl -o json` の `PRIORITY` ＝ **warn は 5**・info は 6）。🔴 **`"level":"…"` を grep しても数えられない**（Codex の P2）— ⚠⚠ **ログの本文に `level` の欄は無く、重さは journal の `PRIORITY` 側に乗る**ので、**何が出ていても 0 件と答える。**⚠ **リハーサル中は `TimeTravel.activate!` とハートビートごとの `time_travel` が必ず warn で出る**ので、**見るのは「それ以外の warn が残っているか」**
 - ✅ **`proxy_added` が初めてリハーサルで全数取れた**（#351）— **ライブ当日の足され方は max 65**で、**予約 300 に対して十分遠い**（⚠ **重いのは毎日の曲紹介のほう** → #351 の実測）
 - 🔴🔴 **POST の実時間 max 1.885 秒が、`MAX_SCALE` の根拠の 1.517 秒を超えた**（→ #411）。⚠ **scale 15 で見かけ 28.3 秒 ＝ tolerance 30 秒の 94%**（#404 で採ったときは 76%）。⚠⚠ **しかも最大は 1 本目ではなくライブの 13 本目**（見かけ 12:38 の枠）— 🔴 **遅い投稿は実時間 21:00〜21:14 に固まり**（見かけ 12 秒以上が 24 本）、**それ以降は 1 本も 12 秒を超えていない**。⚠ **接続の立ち上げではなく、その時間帯の st2 かモロヘイヤの側の重さに見える**（原因は未確認）。🔴 **「最大は毎回 1 本目」（→ 上記 `MAX_SCALE` の節）は崩れた**
 - 🔴 **撤収が 1 時間半遅れた** — ⚠⚠ **drop-in には終わりの時刻が無い**ので、**live-close（実時間 21:45 ごろ）のあとも見かけの時計は進み続け、翌 11/5 08:00 の朝挨拶が 1 本余分に st2 へ出た**（上の `morning` の 1 枠）。⚠ **リハーサルを始めたセッションの記録が無く、23:05 の同期で見つけた**
