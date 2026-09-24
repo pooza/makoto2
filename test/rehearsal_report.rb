@@ -135,10 +135,14 @@ module Makoto
 
     # ⚠ **予約（100 字）を超えたら印を付ける。**🔴 **ただし赤にはしない** —
     # **予約を超えただけでは投稿は落ちない**（落ちるのは 3000 字の上限を越えたとき）。
+    # ⚠ **予約は設定から読む**ので、🔴 **テストでは固定する**（**実測で引き直した日に
+    # このテストが黙って意味を変えないため** — 2026-09-24 に 100 → 300 にした）。
     def test_the_proxy_added_line_marks_going_over_the_reserve
-      assert_include(report(post_log(120)).to_s, '⚠ モロヘイヤが足した字数: 1 本')
-      assert_include(report(post_log(12)).to_s, 'モロヘイヤが足した字数: 1 本 / min 12')
-      assert_not_include(report(post_log(12)).to_s, '⚠ モロヘイヤが足した字数')
+      with_proxy_reserve(100) do
+        assert_include(report(post_log(120)).to_s, '⚠ モロヘイヤが足した字数: 1 本')
+        assert_include(report(post_log(12)).to_s, 'モロヘイヤが足した字数: 1 本 / min 12')
+        assert_not_include(report(post_log(12)).to_s, '⚠ モロヘイヤが足した字数')
+      end
     end
 
     # 🔴 **測れなかった回は「読めないもの」に名指しする**（#351）。

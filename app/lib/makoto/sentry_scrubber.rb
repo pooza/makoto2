@@ -28,6 +28,23 @@ module Makoto
     # **それを切る上限は本物の例外メッセージも切る**（2026-09-24 の実測・#347）。
     ALLOWED_TAGS = ['post', 'phase', 'daemon'].freeze
 
+    # 自由文の上限（#347・2026-09-24）。
+    #
+    # 🔴🔴 **これは漏れ止めではない。**⚠⚠ **実測で範囲が重なっている**:
+    #
+    # | | 字 |
+    # | --- | --- |
+    # | 例外メッセージ（`bydo` の journal 50 日・61 件） | **16〜57**（median 16） |
+    # | 原稿 606 本 | **3〜328**（median 28） |
+    #
+    # 🔴 **原稿を切れる上限は本物の例外メッセージも切る**ので、⚠ **どこで切っても片方を壊す。**
+    # ⚠⚠ **原稿が乗る筋道を塞いでいるのは `data_collection.stack_frame_variables = false` のほう**
+    # （→ `Makoto.setup_sentry`）。
+    #
+    # ✅ **これは「量の歯止め」** — ⚠ **150 は実測の max 57 の 2.6 倍**なので、**50 日で一度も
+    # 当たらない。**🔴 **想定外に巨大なメッセージだけを切る**（**Sequel が SQL を丸ごと抱えた形**）。
+    MAX_TEXT_LENGTH = 150
+
     # ⚠ **ここで logger を掴み、マスクが効くことを 1 回確かめる。**🔴 **読めなければ例外で、
     # Sentry ごと立ち上がらない（fail closed）** — ⚠⚠ **読めないまま `before_send` に入ると
     # 「マスク対象ゼロ ＝ 素通し」で送り続ける。**
@@ -40,7 +57,7 @@ module Makoto
     # イベントは破棄される（sentry-ruby 7.0.0 の `client.rb`）。
     def scrub(event)
       scrub_exceptions(event)
-      event.message = mask(event.message) if event.message.is_a?(String)
+      event.message = truncate(mask(event.message)) if event.message.is_a?(String)
       event.transaction = mask(event.transaction) if event.transaction.is_a?(String)
       event.extra = mask(event.extra)
       event.tags = allow(mask(event.tags))
@@ -81,16 +98,46 @@ module Makoto
       entries = event.exception&.values
       return unless entries
       entries.each do |entry|
-        entry.value = mask(entry.value) if entry.value.is_a?(String)
+        entry.value = truncate(mask(entry.value)) if entry.value.is_a?(String)
       end
     end
 
     def scrub_breadcrumbs(event)
       event.breadcrumbs&.buffer&.each do |crumb|
         next unless crumb
-        crumb.message = mask(crumb.message) if crumb.message.is_a?(String)
+        crumb.message = truncate(mask(crumb.message)) if crumb.message.is_a?(String)
         crumb.data = mask(crumb.data) if crumb.data.is_a?(Hash)
       end
+    end
+
+    # 🔴 **自由文を上限で切る**（#347）。
+    #
+    # ⚠ **マスクの後に切る。**🔴 **先に切ると URL が途中で終わり、`mask_url` が URL と
+    # 認めずにトークンの一部が平文で残る。**
+    #
+    # ⚠⚠ **切ったことと落とした字数を残す** — 🔴 **黙って切ると「短いメッセージ」に見え、
+    # 上限に当たったこと自体が分からない。**
+    #
+    # ⚠ **`sentry-ruby` は `value` の末尾に ` (<例外クラス>)` を足す**（実測・7.0.0）ので、
+    # 🔴 **長いメッセージを切るとクラス名が落ちる。**⚠⚠ **失われはしない** —
+    # **クラスは `SingleExceptionInterface#type` に別で入る。**
+    #
+    # 🔴🔴 **符号化を揃えてから切る**（Codex の P1）。⚠⚠ **`Sequel` / SQLite の例外は
+    # 非 ASCII を ASCII-8BIT で抱えて来る**（→ `Package#error_message`）ので、**素で `…`
+    # （UTF-8）と繋ぐと `Encoding::CompatibilityError`** — 🔴 **`scrub` の rescue が拾って
+    # イベントを丸ごと落とす**（⚠ **この上限が相手にしたい「長い SQL」そのものの形**）。
+    #
+    # ⚠ **`Text.utf8` は使わない** — 🔴 **妥当でないバイト列で例外を上げる**ので、
+    # **落とさないためにここへ入れた手当てが、別の理由で落とす形になる。**
+    # ⚠⚠ **`Package#error_message` と同じ `force_encoding` ＋ `scrub`** にする。
+    #
+    # ⚠ **長さの検査を 2 回する。**🔴 **ASCII-8BIT の `length` はバイト数**なので、
+    # **揃える前は「150 を超えている」に見えても、文字数では収まっていることがある。**
+    def truncate(text)
+      return text if text.length <= MAX_TEXT_LENGTH
+      utf8 = text.dup.force_encoding(Encoding::UTF_8).scrub
+      return utf8 if utf8.length <= MAX_TEXT_LENGTH
+      return "#{utf8[0, MAX_TEXT_LENGTH]}…(#{utf8.length - MAX_TEXT_LENGTH} chars truncated)"
     end
 
     # 🔴 **許可リストに無いキーは値ごと落とす**（#347）。

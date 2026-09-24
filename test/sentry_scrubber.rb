@@ -52,6 +52,68 @@ module Makoto
       assert_not_include(payload(scrubbed), PROBE_VALUE, '許可リストの外は値ごと落とす')
     end
 
+    # 🔴 **自由文は上限で切る**（#347）。⚠⚠ **これは漏れ止めではなく量の歯止め** —
+    # **実測の例外メッセージは 16〜57 字**なので、**150 字は 50 日で一度も当たらない。**
+    def test_a_long_exception_message_is_truncated
+      event = error_event(StandardError.new('あ' * 400))
+      # ⚠ **`sentry-ruby` は末尾に ` (StandardError)` を足す**ので、**素の 400 字ではない。**
+      original = event.exception.values.first.value.length
+      value = @scrubber.scrub(event).exception.values.first.value
+
+      assert_equal('あ' * SentryScrubber::MAX_TEXT_LENGTH, value[0, SentryScrubber::MAX_TEXT_LENGTH])
+      # ⚠ **落とした字数を残す**（🔴 **黙って切ると「短いメッセージ」に見える**）。
+      assert_include(value, "…(#{original - SentryScrubber::MAX_TEXT_LENGTH} chars truncated)")
+    end
+
+    # 🔴🔴 **ASCII-8BIT で来る長いメッセージでイベントを落とさない**（Codex の P1）。
+    #
+    # ⚠⚠ **`Sequel` / SQLite の例外は非 ASCII を ASCII-8BIT で抱えて来る**
+    # （→ `Package#error_message`）ので、**素で `…`（UTF-8）と繋ぐと
+    # `Encoding::CompatibilityError`** — 🔴 **`scrub` の rescue が拾ってイベントを丸ごと
+    # 落とす**（⚠ **この上限が相手にしたい「長い SQL」そのものの形**）。
+    def test_a_long_binary_message_does_not_drop_the_event
+      binary = ('台詞' * 200).dup.force_encoding(Encoding::ASCII_8BIT)
+      event = error_event(Sequel::DatabaseError.new(binary))
+      scrubbed = @scrubber.scrub(event)
+
+      assert_not_nil(scrubbed, 'イベントを落としてはいけない')
+      value = scrubbed.exception.values.first.value
+
+      assert_equal(Encoding::UTF_8, value.encoding)
+      assert_include(value, 'chars truncated')
+      assert_include(value, '台詞')
+    end
+
+    # ⚠ **揃える前の `length` はバイト数**なので、🔴 **文字数では収まっている非 ASCII の
+    # 短いメッセージを切らない**（⚠⚠ **150 バイト ＜ 150 文字にならない形**）。
+    def test_a_short_binary_message_is_not_truncated
+      binary = ('台詞' * 30).dup.force_encoding(Encoding::ASCII_8BIT)
+      event = error_event(Sequel::DatabaseError.new(binary))
+      value = @scrubber.scrub(event).exception.values.first.value
+
+      assert_not_include(value, 'chars truncated')
+      assert_equal(Encoding::UTF_8, value.encoding)
+    end
+
+    # ⚠ **実測の長さのメッセージは 1 字も触らない**（🔴 **本物を切ったら調査に使えない**）。
+    # ⚠⚠ **`bydo` の journal 50 日で最長の 57 字がこれ**（＋ `sentry-ruby` が足すクラス名）。
+    def test_a_message_within_the_limit_is_untouched
+      message = "undefined method 'start_with?' for an instance of Integer"
+      event = error_event(StandardError.new(message))
+      expected = event.exception.values.first.value
+
+      assert_operator(expected.length, :<, SentryScrubber::MAX_TEXT_LENGTH)
+      assert_equal(expected, @scrubber.scrub(event).exception.values.first.value)
+    end
+
+    # 🔴 **切るのはマスクの後**（#347）。⚠⚠ **先に切ると URL が途中で終わり、`mask_url` が
+    # URL と認めずにトークンの一部が平文で残る。**
+    def test_a_token_beyond_the_limit_is_masked_before_truncation
+      event = error_event(Ginseng::GatewayError.new("#{'x' * 200} #{TOKEN_URL}"))
+
+      assert_not_include(payload(@scrubber.scrub(event)), TOKEN)
+    end
+
     # ⚠ **資格情報を含まない情報まで消さない**（消すと調査に使えなくなる）。
     def test_scrub_keeps_diagnostics
       event = error_event(Ginseng::GatewayError.new('Bad response 503 (https://st2.precure.ml/api/v1/statuses)'))

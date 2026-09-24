@@ -97,7 +97,8 @@ module Makoto
       # `optional_config` の既定 0**（`PostBudget`）なので、**設定が落ちた窓では予約ゼロ** —
       # ⚠ **足された分が 1 字でも上限を食う ＝ いちばん見たい状態。**
       reserve = optional_config('/mastodon/proxy_reserve', 0).to_i
-      mark = row[:max] > reserve ? '⚠' : ' '
+      # ⚠ **印が無いときは 2 スペース**（🔴 **`format_execs` / `format_http` と同じ列**）。
+      mark = row[:max] > reserve ? '⚠' : '  '
       out = ["#{mark} モロヘイヤが足した字数: #{row[:count]} 本 / min #{row[:min]}" \
         " / median #{row[:median]} / max #{row[:max]}（予約 #{reserve}）"]
       # 🔴 **一部だけ測れた回を「測れた」と読ませない**（Codex の P2）。
