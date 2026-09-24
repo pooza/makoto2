@@ -1,3 +1,5 @@
+require 'cgi'
+
 module Makoto
   # 本文の材料を UTF-8 へ寄せる口（#280）。
   #
@@ -56,6 +58,31 @@ module Makoto
     # @raise [Ginseng::ValidateError] 寄せられないとき
     def self.utf8(value, entry = nil)
       return Ginseng::Fediverse::Text.to_utf8(value, entry)
+    end
+
+    # 🔴 **Mastodon の応答の `content`（HTML）を本文へ戻す**（#351）。
+    #
+    # ⚠⚠ **`Ginseng::Fediverse::Service.sanitize_status` は使わない** — 🔴 **末尾の
+    # `escape_sigils` が `#` / `@` の後ろに空白を入れる**ので、**タグの数だけ長さが伸びる。**
+    # ⚠ **ここが欲しいのは「投稿先に載った本文の長さ」**なので、1 字も足せない。
+    #
+    # ⚠⚠ **URL は元に戻る。**🔴 **Mastodon は URL を
+    # `<span class="invisible">https://</span><span class="ellipsis">…</span>` の形に
+    # 割って入れる**ので、**タグを剥がして繋ぐと元の URL がそのまま戻る**
+    # （⚠ **画面で切り詰まって見えるのは CSS の側**）。
+    #
+    # @param html [String] 応答の `content`
+    # @return [String] 本文
+    def self.from_html(html)
+      text = utf8(html).dup
+      # 🔴 **カスタム絵文字は `<img alt=":shortcode:">` で返る**（#351・Codex の P2）。
+      # ⚠⚠ **剥がす前に `alt` を戻す** — **戻さないと送った側にだけ shortcode が残り、
+      # `proxy_added` が短く出る**（⚠ **絵文字が多い原稿では負の値になる**）。
+      text.gsub!(/<img[^>]*\balt="([^"]*)"[^>]*>/, '\1')
+      text.gsub!(/<br[^>]*>/, "\n")
+      text.gsub!(%r{</p>}, "\n\n")
+      text.gsub!(/<[^>]*>/, '')
+      return CGI.unescapeHTML(text).strip
     end
   end
 end

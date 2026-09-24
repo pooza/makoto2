@@ -36,8 +36,115 @@ module Makoto
     # 🔴 **黙る日に黙ったことの 1 行**（#277 → `SongSource#log_quiet_day`）。⚠ **これも `exec` ではない。**
     QUIET = '{"post":"song","slot":"2026-11-04T03:00:00Z","phase":"quiet","message":"quiet day","types":["live_open","live_close"]}'.freeze
 
+    # 🔴 **投稿が成功したときの 1 行**（`MastodonService#post_status`）。
+    # ⚠⚠ **`url` を持つが `method` は持たない**ので、**HTTP の行としては数えない。**
+    # ⚠ **`proxy_added` はモロヘイヤが足した字数**（#351）。
+    POST_LOG = '{"mastodon":"post","status_id":"114514","url":"https://st2.precure.ml/@test/114514",' \
+      '"visibility":"public","length":5,"post_length":5,"proxy_added":%d,"mulukhiya":true}'.freeze
+    # ⚠ **迂回した回**（🔴 **モロヘイヤが何もしていないので測る対象が無い**）。
+    POST_BYPASS = '{"mastodon":"post","status_id":"114514","url":"https://st2.precure.ml/@test/114514",' \
+      '"visibility":"public","length":5,"post_length":5,"proxy_added":null,"mulukhiya":false}'.freeze
+
+    def post_log(added)
+      return POST_LOG % added
+    end
+
     def report(*lines)
       return RehearsalReport.new(lines)
+    end
+
+    # ⚠ **予約の値を差し替える**（🔴 **既定 0 の窓を作るため**）。
+    def with_proxy_reserve(value)
+      original = config['/mastodon/proxy_reserve']
+      config['/mastodon/proxy_reserve'] = value
+      yield
+    ensure
+      config['/mastodon/proxy_reserve'] = original
+    end
+
+    # 🔴 **モロヘイヤが足した字数を貯める**（#351）。
+    def test_the_lengths_the_proxy_added_are_collected
+      subject = report(post_log(12), post_log(40), post_log(14)).proxy_added
+
+      assert_equal({count: 3, min: 12, median: 14, max: 40}, subject)
+    end
+
+    # 🔴 **整数の中央 2 つを切り捨てない**（Codex の P2）。⚠⚠ **`/ 2` は整数除算**なので、
+    # **12 と 13 の中央が 12 になっていた** — ⚠ **162 本のうち中央 2 つが違う回で必ず偏る。**
+    def test_the_median_of_two_integer_samples_keeps_the_half
+      assert_in_delta(12.5, report(post_log(12), post_log(13)).proxy_added[:median], 0.0001)
+    end
+
+    # ⚠ **迂回した回は入らない**（🔴 **「足されなかった」ではなく「測っていない」**）。
+    def test_a_bypassed_post_carries_no_proxy_added
+      assert_nil(report(POST_BYPASS).proxy_added)
+    end
+
+    # 🔴🔴 **歯止めの警告を集計へ入れない**（Codex の P2）。
+    #
+    # ⚠⚠ **`proxy_added` が負になったときの `warn` も `mastodon: 'post'` を持つ** —
+    # ⚠ **同じ欄名で出すと、捨てたはずの負の値が分布へ入る**（**歯止めが自分で流し込む形**）。
+    # 🔴 **出す側は欄名を分けたが、数える側も `status_id` と非負を要求する。**
+    POST_NEGATIVE = '{"mastodon":"post","message":"proxy_added is negative","rejected_length":-3}'.freeze
+    # ⚠ **万一、負の値が `proxy_added` の欄で来ても数えない**（数える側だけで成り立つこと）。
+    POST_NEGATIVE_FIELD = '{"mastodon":"post","status_id":"114514","proxy_added":-3}'.freeze
+
+    def test_a_rejected_negative_sample_does_not_enter_the_distribution
+      assert_nil(report(POST_NEGATIVE).proxy_added)
+      assert_nil(report(POST_NEGATIVE_FIELD).proxy_added)
+      assert_equal(
+        {count: 1, min: 12, median: 12, max: 12},
+        report(POST_NEGATIVE, POST_NEGATIVE_FIELD, post_log(12)).proxy_added,
+      )
+    end
+
+    # 🔴 **予約が 0 のときも印を付ける**（Codex の P2）。⚠⚠ **`/mastodon/proxy_reserve` は
+    # `optional_config` の既定 0** なので、**設定が落ちた窓では予約ゼロ** — ⚠ **足された分が
+    # 1 字でも上限を食う ＝ いちばん見たい状態。**
+    def test_the_proxy_added_line_marks_going_over_a_zero_reserve
+      with_proxy_reserve(0) do
+        assert_include(report(post_log(12)).to_s, '⚠ モロヘイヤが足した字数: 1 本')
+        assert_include(report(post_log(12)).to_s, '（予約 0）')
+      end
+    end
+
+    # 🔴 **一部だけ測れた回を「測れた」と読ませない**（Codex の P2）。
+    # ⚠⚠ **分布に最大が居るとは限らない。**
+    def test_a_partially_measured_run_says_so
+      subject = report(post_log(12), POST_BYPASS)
+
+      assert_equal(1, subject.proxy_added[:count])
+      assert_equal(1, subject.proxy_skipped)
+      assert_include(subject.to_s, '1 本は測れていない')
+      assert_include(subject.to_s, '復元できない形は測れない')
+    end
+
+    # ⚠ **1 本も測れなかった回は本数だけ出す。**
+    def test_a_run_with_no_measurable_post_says_so
+      subject = report(POST_BYPASS, POST_BYPASS)
+
+      assert_nil(subject.proxy_added)
+      assert_equal(2, subject.proxy_skipped)
+      assert_include(subject.to_s, '1 本も測れていない（2 本）')
+    end
+
+    # ⚠ **`method` を持たないので HTTP の行としては数えない**（🔴 **`url` は持っている**）。
+    def test_a_post_log_line_is_not_counted_as_http
+      assert_empty(report(post_log(12)).http)
+    end
+
+    # ⚠ **予約（100 字）を超えたら印を付ける。**🔴 **ただし赤にはしない** —
+    # **予約を超えただけでは投稿は落ちない**（落ちるのは 3000 字の上限を越えたとき）。
+    def test_the_proxy_added_line_marks_going_over_the_reserve
+      assert_include(report(post_log(120)).to_s, '⚠ モロヘイヤが足した字数: 1 本')
+      assert_include(report(post_log(12)).to_s, 'モロヘイヤが足した字数: 1 本 / min 12')
+      assert_not_include(report(post_log(12)).to_s, '⚠ モロヘイヤが足した字数')
+    end
+
+    # 🔴 **測れなかった回は「読めないもの」に名指しする**（#351）。
+    def test_the_blind_spots_name_the_proxy_when_it_was_not_measured
+      assert_include(report(POST_BYPASS).to_s, '復元できない形は測れない → #351')
+      assert_not_include(report(post_log(12)).to_s, '復元できない形は測れない')
     end
 
     # 🔴 **履歴の通知を `exec` として数えないこと**（#284・Codex の P2）。

@@ -71,11 +71,14 @@ module Makoto
       @heartbeat_errors = 0
       @revisions = Set.new
       @http_seconds = {}
+      @proxy_added = []
+      @proxy_skipped = 0
       lines.each {|line| consume(parse(line))}
     end
 
     attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
-      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors
+      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors,
+      :proxy_skipped
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -182,6 +185,19 @@ module Makoto
       end
     end
 
+    # ⚠ **モロヘイヤが足した字数の分布**（#351）。
+    #
+    # 🔴 **`/mastodon/proxy_reserve`（100 字）はここの max で引く。**⚠⚠ **見積もりのままだと、
+    # 辞書に多く当たる原稿で上限を超え、422 でその枠が消える**（`PERMANENT_STATUSES` なので
+    # 再送しない）。⚠ **リハーサル 1 回で 162 本ぶん採れる**ので、**1 回測って終わりにならない。**
+    #
+    # ⚠ **迂回した回は入らない**（🔴 **モロヘイヤが何もしていない**）。
+    def proxy_added
+      return nil if @proxy_added.empty?
+      sorted = @proxy_added.sort
+      return {count: sorted.size, min: sorted.first, median: median(sorted), max: sorted.last}
+    end
+
     # ⚠ **本文の組み立ては `RehearsalPresenter`**（🔴 **数える側と分けた** — 2026-09-19）。
     def to_s
       return RehearsalPresenter.new(self).to_s
@@ -190,10 +206,14 @@ module Makoto
     private
 
     # ⚠ **偶数本は中央 2 つの平均。**🔴 **ログ自身が 3 桁で丸めている**ので、同じ桁で返す。
+    #
+    # 🔴 **`2.0` で割る**（#351・Codex の P2）。⚠⚠ **`proxy_added` は整数**なので、**`/ 2` だと
+    # 整数除算で切り捨てる**（**12 と 13 の中央が 12 になっていた**）。⚠ **所要（Float）の側は
+    # どちらでも同じ**なので、**整数の側に合わせる。**
     def median(sorted)
       half = sorted.size / 2
       return sorted[half] if sorted.size.odd?
-      return ((sorted[half - 1] + sorted[half]) / 2).round(3)
+      return ((sorted[half - 1] + sorted[half]) / 2.0).round(3)
     end
 
     def parse(line)
@@ -210,6 +230,7 @@ module Makoto
       return count_phase(entry) if entry[:phase]
       return count_slot(entry) if entry[:post] && entry[:slot]
       return count_http(entry) if entry[:method] && entry[:url]
+      return count_post(entry) if entry[:mastodon] == 'post'
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
       return @travel = entry[:time_travel] if entry[:time_travel]
       return nil
@@ -294,6 +315,28 @@ module Makoto
     # ⚠ **リビジョンも拾う**（#348 / #242）。🔴 **`version` は `0.6.0` のまま何コミットでも
     # 進む**ので、⚠⚠ **見出しが「バージョン 0.6.0」だけだと、リハーサルの途中でデプロイが
     # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
+    # 🔴 **モロヘイヤが足した分を貯める**（#351）。⚠ **持たない行は捨てる**
+    # （迂回した回・`content` を持たない応答・`unexpected response shape` の警告）。
+    #
+    # 🔴🔴 **成功した投稿の行だけ数える**（Codex の P2）。⚠⚠ **`status_id` を持たない
+    # `mastodon: 'post'` は警告のほう** — ⚠ **同じ欄名を診断に出した日に、捨てた値が
+    # 分布へ入る。**🔴 **負も数えない** — ⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+    # **負は「応答から本文を戻しきれていない」値。**
+    # ⚠ **出す側でも欄名を分けているが、数える側だけでも成り立つようにしておく。**
+    #
+    # 🔴 **測れなかった投稿は数えておく**（Codex の P2）。⚠⚠ **1 本でも測れていなければ、
+    # 分布に最大が居るとは限らない** — ⚠ **「全部測れなかった」だけを言うと、部分的な
+    # 取りこぼしが成功したように見える。**
+    # ⚠ **数えるのは成功の行 1 本につき 1 回**（🔴 **負の警告の行は `status_id` を持たない**ので、
+    # **同じ投稿を 2 回数えない**）。
+    def count_post(entry)
+      return nil unless entry[:status_id]
+      added = entry[:proxy_added]
+      return @proxy_skipped += 1 unless added.is_a?(Numeric)
+      return @proxy_skipped += 1 if added.negative?
+      return @proxy_added.push(added.to_i)
+    end
+
     def count_heartbeat(entry)
       # 🔴 **痕跡の書き込みが落ちた行は別に数える**（#362）。⚠ **`Scheduler` の `rescue` が
       # `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）ので、⚠⚠ **1 回の

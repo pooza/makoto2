@@ -119,6 +119,10 @@ module Makoto
         # 🔴 **投稿先と同じ数え方の長さも並べる**（#351）。⚠⚠ **`length` はコードポイントで、
         # 上限（`PostBudget`）は書記素 ＋ URL 23 字** — **422 の日に 1 行で突き合わせられない。**
         post_length: PostBudget.length(text),
+        # 🔴 **モロヘイヤが足した分を毎回残す**（#351）。⚠⚠ **`/mastodon/proxy_reserve`
+        # （100 字）は見積もりのまま**で、**辞書に多く当たる原稿ほど足される分が増える** —
+        # ⚠ **1 回測って終わりにならない形にする。**
+        proxy_added: proxy_added(text, status),
         # 🔴 **経路をログに出す**（#124）。⚠⚠ **「モロヘイヤを通っていない」ことに
         # 3 週間気付かなかったのは、投稿が 200 で返り、ログにも成功としか出ていな
         # かったから。**⚠ **経路の間違いは投稿の失敗として現れない。**
@@ -130,6 +134,58 @@ module Makoto
     end
 
     private
+
+    # 🔴 **モロヘイヤが足した分**（#351）。⚠ **応答の `content` が「足された後の本文」**
+    # なので、**読み取り権は要らない**（🔴 **`/api/v1/statuses/:id/source` は `read` が要るが、
+    # 投稿そのものの応答は `write` で返る**）。
+    #
+    # ⚠ **迂回しているときは `nil`**（**モロヘイヤが何もしていないので測る対象が無い**）。
+    #
+    # 🔴🔴 **ここで例外を上げない。**⚠⚠ **投稿は既に成功している** — **記録の都合で
+    # 「成功した投稿が失敗した」に化けさせない**（fail-open）。⚠ **`PostingJob` はこの先で
+    # `record(:success)` と `notify` へ進む**ので、**ここで落ちると履歴も監視も巻き添えになる。**
+    def proxy_added(text, status)
+      return nil unless mulukhiya_enable?
+      # ⚠ **`content` を持たない応答も通す**（🔴 **本物の Status は必ず持つ**が、
+      # **前段が返す 200 の作り物は持たない** — → `validate_status`）。
+      return nil if status['content'].blank?
+      final = Text.from_html(status['content'])
+      return nil if final.empty?
+      added = PostBudget.length(final) + mention_loss(status) - PostBudget.length(text)
+      return added if added >= 0
+      # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+      # **負なら応答の HTML から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと
+      # 信用できなくなる。**🔴 **「知らない形が来た」を 1 行として見えるようにする。**
+      #
+      # 🔴🔴 **欄の名前を変える**（Codex の P2）。⚠⚠ **`proxy_added` のままだと、この診断の行を
+      # `RehearsalReport#count_post` が拾い、捨てたはずの負の値が分布へ入る** —
+      # ⚠ **歯止めが、歯止めようとした値を自分で流し込む形になっていた。**
+      logger.warn(mastodon: 'post', message: 'proxy_added is negative', rejected_length: added)
+      return nil
+    rescue => e
+      logger.warn(mastodon: 'post', message: 'proxy_added failed', error: e.class.to_s)
+      return nil
+    end
+
+    # 🔴 **リモートのメンションは HTML から戻らない**（#351・Codex の P2）。
+    #
+    # ⚠⚠ **Mastodon は `@alice@remote.example` を「見える文字は `@alice` だけ」の h-card で返す**
+    # （`<a class="mention">@<span>alice</span></a>`）ので、**タグを剥がすとドメインが消える。**
+    # ⚠ **送った側には残っているので差が縮み、負の値になりうる。**
+    #
+    # ✅ **応答の `mentions` から戻す** — **`acct` と `username` の差 ＝ 消えた `@domain` の長さ。**
+    # ⚠ **同じ相手を 2 回書いた回は 1 回ぶんしか戻らない**（🔴 **`mentions` は相手ごとに 1 件**）。
+    #
+    # ⚠⚠ **いまの投稿にメンションは 1 件も無い**（実測・**原稿 606 本 ＋ 曲 4,305 行で 0 件**）—
+    # 🔴 **踏むのは #18 のチャットボットから**（**返信は必ず相手を名指しする**）。
+    def mention_loss(status)
+      mentions = status['mentions']
+      return 0 unless mentions.is_a?(Array)
+      return mentions.sum do |mention|
+        next 0 unless mention.is_a?(Hash)
+        PostBudget.length(mention['acct']) - PostBudget.length(mention['username'])
+      end
+    end
 
     # 🔴 **200 で status でないものが返る形を弾く**（#272）。
     #

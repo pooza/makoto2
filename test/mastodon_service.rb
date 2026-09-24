@@ -200,6 +200,104 @@ module Makoto
       assert_equal(2 + 23, messages.first[:post_length])
     end
 
+    # 🔴 **モロヘイヤが足した分を毎回残す**（#351）。
+    #
+    # ⚠⚠ **応答の `content` が「足された後の本文」**なので、**読み取り権は要らない** —
+    # ⚠ **`/api/v1/statuses/:id/source` は `read` が要るが、投稿の応答は `write` で返る。**
+    def test_post_status_logs_what_the_proxy_added
+      tag = '<p><a href="https://st2.precure.ml/tags/precure_fun" class="mention hashtag"' \
+        ' rel="tag">#<span>precure_fun</span></a></p>'
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: "<p>こんにちは</p>#{tag}")
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      # ⚠ 空行 2 字 ＋ `#precure_fun` 12 字
+      assert_equal(14, messages.first[:proxy_added])
+    end
+
+    # 🔴 **リモートのメンションはドメインを戻す**（#351・Codex の P2）。
+    #
+    # ⚠⚠ **Mastodon は `@alice@remote.example` を「見える文字は `@alice` だけ」で返す**ので、
+    # ⚠ **戻さないとドメインぶん（15 字）短く出て、足された分が負にもなりうる。**
+    def test_post_status_restores_the_domain_of_a_remote_mention
+      card = '<span class="h-card"><a href="https://remote.example/@alice"' \
+        ' class="u-url mention">@<span>alice</span></a></span>'
+      tag = '<p><a href="https://st2.precure.ml/tags/precure_fun" class="mention hashtag"' \
+        ' rel="tag">#<span>precure_fun</span></a></p>'
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(
+          content: "<p>#{card} おはよう</p>#{tag}",
+          mentions: [{acct: 'alice@remote.example', username: 'alice'}],
+        )
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('@alice@remote.example おはよう')
+
+      # ⚠ 空行 2 字 ＋ `#precure_fun` 12 字（🔴 **メンションのぶんは差に出ない**）
+      assert_equal(14, messages.first[:proxy_added])
+    end
+
+    # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+    # **負なら応答から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと信用できなくなる。**
+    def test_post_status_refuses_a_negative_proxy_added
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こん</p>')
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_equal(['proxy_added is negative'], messages.filter_map {|m| m[:message]})
+      assert_nil(messages.find {|m| m[:status_id]}[:proxy_added])
+      # 🔴 **診断の行に `proxy_added` を出さない**（Codex の P2）— ⚠⚠ **出すと
+      # `RehearsalReport#count_post` が拾い、捨てた負の値が分布へ入る。**
+      warned = messages.find {|m| m[:message]}
+
+      assert_false(warned.key?(:proxy_added))
+      assert_equal(-3, warned[:rejected_length])
+    end
+
+    # ⚠ **迂回しているときは測らない**（🔴 **モロヘイヤが何もしていない**）。
+    def test_post_status_does_not_measure_the_proxy_when_bypassing
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こんにちは</p>')
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.mulukhiya_enable = false
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_nil(messages.first[:proxy_added])
+    end
+
+    # 🔴 **記録の都合で「成功した投稿が失敗した」に化けさせない**（fail-open・#351）。
+    # ⚠⚠ **`content` を持たない 200 でも `post_status` は通る。**
+    def test_post_status_survives_a_response_without_content
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
+      status = @service.post_status('こんにちは')
+
+      assert_equal('114514', status['id'])
+    end
+
     def stub_instance(status, body)
       url = "#{config['/mastodon/url']}/api/v1/instance"
       headers = {'Content-Type' => 'application/json'}
@@ -408,12 +506,25 @@ module Makoto
     # ⚠ **Mastodon が実際に返す形**（`POST /api/v1/statuses` は必ず `id` を持つ Status）。
     # 🔴 **`'{}'` で書かない** — ⚠⚠ **起こりえない応答を前提にしたテストは、
     # 応答の形を検査し始めた日に「壊れた」ように見える**（#272 で実際にそうなった）。
-    def status_body
-      return {
+    # @param content [String, nil] ⚠ **応答の本文（HTML）** — 🔴 **モロヘイヤが足した後の形**
+    # @param mentions [Array, nil] ⚠ **メンションの一覧**（🔴 **リモートはここからドメインを戻す**）
+    def status_body(content: nil, mentions: nil)
+      body = {
         id: '114514',
         url: "#{config['/mastodon/url']}/@test/114514",
         visibility: 'public',
-      }.to_json
+      }
+      body[:content] = content if content
+      body[:mentions] = mentions if mentions
+      return body.to_json
+    end
+
+    # ⚠ **`info` と `warn` の両方を受ける**（🔴 **`proxy_added` は落ちたら `warn` を出す**）。
+    def log_recorder(messages)
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      return recorder
     end
   end
 end
