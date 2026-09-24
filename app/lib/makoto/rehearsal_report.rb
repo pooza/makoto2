@@ -383,8 +383,12 @@ module Makoto
     # 取りこぼしが成功したように見える。**
     # ⚠ **数えるのは成功の行 1 本につき 1 回**（🔴 **負の警告の行は `status_id` を持たない**ので、
     # **同じ投稿を 2 回数えない**）。
+    #
+    # 🔴 **`status_id` の無い行は受け皿へ回す**（#419 の Codex の P2）。⚠⚠ **`proxy_added` の計測が
+    # 落ちた行（`{"mastodon":"post","message":"proxy_added failed","error":…}`）もここへ来る**ので、
+    # **素で捨てると `count_unclassified` まで届かない** — ⚠ **`error` を持たない警告は向こうで捨てる。**
     def count_post(entry)
-      return nil unless entry[:status_id]
+      return count_unclassified(entry) unless entry[:status_id]
       added = entry[:proxy_added]
       return @proxy_skipped += 1 unless added.is_a?(Numeric)
       return @proxy_skipped += 1 if added.negative?

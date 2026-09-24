@@ -377,6 +377,17 @@ module Makoto
       assert_include(subject.to_s, '🔴 track:history post:song: 1 行')
     end
 
+    # 🔴 **投稿の行でも、`status_id` が無く `error` を持つなら受け皿へ**（#419 の Codex の P2）。
+    # ⚠ **`proxy_added` の計測が落ちた行**（`MastodonService#proxy_added` の `rescue`）。
+    def test_a_failed_proxy_measurement_is_not_dropped
+      failed = '{"mastodon":"post","message":"proxy_added failed","error":"NoMethodError"}'
+      negative = '{"mastodon":"post","message":"proxy_added is negative","rejected_length":-3}'
+      subject = report(failed, negative, HEARTBEAT, SUCCESS)
+
+      assert_equal({'mastodon:post' => 1}, subject.unclassified)
+      assert_true(subject.red?)
+    end
+
     # ⚠ **`error` を持たない行は拾わない**（登録・黙る日・「新しい曲が残っていない」の warn）。
     def test_lines_without_an_error_stay_out_of_the_unclassified
       nothing = '{"track":"history","post":"song","size":3,"message":"nothing fresh left"}'
