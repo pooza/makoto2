@@ -77,7 +77,7 @@ module Makoto
       @report.duplicated_slots.each do |(name, slot), row|
         out.push("🔴 #{name} #{slot} が #{row[:posts].uniq.size} 件の status を作った（重複投稿）")
       end
-      out.push(format_proxy_added) if @report.proxy_added
+      out.push(format_proxy_added) if @report.proxy_added || @report.proxy_skipped.positive?
       return out.join("\n")
     end
 
@@ -91,10 +91,18 @@ module Makoto
     # ⚠ **ここで 🔴 を出して `red?` と食い違わせない。**
     def format_proxy_added
       row = @report.proxy_added
+      skipped = @report.proxy_skipped
+      return "⚠ モロヘイヤが足した字数: 1 本も測れていない（#{skipped} 本）" unless row
+      # 🔴 **予約が 0 でも印を付ける**（Codex の P2）。⚠⚠ **`/mastodon/proxy_reserve` は
+      # `optional_config` の既定 0**（`PostBudget`）なので、**設定が落ちた窓では予約ゼロ** —
+      # ⚠ **足された分が 1 字でも上限を食う ＝ いちばん見たい状態。**
       reserve = optional_config('/mastodon/proxy_reserve', 0).to_i
-      mark = reserve.positive? && row[:max] > reserve ? '⚠' : ' '
-      return "#{mark} モロヘイヤが足した字数: #{row[:count]} 本 / min #{row[:min]}" \
-        " / median #{row[:median]} / max #{row[:max]}（予約 #{reserve}）"
+      mark = row[:max] > reserve ? '⚠' : ' '
+      out = ["#{mark} モロヘイヤが足した字数: #{row[:count]} 本 / min #{row[:min]}" \
+        " / median #{row[:median]} / max #{row[:max]}（予約 #{reserve}）"]
+      # 🔴 **一部だけ測れた回を「測れた」と読ませない**（Codex の P2）。
+      out.push("⚠ #{skipped} 本は測れていない（この分布に最大が居るとは限らない）") if skipped.positive?
+      return out.join("\n")
     end
 
     # ⚠ **履歴の通知**（#284）。🔴 **1 行も無いのが普通**（`@report.posted` を持つのは曲紹介だけ）
@@ -191,7 +199,10 @@ module Makoto
       out.push('- 外部が実時間で持つ制限（Mastodon のレート制限窓）')
       # 🔴 **経由していない回は足された分を測れない**（#351）。⚠⚠ **迂回の回を「足されなかった」
       # と読ませない** — ⚠ **モロヘイヤが何もしていないだけ。**
-      out.push('- モロヘイヤが足した字数（迂回した回は測れない → #351）') unless @report.proxy_added
+      # 🔴 **1 本でも測れていなければ言う**（Codex の P2）— ⚠⚠ **部分的な取りこぼしを
+      # 「測れた」と読ませない**（**分布に最大が居るとは限らない**）。
+      out.push('- モロヘイヤが足した字数（迂回・content 無し・復元できない形は測れない → #351）') \
+        if @report.proxy_added.nil? || @report.proxy_skipped.positive?
       # 🔴 **所要に再送ぶんが入っていないことを言う**（#201）。⚠⚠ **落ちた試行の行は
       # `seconds` を持たない**ので、⚠ **再送が多い回ほど「1 本の所要」は実態より軽く出る。**
       out.push('- 再送で食った時間（落ちた試行の行は seconds を持たない → #201）') \

@@ -72,11 +72,13 @@ module Makoto
       @revisions = Set.new
       @http_seconds = {}
       @proxy_added = []
+      @proxy_skipped = 0
       lines.each {|line| consume(parse(line))}
     end
 
     attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
-      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors
+      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors,
+      :proxy_skipped
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -321,10 +323,17 @@ module Makoto
     # 分布へ入る。**🔴 **負も数えない** — ⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
     # **負は「応答から本文を戻しきれていない」値。**
     # ⚠ **出す側でも欄名を分けているが、数える側だけでも成り立つようにしておく。**
+    #
+    # 🔴 **測れなかった投稿は数えておく**（Codex の P2）。⚠⚠ **1 本でも測れていなければ、
+    # 分布に最大が居るとは限らない** — ⚠ **「全部測れなかった」だけを言うと、部分的な
+    # 取りこぼしが成功したように見える。**
+    # ⚠ **数えるのは成功の行 1 本につき 1 回**（🔴 **負の警告の行は `status_id` を持たない**ので、
+    # **同じ投稿を 2 回数えない**）。
     def count_post(entry)
+      return nil unless entry[:status_id]
       added = entry[:proxy_added]
-      return nil unless entry[:status_id] && added.is_a?(Numeric)
-      return nil if added.negative?
+      return @proxy_skipped += 1 unless added.is_a?(Numeric)
+      return @proxy_skipped += 1 if added.negative?
       return @proxy_added.push(added.to_i)
     end
 
