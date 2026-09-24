@@ -39,6 +39,19 @@ module Makoto
       assert_include(scrubbed, 'song', '無関係な値は残す')
     end
 
+    # 🔴 **許可リストに無いタグは値ごと落とす**（#347）。
+    #
+    # ⚠⚠ **許可リストを掛けられるのはタグだけ** — **例外メッセージは自由文なので列挙できず、
+    # 長さで切っても守れない**（**原稿 606 本の中央値は 28 字**）。
+    def test_tags_outside_the_allowlist_are_dropped
+      event = error_event(StandardError.new('boom'))
+      event.tags = {post: 'song', phase: 'notify', daemon: 'makoto2', body: PROBE_VALUE}
+      scrubbed = @scrubber.scrub(event)
+
+      assert_equal(SentryScrubber::ALLOWED_TAGS, scrubbed.tags.keys.map(&:to_s))
+      assert_not_include(payload(scrubbed), PROBE_VALUE, '許可リストの外は値ごと落とす')
+    end
+
     # ⚠ **資格情報を含まない情報まで消さない**（消すと調査に使えなくなる）。
     def test_scrub_keeps_diagnostics
       event = error_event(Ginseng::GatewayError.new('Bad response 503 (https://st2.precure.ml/api/v1/statuses)'))
@@ -141,6 +154,27 @@ module Makoto
         Makoto.setup_sentry
 
         assert_false(Sentry.configuration.propagate_traces)
+      end
+    end
+
+    # 🔴 **フレームのローカル変数を送らない**（#347）。
+    #
+    # ⚠⚠ **`PostingJob` の `rescue` の内側には `text`（投稿本文）が居る。**
+    # ⚠ **既定は false だが明示を留める** — 🔴 **`propagate_traces` は既定が危ない側だった。**
+    def test_setup_does_not_collect_local_variables
+      with_dsn(DSN) do
+        Makoto.setup_sentry
+
+        assert_false(Sentry.configuration.data_collection.collect_stack_frame_variables?)
+      end
+    end
+
+    # ⚠ **breadcrumb は 1 つも積んでいない**ので、**運ぶ容れ物も開けない**（#347）。
+    def test_setup_keeps_no_breadcrumbs
+      with_dsn(DSN) do
+        Makoto.setup_sentry
+
+        assert_equal(0, Sentry.configuration.max_breadcrumbs)
       end
     end
 
