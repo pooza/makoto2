@@ -71,6 +71,24 @@ module Makoto
       assert_nil(report(POST_BYPASS).proxy_added)
     end
 
+    # 🔴🔴 **歯止めの警告を集計へ入れない**（Codex の P2）。
+    #
+    # ⚠⚠ **`proxy_added` が負になったときの `warn` も `mastodon: 'post'` を持つ** —
+    # ⚠ **同じ欄名で出すと、捨てたはずの負の値が分布へ入る**（**歯止めが自分で流し込む形**）。
+    # 🔴 **出す側は欄名を分けたが、数える側も `status_id` と非負を要求する。**
+    POST_NEGATIVE = '{"mastodon":"post","message":"proxy_added is negative","rejected_length":-3}'.freeze
+    # ⚠ **万一、負の値が `proxy_added` の欄で来ても数えない**（数える側だけで成り立つこと）。
+    POST_NEGATIVE_FIELD = '{"mastodon":"post","status_id":"114514","proxy_added":-3}'.freeze
+
+    def test_a_rejected_negative_sample_does_not_enter_the_distribution
+      assert_nil(report(POST_NEGATIVE).proxy_added)
+      assert_nil(report(POST_NEGATIVE_FIELD).proxy_added)
+      assert_equal(
+        {count: 1, min: 12, median: 12, max: 12},
+        report(POST_NEGATIVE, POST_NEGATIVE_FIELD, post_log(12)).proxy_added,
+      )
+    end
+
     # ⚠ **`method` を持たないので HTTP の行としては数えない**（🔴 **`url` は持っている**）。
     def test_a_post_log_line_is_not_counted_as_http
       assert_empty(report(post_log(12)).http)

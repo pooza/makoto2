@@ -263,6 +263,12 @@ module Makoto
 
       assert_equal(['proxy_added is negative'], messages.filter_map {|m| m[:message]})
       assert_nil(messages.find {|m| m[:status_id]}[:proxy_added])
+      # 🔴 **診断の行に `proxy_added` を出さない**（Codex の P2）— ⚠⚠ **出すと
+      # `RehearsalReport#count_post` が拾い、捨てた負の値が分布へ入る。**
+      warned = messages.find {|m| m[:message]}
+
+      assert_false(warned.key?(:proxy_added))
+      assert_equal(-3, warned[:rejected_length])
     end
 
     # ⚠ **迂回しているときは測らない**（🔴 **モロヘイヤが何もしていない**）。

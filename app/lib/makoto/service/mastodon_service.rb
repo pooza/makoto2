@@ -156,7 +156,11 @@ module Makoto
       # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
       # **負なら応答の HTML から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと
       # 信用できなくなる。**🔴 **「知らない形が来た」を 1 行として見えるようにする。**
-      logger.warn(mastodon: 'post', message: 'proxy_added is negative', proxy_added: added)
+      #
+      # 🔴🔴 **欄の名前を変える**（Codex の P2）。⚠⚠ **`proxy_added` のままだと、この診断の行を
+      # `RehearsalReport#count_post` が拾い、捨てたはずの負の値が分布へ入る** —
+      # ⚠ **歯止めが、歯止めようとした値を自分で流し込む形になっていた。**
+      logger.warn(mastodon: 'post', message: 'proxy_added is negative', rejected_length: added)
       return nil
     rescue => e
       logger.warn(mastodon: 'post', message: 'proxy_added failed', error: e.class.to_s)

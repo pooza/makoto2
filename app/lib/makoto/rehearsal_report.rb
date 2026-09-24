@@ -315,9 +315,17 @@ module Makoto
     # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
     # 🔴 **モロヘイヤが足した分を貯める**（#351）。⚠ **持たない行は捨てる**
     # （迂回した回・`content` を持たない応答・`unexpected response shape` の警告）。
+    #
+    # 🔴🔴 **成功した投稿の行だけ数える**（Codex の P2）。⚠⚠ **`status_id` を持たない
+    # `mastodon: 'post'` は警告のほう** — ⚠ **同じ欄名を診断に出した日に、捨てた値が
+    # 分布へ入る。**🔴 **負も数えない** — ⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+    # **負は「応答から本文を戻しきれていない」値。**
+    # ⚠ **出す側でも欄名を分けているが、数える側だけでも成り立つようにしておく。**
     def count_post(entry)
-      return nil unless entry[:proxy_added]
-      return @proxy_added.push(entry[:proxy_added].to_i)
+      added = entry[:proxy_added]
+      return nil unless entry[:status_id] && added.is_a?(Numeric)
+      return nil if added.negative?
+      return @proxy_added.push(added.to_i)
     end
 
     def count_heartbeat(entry)
