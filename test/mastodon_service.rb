@@ -222,6 +222,49 @@ module Makoto
       assert_equal(14, messages.first[:proxy_added])
     end
 
+    # 🔴 **リモートのメンションはドメインを戻す**（#351・Codex の P2）。
+    #
+    # ⚠⚠ **Mastodon は `@alice@remote.example` を「見える文字は `@alice` だけ」で返す**ので、
+    # ⚠ **戻さないとドメインぶん（15 字）短く出て、足された分が負にもなりうる。**
+    def test_post_status_restores_the_domain_of_a_remote_mention
+      card = '<span class="h-card"><a href="https://remote.example/@alice"' \
+        ' class="u-url mention">@<span>alice</span></a></span>'
+      tag = '<p><a href="https://st2.precure.ml/tags/precure_fun" class="mention hashtag"' \
+        ' rel="tag">#<span>precure_fun</span></a></p>'
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(
+          content: "<p>#{card} おはよう</p>#{tag}",
+          mentions: [{acct: 'alice@remote.example', username: 'alice'}],
+        )
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('@alice@remote.example おはよう')
+
+      # ⚠ 空行 2 字 ＋ `#precure_fun` 12 字（🔴 **メンションのぶんは差に出ない**）
+      assert_equal(14, messages.first[:proxy_added])
+    end
+
+    # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+    # **負なら応答から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと信用できなくなる。**
+    def test_post_status_refuses_a_negative_proxy_added
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こん</p>')
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_equal(['proxy_added is negative'], messages.filter_map {|m| m[:message]})
+      assert_nil(messages.find {|m| m[:status_id]}[:proxy_added])
+    end
+
     # ⚠ **迂回しているときは測らない**（🔴 **モロヘイヤが何もしていない**）。
     def test_post_status_does_not_measure_the_proxy_when_bypassing
       stub_request(:post, @url).to_return(
@@ -458,14 +501,24 @@ module Makoto
     # 🔴 **`'{}'` で書かない** — ⚠⚠ **起こりえない応答を前提にしたテストは、
     # 応答の形を検査し始めた日に「壊れた」ように見える**（#272 で実際にそうなった）。
     # @param content [String, nil] ⚠ **応答の本文（HTML）** — 🔴 **モロヘイヤが足した後の形**
-    def status_body(content: nil)
+    # @param mentions [Array, nil] ⚠ **メンションの一覧**（🔴 **リモートはここからドメインを戻す**）
+    def status_body(content: nil, mentions: nil)
       body = {
         id: '114514',
         url: "#{config['/mastodon/url']}/@test/114514",
         visibility: 'public',
       }
       body[:content] = content if content
+      body[:mentions] = mentions if mentions
       return body.to_json
+    end
+
+    # ⚠ **`info` と `warn` の両方を受ける**（🔴 **`proxy_added` は落ちたら `warn` を出す**）。
+    def log_recorder(messages)
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      return recorder
     end
   end
 end

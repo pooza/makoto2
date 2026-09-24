@@ -151,10 +151,36 @@ module Makoto
       return nil if status['content'].blank?
       final = Text.from_html(status['content'])
       return nil if final.empty?
-      return PostBudget.length(final) - PostBudget.length(text)
+      added = PostBudget.length(final) + mention_loss(status) - PostBudget.length(text)
+      return added if added >= 0
+      # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+      # **負なら応答の HTML から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと
+      # 信用できなくなる。**🔴 **「知らない形が来た」を 1 行として見えるようにする。**
+      logger.warn(mastodon: 'post', message: 'proxy_added is negative', proxy_added: added)
+      return nil
     rescue => e
       logger.warn(mastodon: 'post', message: 'proxy_added failed', error: e.class.to_s)
       return nil
+    end
+
+    # 🔴 **リモートのメンションは HTML から戻らない**（#351・Codex の P2）。
+    #
+    # ⚠⚠ **Mastodon は `@alice@remote.example` を「見える文字は `@alice` だけ」の h-card で返す**
+    # （`<a class="mention">@<span>alice</span></a>`）ので、**タグを剥がすとドメインが消える。**
+    # ⚠ **送った側には残っているので差が縮み、負の値になりうる。**
+    #
+    # ✅ **応答の `mentions` から戻す** — **`acct` と `username` の差 ＝ 消えた `@domain` の長さ。**
+    # ⚠ **同じ相手を 2 回書いた回は 1 回ぶんしか戻らない**（🔴 **`mentions` は相手ごとに 1 件**）。
+    #
+    # ⚠⚠ **いまの投稿にメンションは 1 件も無い**（実測・**原稿 606 本 ＋ 曲 4,305 行で 0 件**）—
+    # 🔴 **踏むのは #18 のチャットボットから**（**返信は必ず相手を名指しする**）。
+    def mention_loss(status)
+      mentions = status['mentions']
+      return 0 unless mentions.is_a?(Array)
+      return mentions.sum do |mention|
+        next 0 unless mention.is_a?(Hash)
+        PostBudget.length(mention['acct']) - PostBudget.length(mention['username'])
+      end
     end
 
     # 🔴 **200 で status でないものが返る形を弾く**（#272）。
