@@ -2621,7 +2621,48 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 | **終了コード** | ⚠ **`misconfigured` は `Health#warnings`（`makoto status` が 2 ＝ 人が見る）**（Codex の P2）。🔴 **`/healthz`（`errors` ＝ 復旧させる）には置かない** — 再起動しても DSN は直らない |
 | **`release`** | ⚠ **常駐だけ `<version>+<revision>`**（`MakotoDaemon#tag_sentry_release`）— 🔴 **require 時に `Package.revision` を呼ぶと全 CLI が `git` を fork する**ので CLI は `version` のまま |
 
-🔴 **送る内容の許可リスト（例外メッセージに何が載るか）は #347 に残した**（チャットボット #18 の前に決める）。
+✅ **送る内容を絞った**（2026-09-24・#347）— 🔴 **ただし「許可リストと上限」のうち、上限のほうは原稿を守れない**（→ 下記「Sentry へ送る内容を絞った」）。
+
+🔴 **例外メッセージに投稿本文・原稿・トークンを入れない。**⚠⚠ **入れたいときはログの側へ出す**（**ログはホストの中に留まるが、Sentry は public な箱の外**）。⚠ **`MastodonService#raise_unexpected` が既にこの形**（**本文は載せず型だけ**）。🔴 **`report_error` の口を増やすときに読み返す。**
+
+#### ✅ Sentry へ送る内容を絞った（2026-09-24・#347）
+
+🔴 **Issue には「許可リストも上限も無い」と並べて書いてあったが、この 2 つは効く相手が違う。**
+
+##### 🔴 長さ上限は原稿の漏れを止められない（実測）
+
+| | 字（`PostBudget.length`） |
+| --- | --- |
+| 原稿 606 本の min | **3** |
+| 同 median | **28** |
+| 同 max | **328** |
+| 100 字未満の原稿 | 🔴 **594 / 606 本** |
+
+⚠⚠ **中央値 28 字の原稿を切れる上限は、本物の例外メッセージも切る。**🔴 **つまり上限は「漏れたときの量を抑える」道具で、「漏れないようにする」道具ではない。**⚠ **`0.7` では上限を入れていない** — **値は `bydo` の journal の `error` 行から例外メッセージ長の分布を採ってから決める**（🔴 **先に数字を書くと、#404 で `MAX_SCALE` が実測に追い越されていたのと同じ形になる**）。
+
+##### ✅ 許可リストを掛けられるのはタグだけ
+
+⚠ **実測**: `report_error` のキーワード引数に渡っているのは **`post` / `phase` / `daemon` の 3 つだけ**（**呼び出しは 8 か所** — `PostingJob` ×3 / `MakotoDaemon` ×2 / `Scheduler` ×3）。
+
+✅ **`SentryScrubber::ALLOWED_TAGS` で絞り、知らないキーは値ごと落とす**（fail-closed）。🔴 **口が増えた日に「許可リストに足すのを忘れた」が、漏れではなく欠落として出る。**⚠⚠ **例外メッセージは自由文なので列挙できない** — **許可リストが成り立つのは、列挙できるものにだけ。**
+
+##### 🔴 本文がいちばん乗りやすいのは、メッセージではなくローカル変数
+
+⚠⚠ **`sentry-ruby` 7.0.0 の `data_collection.stack_frame_variables`（旧 `include_local_variables`）が真になると、フレームごとのローカル変数が送られる。**🔴 **`PostingJob` の `rescue` の内側には `text`（投稿本文そのもの）が居る。**
+
+✅ **`Sentry.init` で明示的に `false` を書き、テストで留めた。**⚠ **既定も false だった**が、🔴 **`propagate_traces` で「既定に任せていたら既定が危ない側だった」を踏んでいる**（v0.6.0 のリリース前レビュー・黄）— ⚠⚠ **既定に依存している状態は「決めた」ではない。**
+
+⚠ **`send_default_pii=` を足すときは `stack_frame_variables` より前に置く** — 🔴 **代入が `data_collection` を丸ごと差し替える**（`sentry-ruby` 7.0.0 の `configuration.rb:635`）。
+
+##### ✅ breadcrumb は運ばない
+
+⚠ **実測**: `Sentry.add_breadcrumb` の呼び出しは **0 件**。⚠⚠ **`max_breadcrumbs` の既定は 100**（`breadcrumb_buffer.rb:7`）。
+
+✅ **`max_breadcrumbs = 0`。**🔴 **`SentryScrubber#scrub_breadcrumbs` は残す** — ⚠ **この設定を消された日に素通しにしない。**
+
+##### ⚠ Sequel の SQL は、いまは常駐から届かない
+
+⚠ **原稿を書くのは `corpus import` / `message add` / `upsert` ＝ CLI だけ**で、⚠⚠ **CLI は `report_error` を呼んでいない**（実測・上の 8 か所は常駐と投稿経路だけ）。🔴 **`#18`（チャットボット）で書き込みが常駐へ入ると、`INSERT` の SQL が原稿ごと Sentry へ行く経路になる** — ⚠ **いま塞ぐ必要は無いが、`#18` の前に読み返す。**
 
 #### ✅ 予算を超えて長くかかった枠を 1 行残す（2026-09-17・#92）
 
@@ -2654,7 +2695,7 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 initialized: true / sending_allowed: true / propagate_traces: false
 ```
 
-- ✅ **テストイベントが届いた**（`MAKOTO2-2`・`environment=production` / `release=0.6.0` / `server_name=rubicon`）。🔴 **ダミーのトークン入り URL は Sentry 側のタイトルでも `access_token=[FILTERED]`。**⚠ **立った Issue は `tools/sentry-resolve.rb MAKOTO2-2` で resolve 済み。**
+- ✅ **テストイベントが届いた**（`MAKOTO2-2`・`environment=production` / `release=0.6.0` / `server_name=rubicon`）。🔴 **ダミーのトークン入り URL は Sentry 側のタイトルでも `access_token=[FILTERED]`。**~~⚠ **立った Issue は `tools/sentry-resolve.rb MAKOTO2-2` で resolve 済み。**~~ 🔴 **2026-09-24 に訂正**: ⚠⚠ **`tools/sentry-resolve.rb` はこのリポジトリのどのブランチにも存在しない**（`git log --all` で 0 件・`tools/` にあるのは `morning_profile.py` と `pgdump_to_json.py` の 2 本）。⚠ **どうやって resolve したかは記録から復元できない** — 🔴 **手順として読めない行だったので、書き直しが要る**（**同期手順 6 で使っているのは `sentry-cli issues list --project makoto2`**）。
 - ⚠ **`propagate_traces: false` はこの版のレビューで塞いだぶん**（→ PR #346）。
 - 🔴 **残るオーナー作業は Client Key のレート制限だけ**（API で `rateLimit: null`・目安 1 時間 500 件）— ⚠⚠ **受け皿は #358**（`0.7`。🔴 **Issue の無い積み残しを作らない**・Codex の P2）。
   - 🔴 **2026-09-19 にオーナーが赤（必修）にした。**⚠ **赤の意味はこの docs の分類どおり**（→ 下記「リリース前レビュー」）— ⚠⚠ **赤だけは本リリースで対応する**ので、**`0.7` を出す前に当てる**（**箱を空にする条件に「クローズか移動」しか無い** → リリース手順 10）。⚠ **11/1 より前がより厳しい締め切り**（**効くのは当日の 8 時間・160 枠**）。

@@ -16,6 +16,18 @@ module Makoto
   class SentryScrubber
     include Package
 
+    # 🔴 **Sentry へ出してよいタグのキー**（#347）。
+    #
+    # ⚠⚠ **`report_error` のキーワード引数に渡っているのは実測でこの 3 つだけ**
+    # （**呼び出しは 8 か所** — `PostingJob` ×3 / `MakotoDaemon` ×2 / `Scheduler` ×3）。
+    # 🔴 **知らないキーは値ごと落とす**（fail-closed）— ⚠ **口が増えた日に
+    # 「許可リストに足すのを忘れた」が、漏れではなく欠落として出る。**
+    #
+    # ⚠⚠ **許可リストを掛けられるのはここだけ。**🔴 **例外メッセージは自由文なので
+    # 列挙できず、長さで切っても守れない** — ⚠ **原稿 606 本の中央値は 28 字**で、
+    # **それを切る上限は本物の例外メッセージも切る**（2026-09-24 の実測・#347）。
+    ALLOWED_TAGS = ['post', 'phase', 'daemon'].freeze
+
     # ⚠ **ここで logger を掴み、マスクが効くことを 1 回確かめる。**🔴 **読めなければ例外で、
     # Sentry ごと立ち上がらない（fail closed）** — ⚠⚠ **読めないまま `before_send` に入ると
     # 「マスク対象ゼロ ＝ 素通し」で送り続ける。**
@@ -31,7 +43,7 @@ module Makoto
       event.message = mask(event.message) if event.message.is_a?(String)
       event.transaction = mask(event.transaction) if event.transaction.is_a?(String)
       event.extra = mask(event.extra)
-      event.tags = mask(event.tags)
+      event.tags = allow(mask(event.tags))
       event.contexts = mask(event.contexts)
       event.user = mask(event.user)
       scrub_breadcrumbs(event)
@@ -79,6 +91,15 @@ module Makoto
         crumb.message = mask(crumb.message) if crumb.message.is_a?(String)
         crumb.data = mask(crumb.data) if crumb.data.is_a?(Hash)
       end
+    end
+
+    # 🔴 **許可リストに無いキーは値ごと落とす**（#347）。
+    #
+    # ⚠ **`event.tags` のキーは Symbol でも String でも来る**ので `to_s` で揃える。
+    # ⚠⚠ **Hash でなければ触らない** — **`mask` は Array や String も返しうる。**
+    def allow(tags)
+      return tags unless tags.is_a?(Hash)
+      return tags.select {|key, _| ALLOWED_TAGS.include?(key.to_s)}
     end
 
     # ⚠ `Ginseng::Logger#mask` は Hash / Array / String を再帰的に処理し、`mask_fields` の
