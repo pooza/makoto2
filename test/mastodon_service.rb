@@ -271,6 +271,46 @@ module Makoto
       assert_equal(-3, warned[:rejected_length])
     end
 
+    # 🔴 **予約を超えたら 1 行残す**（#351）。⚠⚠ **2026-09-24 に予約 100 が実測 159 に
+    # 負けていた**のに気付かなかったのは、**超えたことを言う口が無かったから。**
+    def test_post_status_warns_when_the_proxy_exceeds_the_reserve
+      tag = "<p>#{'あ' * 60}</p>"
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: "<p>こんにちは</p>#{tag}")
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      with_proxy_reserve(50) {service.post_status('こんにちは')}
+
+      warned = messages.find {|message| message[:message]}
+
+      assert_equal('proxy_added exceeds the reserve', warned[:message])
+      assert_equal(62, warned[:exceeded_length])
+      assert_equal(50, warned[:reserve])
+      # 🔴 **欄名を分ける**（⚠⚠ **`proxy_added` だと集計が拾って二重に入る**）。
+      assert_false(warned.key?(:proxy_added))
+      # ⚠ **投稿そのものは落とさない。**
+      assert_equal(62, messages.find {|message| message[:status_id]}[:proxy_added])
+    end
+
+    # ⚠ **予約の内側なら黙る。**
+    def test_post_status_is_quiet_within_the_reserve
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こんにちは</p><p>あああ</p>')
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      with_proxy_reserve(50) {service.post_status('こんにちは')}
+
+      assert_nil(messages.find {|message| message[:message]})
+    end
+
     # ⚠ **迂回しているときは測らない**（🔴 **モロヘイヤが何もしていない**）。
     def test_post_status_does_not_measure_the_proxy_when_bypassing
       stub_request(:post, @url).to_return(
@@ -517,6 +557,15 @@ module Makoto
       body[:content] = content if content
       body[:mentions] = mentions if mentions
       return body.to_json
+    end
+
+    # ⚠ **予約の値を差し替える**（🔴 **実測で引き直した日にテストの意味を変えないため**）。
+    def with_proxy_reserve(value)
+      original = config['/mastodon/proxy_reserve']
+      config['/mastodon/proxy_reserve'] = value
+      yield
+    ensure
+      config['/mastodon/proxy_reserve'] = original
     end
 
     # ⚠ **`info` と `warn` の両方を受ける**（🔴 **`proxy_added` は落ちたら `warn` を出す**）。

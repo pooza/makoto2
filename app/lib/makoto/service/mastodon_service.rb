@@ -152,7 +152,7 @@ module Makoto
       final = Text.from_html(status['content'])
       return nil if final.empty?
       added = PostBudget.length(final) + mention_loss(status) - PostBudget.length(text)
-      return added if added >= 0
+      return warn_over_reserve(added) if added >= 0
       # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
       # **負なら応答の HTML から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと
       # 信用できなくなる。**🔴 **「知らない形が来た」を 1 行として見えるようにする。**
@@ -165,6 +165,29 @@ module Makoto
     rescue => e
       logger.warn(mastodon: 'post', message: 'proxy_added failed', error: e.class.to_s)
       return nil
+    end
+
+    # 🔴 **予約を超えたら 1 行残す**（#351）。
+    #
+    # ⚠⚠ **`/mastodon/proxy_reserve` は「原稿に許される長さ」を決める根拠**（`PostBudget#limit`）
+    # なので、🔴 **超えたまま気付かないと、上限に近い原稿で 422 になり、その枠が消える**
+    # （`PERMANENT_STATUSES` なので再送しない）。
+    #
+    # ⚠ **この 1 本は落とさない** — **3000 字にはまだ遠い**。⚠⚠ **止めるのではなく、
+    # 線が合っていないことを見せる。**🔴 **2026-09-24 に予約 100 が実測 159 に負けていた**のに
+    # 誰も気付かなかったのは、**超えたことを言う口がどこにも無かったから。**
+    #
+    # 🔴 **`positive?` で条件を絞らない**（Codex の P2 と同じ形）— ⚠⚠ **予約が 0 なら
+    # `PostBudget` は 1 字も取っていない** ＝ **いちばん見たい状態。**
+    #
+    # ⚠ **欄名に `proxy_added` を使わない** — 🔴 **`RehearsalReport#count_post` が拾い、
+    # 集計へ二重に入る**（**同じ形で 1 度踏んでいる**）。
+    def warn_over_reserve(added)
+      reserve = optional_config('/mastodon/proxy_reserve', 0).to_i
+      return added unless added > reserve
+      logger.warn(mastodon: 'post', message: 'proxy_added exceeds the reserve',
+        exceeded_length: added, reserve: reserve)
+      return added
     end
 
     # 🔴 **リモートのメンションは HTML から戻らない**（#351・Codex の P2）。
