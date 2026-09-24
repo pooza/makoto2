@@ -77,7 +77,24 @@ module Makoto
       @report.duplicated_slots.each do |(name, slot), row|
         out.push("🔴 #{name} #{slot} が #{row[:posts].uniq.size} 件の status を作った（重複投稿）")
       end
+      out.push(format_proxy_added) if @report.proxy_added
       return out.join("\n")
+    end
+
+    # 🔴 **モロヘイヤが足した字数**（#351）。⚠ **`/mastodon/proxy_reserve` は見積もり**なので、
+    # **毎回この行で突き合わせる。**
+    #
+    # 🔴🔴 **超えても赤にしない。**⚠⚠ **予約を超えただけでは投稿は落ちない** — **落ちるのは
+    # `本文 + 足された分 > /mastodon/max_length`（3000 字）のとき**で、⚠ **原稿の実効長は
+    # 最長でも 328 字**なので、**予約を超えても上限まではまだ遠い。**🔴 **赤の在り処は
+    # `RehearsalReport#red?` が正本**（→ このクラスの `SECTIONS` のコメント）なので、
+    # ⚠ **ここで 🔴 を出して `red?` と食い違わせない。**
+    def format_proxy_added
+      row = @report.proxy_added
+      reserve = optional_config('/mastodon/proxy_reserve', 0).to_i
+      mark = reserve.positive? && row[:max] > reserve ? '⚠' : ' '
+      return "#{mark} モロヘイヤが足した字数: #{row[:count]} 本 / min #{row[:min]}" \
+        " / median #{row[:median]} / max #{row[:max]}（予約 #{reserve}）"
     end
 
     # ⚠ **履歴の通知**（#284）。🔴 **1 行も無いのが普通**（`@report.posted` を持つのは曲紹介だけ）
@@ -172,6 +189,9 @@ module Makoto
       # 見たとき。**🔴 **`slow` は 2026-09-19 にここから外した**（**赤になったため** → #368）。
       out.push('- recorded:false は赤にしない（履歴を切った構成では毎枠出るため → #284）')
       out.push('- 外部が実時間で持つ制限（Mastodon のレート制限窓）')
+      # 🔴 **経由していない回は足された分を測れない**（#351）。⚠⚠ **迂回の回を「足されなかった」
+      # と読ませない** — ⚠ **モロヘイヤが何もしていないだけ。**
+      out.push('- モロヘイヤが足した字数（迂回した回は測れない → #351）') unless @report.proxy_added
       # 🔴 **所要に再送ぶんが入っていないことを言う**（#201）。⚠⚠ **落ちた試行の行は
       # `seconds` を持たない**ので、⚠ **再送が多い回ほど「1 本の所要」は実態より軽く出る。**
       out.push('- 再送で食った時間（落ちた試行の行は seconds を持たない → #201）') \

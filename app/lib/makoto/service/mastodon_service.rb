@@ -119,6 +119,10 @@ module Makoto
         # 🔴 **投稿先と同じ数え方の長さも並べる**（#351）。⚠⚠ **`length` はコードポイントで、
         # 上限（`PostBudget`）は書記素 ＋ URL 23 字** — **422 の日に 1 行で突き合わせられない。**
         post_length: PostBudget.length(text),
+        # 🔴 **モロヘイヤが足した分を毎回残す**（#351）。⚠⚠ **`/mastodon/proxy_reserve`
+        # （100 字）は見積もりのまま**で、**辞書に多く当たる原稿ほど足される分が増える** —
+        # ⚠ **1 回測って終わりにならない形にする。**
+        proxy_added: proxy_added(text, status),
         # 🔴 **経路をログに出す**（#124）。⚠⚠ **「モロヘイヤを通っていない」ことに
         # 3 週間気付かなかったのは、投稿が 200 で返り、ログにも成功としか出ていな
         # かったから。**⚠ **経路の間違いは投稿の失敗として現れない。**
@@ -130,6 +134,28 @@ module Makoto
     end
 
     private
+
+    # 🔴 **モロヘイヤが足した分**（#351）。⚠ **応答の `content` が「足された後の本文」**
+    # なので、**読み取り権は要らない**（🔴 **`/api/v1/statuses/:id/source` は `read` が要るが、
+    # 投稿そのものの応答は `write` で返る**）。
+    #
+    # ⚠ **迂回しているときは `nil`**（**モロヘイヤが何もしていないので測る対象が無い**）。
+    #
+    # 🔴🔴 **ここで例外を上げない。**⚠⚠ **投稿は既に成功している** — **記録の都合で
+    # 「成功した投稿が失敗した」に化けさせない**（fail-open）。⚠ **`PostingJob` はこの先で
+    # `record(:success)` と `notify` へ進む**ので、**ここで落ちると履歴も監視も巻き添えになる。**
+    def proxy_added(text, status)
+      return nil unless mulukhiya_enable?
+      # ⚠ **`content` を持たない応答も通す**（🔴 **本物の Status は必ず持つ**が、
+      # **前段が返す 200 の作り物は持たない** — → `validate_status`）。
+      return nil if status['content'].blank?
+      final = Text.from_html(status['content'])
+      return nil if final.empty?
+      return PostBudget.length(final) - PostBudget.length(text)
+    rescue => e
+      logger.warn(mastodon: 'post', message: 'proxy_added failed', error: e.class.to_s)
+      return nil
+    end
 
     # 🔴 **200 で status でないものが返る形を弾く**（#272）。
     #

@@ -200,6 +200,55 @@ module Makoto
       assert_equal(2 + 23, messages.first[:post_length])
     end
 
+    # 🔴 **モロヘイヤが足した分を毎回残す**（#351）。
+    #
+    # ⚠⚠ **応答の `content` が「足された後の本文」**なので、**読み取り権は要らない** —
+    # ⚠ **`/api/v1/statuses/:id/source` は `read` が要るが、投稿の応答は `write` で返る。**
+    def test_post_status_logs_what_the_proxy_added
+      tag = '<p><a href="https://st2.precure.ml/tags/precure_fun" class="mention hashtag"' \
+        ' rel="tag">#<span>precure_fun</span></a></p>'
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: "<p>こんにちは</p>#{tag}")
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      # ⚠ 空行 2 字 ＋ `#precure_fun` 12 字
+      assert_equal(14, messages.first[:proxy_added])
+    end
+
+    # ⚠ **迂回しているときは測らない**（🔴 **モロヘイヤが何もしていない**）。
+    def test_post_status_does_not_measure_the_proxy_when_bypassing
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こんにちは</p>')
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.mulukhiya_enable = false
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_nil(messages.first[:proxy_added])
+    end
+
+    # 🔴 **記録の都合で「成功した投稿が失敗した」に化けさせない**（fail-open・#351）。
+    # ⚠⚠ **`content` を持たない 200 でも `post_status` は通る。**
+    def test_post_status_survives_a_response_without_content
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
+      status = @service.post_status('こんにちは')
+
+      assert_equal('114514', status['id'])
+    end
+
     def stub_instance(status, body)
       url = "#{config['/mastodon/url']}/api/v1/instance"
       headers = {'Content-Type' => 'application/json'}
@@ -408,12 +457,15 @@ module Makoto
     # ⚠ **Mastodon が実際に返す形**（`POST /api/v1/statuses` は必ず `id` を持つ Status）。
     # 🔴 **`'{}'` で書かない** — ⚠⚠ **起こりえない応答を前提にしたテストは、
     # 応答の形を検査し始めた日に「壊れた」ように見える**（#272 で実際にそうなった）。
-    def status_body
-      return {
+    # @param content [String, nil] ⚠ **応答の本文（HTML）** — 🔴 **モロヘイヤが足した後の形**
+    def status_body(content: nil)
+      body = {
         id: '114514',
         url: "#{config['/mastodon/url']}/@test/114514",
         visibility: 'public',
-      }.to_json
+      }
+      body[:content] = content if content
+      return body.to_json
     end
   end
 end

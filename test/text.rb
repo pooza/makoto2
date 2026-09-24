@@ -9,6 +9,37 @@ module Makoto
   # 出ないかを決めている**ので、**上流が動いたら黙ってずれるのではなく赤くなる
   # ほうがよい**。
   class TextTest < TestCase
+    # 🔴 **応答の `content` を本文へ戻す**（#351）。⚠ **`</p>` は空行、`<br>` は改行。**
+    def test_from_html_restores_the_line_breaks
+      html = '<p>おはよう<br />真琴です</p><p>またね</p>'
+
+      assert_equal("おはよう\n真琴です\n\nまたね", Text.from_html(html))
+    end
+
+    # 🔴 **URL は元の長さで戻る**（⚠⚠ **Mastodon は span に割って入れているだけで、
+    # 切り詰めているのは CSS のほう**）。⚠ **戻らないと `proxy_added` が URL のぶん
+    # 短く出る。**
+    def test_from_html_restores_a_url_split_into_spans
+      html = '<p>みてね <a href="https://example.com/very/long/path" rel="nofollow">' \
+        '<span class="invisible">https://</span><span class="ellipsis">example.com/very</span>' \
+        '<span class="invisible">/long/path</span></a></p>'
+
+      assert_equal('みてね https://example.com/very/long/path', Text.from_html(html))
+    end
+
+    # ⚠ **実体参照を戻す**（🔴 **戻さないと `&amp;` が 5 字として数えられる**）。
+    def test_from_html_unescapes_entities
+      assert_equal('A&B <tag>', Text.from_html('<p>A&amp;B &lt;tag&gt;</p>'))
+    end
+
+    # ⚠ **タグの行が足された形**（モロヘイヤが足すのはこれ）。
+    def test_from_html_restores_an_appended_tag_line
+      html = '<p>こんにちは</p><p><a href="https://st2.precure.ml/tags/precure_fun"' \
+        ' class="mention hashtag" rel="tag">#<span>precure_fun</span></a></p>'
+
+      assert_equal("こんにちは\n\n#precure_fun", Text.from_html(html))
+    end
+
     # ⚠ **UTF-8 はそのまま。**
     def test_passes_utf8_through
       assert_equal('剣崎真琴', Text.utf8('剣崎真琴'))

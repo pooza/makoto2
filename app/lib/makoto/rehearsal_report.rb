@@ -71,6 +71,7 @@ module Makoto
       @heartbeat_errors = 0
       @revisions = Set.new
       @http_seconds = {}
+      @proxy_added = []
       lines.each {|line| consume(parse(line))}
     end
 
@@ -182,6 +183,19 @@ module Makoto
       end
     end
 
+    # ⚠ **モロヘイヤが足した字数の分布**（#351）。
+    #
+    # 🔴 **`/mastodon/proxy_reserve`（100 字）はここの max で引く。**⚠⚠ **見積もりのままだと、
+    # 辞書に多く当たる原稿で上限を超え、422 でその枠が消える**（`PERMANENT_STATUSES` なので
+    # 再送しない）。⚠ **リハーサル 1 回で 162 本ぶん採れる**ので、**1 回測って終わりにならない。**
+    #
+    # ⚠ **迂回した回は入らない**（🔴 **モロヘイヤが何もしていない**）。
+    def proxy_added
+      return nil if @proxy_added.empty?
+      sorted = @proxy_added.sort
+      return {count: sorted.size, min: sorted.first, median: median(sorted), max: sorted.last}
+    end
+
     # ⚠ **本文の組み立ては `RehearsalPresenter`**（🔴 **数える側と分けた** — 2026-09-19）。
     def to_s
       return RehearsalPresenter.new(self).to_s
@@ -210,6 +224,7 @@ module Makoto
       return count_phase(entry) if entry[:phase]
       return count_slot(entry) if entry[:post] && entry[:slot]
       return count_http(entry) if entry[:method] && entry[:url]
+      return count_post(entry) if entry[:mastodon] == 'post'
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
       return @travel = entry[:time_travel] if entry[:time_travel]
       return nil
@@ -294,6 +309,13 @@ module Makoto
     # ⚠ **リビジョンも拾う**（#348 / #242）。🔴 **`version` は `0.6.0` のまま何コミットでも
     # 進む**ので、⚠⚠ **見出しが「バージョン 0.6.0」だけだと、リハーサルの途中でデプロイが
     # 挟まっても報告書から分からない**（#242 が消したかった盲点がここに残っていた）。
+    # 🔴 **モロヘイヤが足した分を貯める**（#351）。⚠ **持たない行は捨てる**
+    # （迂回した回・`content` を持たない応答・`unexpected response shape` の警告）。
+    def count_post(entry)
+      return nil unless entry[:proxy_added]
+      return @proxy_added.push(entry[:proxy_added].to_i)
+    end
+
     def count_heartbeat(entry)
       # 🔴 **痕跡の書き込みが落ちた行は別に数える**（#362）。⚠ **`Scheduler` の `rescue` が
       # `{scheduler: 'heartbeat', error:}` を出す**（`schedule_heartbeat`）ので、⚠⚠ **1 回の
