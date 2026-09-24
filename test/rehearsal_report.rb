@@ -328,6 +328,16 @@ module Makoto
       assert_not_include(subject, '（実時間）')
     end
 
+    # 🔴 **弾いたときの 1 行は要約ではない**（#417）。⚠⚠ **`time_travel` の値が文字列**なので、
+    # **要約として拾うと見出しの組み立てが落ちる。**
+    def test_a_refused_time_travel_is_not_taken_as_the_summary
+      refused = '{"time_travel":"refused","error":{"message":"time travel: bad MAKOTO_TIME_SCALE"}}'
+      subject = report(refused, TRAVEL, SUCCESS)
+
+      assert_equal(10, subject.travel[:scale])
+      assert_nothing_raised {report(refused, SUCCESS).to_s}
+    end
+
     def test_heartbeat_and_version
       subject = report(HEARTBEAT, HEARTBEAT)
 

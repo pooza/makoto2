@@ -131,12 +131,39 @@ module Makoto
         return nil unless requested?
         # ⚠ テストは自前で時刻を作る。ここが効くと固定時刻の期待値が壊れる。
         return nil if Environment.test?
+        return engage!
+      end
+
+      # ⚠ **`activate!` の中身**（テストが `Environment.test?` を越えて呼べるように分けた）。
+      #
+      # 🔴 **弾いたら理由を 1 行残してから raise し直す**（#417・`0.7` のリリース前レビュー）。
+      # ⚠⚠ **ここは `require 'makoto'` の中**で、**`bin/makoto_daemon.rb` はその前に `$stderr` を
+      # `/dev/null` へ繋いでいる** — ⚠ **素で raise すると、#375 / #404 で書いた理由の文言は
+      # systemd の下で誰にも届かず、見えるのは 5 秒ごとの再起動だけ**（v0.6.0 の赤と同じ形）。
+      # 🔴 **止まる側に倒れる挙動は変えない**（偽の日付のまま本番へ出すくらいなら起動しない）。
+      def engage!
         verify!
         Timecop.travel(start_time)
         Timecop.scale(scale) unless scale == 1
         @active = describe
         logger.warn(time_travel: @active)
         return @active
+      rescue Ginseng::ConfigError => e
+        report_refusal(e)
+        raise
+      end
+
+      # 🔴 **観測のための 1 行で、弾いた理由の例外を上書きしない。**⚠⚠ **logger が落ちたら
+      # syslog へ、それも落ちたら諦める**（`Makoto.report_sentry_setup_error` と同じ倒し方）。
+      # ⚠ **理由の文言に秘密は載らない**（出発時刻・倍率・投稿先のホスト名・環境の名前だけ）。
+      def report_refusal(error)
+        logger.error(time_travel: 'refused', error: error)
+      rescue
+        begin
+          ::Syslog::Logger.new(Package.name).error("time travel: refused: #{error.message}")
+        rescue
+          return nil
+        end
       end
 
       # 人が読むための要約。⚠ **ハートビートのたびに出す**（→ `Scheduler`）。

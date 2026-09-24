@@ -232,7 +232,9 @@ module Makoto
       return count_http(entry) if entry[:method] && entry[:url]
       return count_post(entry) if entry[:mastodon] == 'post'
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
-      return @travel = entry[:time_travel] if entry[:time_travel]
+      # ⚠ **要約（Hash）だけを拾う**（#417）。🔴 **弾いたときの `{"time_travel":"refused",…}` は
+      # 文字列**で、**拾うと見出しが要約として読もうとして落ちる。**
+      return @travel = entry[:time_travel] if entry[:time_travel].is_a?(Hash)
       return nil
     end
 

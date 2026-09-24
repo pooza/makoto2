@@ -118,6 +118,40 @@ module Makoto
       end
     end
 
+    # 🔴 **弾いたら理由を 1 行残してから raise し直す**（#417）。⚠⚠ **常駐では `$stderr` が
+    # `/dev/null` なので、残さないと理由がどこにも届かない。**
+    def test_a_refusal_is_reported_and_still_raises
+      reported = []
+      with_singleton(TimeTravel, :report_refusal, ->(error) {reported.push(error)}) do
+        with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
+          assert_raise(Ginseng::ConfigError) {TimeTravel.engage!}
+        end
+      end
+
+      assert_equal(1, reported.size)
+      assert_match('/scheduler/tolerance', reported.first.message)
+    end
+
+    # 🔴 **観測の 1 行が落ちても、弾いた理由の例外を上書きしない**（#417）。
+    def test_a_broken_logger_does_not_mask_the_refusal
+      broken = Object.new
+      broken.define_singleton_method(:error) {|*| raise IOError, 'syslog is gone'}
+      with_singleton(TimeTravel, :logger, -> {broken}) do
+        with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
+          assert_raise(Ginseng::ConfigError) {TimeTravel.engage!}
+        end
+      end
+    end
+
+    # ⚠ **特異メソッドを一時的に差し替える。**🔴 **戻さないと後のテストに漏れる。**
+    def with_singleton(target, name, body)
+      original = target.method(name)
+      target.define_singleton_method(name, &body)
+      yield
+    ensure
+      target.define_singleton_method(name, original)
+    end
+
     def test_a_broken_scale_raises
       with_env(start: '2026-11-04 11:55:00 +0900', scale: '0') do
         assert_raise(Ginseng::ConfigError) {TimeTravel.scale}
