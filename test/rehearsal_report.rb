@@ -157,7 +157,7 @@ module Makoto
     # exec 2 回になり、`anomalous_slots` に落ちて赤になる** — 🔴 **毎リリースの結合
     # テストが、正常な回で落ちることになる**（→ docs のリリース手順 4）。
     def test_a_notify_entry_is_not_an_exec
-      subject = report(SUCCESS, NOTIFY)
+      subject = report(SUCCESS, NOTIFY, HEARTBEAT)
 
       assert_equal(1, subject.slots.size)
       assert_equal(1, subject.slots.values.first[:execs])
@@ -169,7 +169,7 @@ module Makoto
     # 🔴 **黙る日の 1 行も `exec` に数えない**（#277）。⚠⚠ **11/3・11/4 を回すリハーサルで、
     # 曲紹介の枠が「exec があるのに投稿されていない」に見えないこと。**
     def test_a_quiet_entry_is_not_an_exec
-      subject = report(SUCCESS, QUIET)
+      subject = report(SUCCESS, QUIET, HEARTBEAT)
 
       assert_equal(1, subject.slots.size)
       assert_empty(subject.anomalous_slots)
@@ -178,7 +178,7 @@ module Makoto
 
     # ⚠ **覚えなかった回も投稿の失敗ではない**（#284）。🔴 **履歴を切ってあれば毎回出る。**
     def test_a_notify_miss_is_not_a_failure
-      subject = report(SUCCESS, NOTIFY_MISS)
+      subject = report(SUCCESS, NOTIFY_MISS, HEARTBEAT)
 
       assert_equal(0, subject.failed)
       assert_false(subject.red?)
@@ -207,7 +207,7 @@ module Makoto
     end
 
     def test_counts_one_exec_per_line
-      subject = report(SUCCESS)
+      subject = report(SUCCESS, HEARTBEAT)
 
       assert_equal(1, subject.slots.size)
       assert_equal(1, subject.posted)
@@ -338,6 +338,49 @@ module Makoto
       assert_nothing_raised {report(refused, SUCCESS).to_s}
     end
 
+    # 🔴 **登録を見送った投稿は赤**（#416 / #350）。⚠⚠ **実機が出す 2 行をそのまま写した** —
+    # **どちらも `slot` を持たないので、受け皿が無かった頃は捨てていた**（**`live` の 160 枠が
+    # 丸ごと無くても、他の枠が通れば緑**）。
+    def test_a_rejected_post_is_red
+      daemon = '{"daemon":"MakotoDaemon","post":"live","error_class":"Ginseng::ConfigError",' \
+        '"error":{"message":"live: bad timetable"}}'
+      reject = '{"scheduler":"reject","post":"live","reason":"live: bad timetable"}'
+      subject = report(daemon, reject, HEARTBEAT, SUCCESS)
+
+      assert_equal([{post: 'live', reason: 'live: bad timetable'}], subject.rejects)
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '🔴 live: live: bad timetable')
+    end
+
+    # 🔴🔴 **どの受け皿にも入らなかった `error` 行は赤**（#416）。⚠⚠ **行の形を足すと集計が黙る
+    # 構造**を 4 回踏んだ（#284 / #348 / #351 / #416）ので、**最後に拾う。**
+    # ⚠ **実機が出す形**: 投稿の痕跡が書けない（`PostingJob`）／tick の例外（`Scheduler`）／
+    # 履歴の書き込み失敗（`TrackHistory`）。
+    def test_error_lines_without_a_counter_are_red
+      lines = [
+        '{"post":"song","heartbeat":"success","error":{"message":"EACCES"}}',
+        '{"scheduler":"tick","post":"song","error":{"message":"boom"}}',
+        '{"scheduler":"tick","error":{"message":"boom"}}',
+        '{"track":"history","post":"song","error":{"message":"database is locked"}}',
+      ]
+      subject = report(*lines, HEARTBEAT, SUCCESS)
+
+      assert_equal({'post:song' => 1, 'scheduler:tick post:song' => 1, 'scheduler:tick' => 1,
+        'track:history post:song' => 1}, subject.unclassified)
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '🔴 track:history post:song: 1 行')
+    end
+
+    # ⚠ **`error` を持たない行は拾わない**（登録・黙る日・「新しい曲が残っていない」の warn）。
+    def test_lines_without_an_error_stay_out_of_the_unclassified
+      nothing = '{"track":"history","post":"song","size":3,"message":"nothing fresh left"}'
+      subject = report(nothing, REGISTER, QUIET, HEARTBEAT, SUCCESS)
+
+      assert_empty(subject.unclassified)
+      assert_false(subject.red?)
+      assert_not_include(subject.to_s, '受け皿に入らなかった')
+    end
+
     def test_heartbeat_and_version
       subject = report(HEARTBEAT, HEARTBEAT)
 
@@ -366,11 +409,20 @@ module Makoto
       assert_equal(1, subject.lines)
     end
 
-    def test_an_empty_log_is_not_red
+    # 🔴 **空のログは赤**（#416）。⚠⚠ **`--since` の打ち間違い・unit 名の誤り・起動で落ちた回で
+    # 0 行になる** — ⚠ **「何も落ちていない」ではなく「何も見ていない」。**
+    def test_an_empty_log_is_red
       subject = report
 
-      assert_false(subject.red?)
-      assert_include(subject.to_s, '枠が 1 つも無い')
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '🔴 枠が 1 つも無い')
+    end
+
+    # 🔴 **ハートビートが 0 回でも赤**（#416）。⚠ **常駐が起きていないか、別の unit を読んでいる。**
+    def test_no_heartbeat_is_red
+      assert_true(report(SUCCESS).red?)
+      assert_false(report(SUCCESS, HEARTBEAT).red?)
+      assert_include(report(SUCCESS).to_s, '🔴 ハートビートが 1 回も無い')
     end
 
     # 🔴 **応答を伴わない失敗も赤**（#127・Codex の指摘）。⚠⚠ **`source` の例外・名前解決・
@@ -391,7 +443,7 @@ module Makoto
 
     # ⚠ **沈黙は赤にしない。**⚠⚠ **「今日は投稿しない」であって失敗ではない。**
     def test_a_silent_slot_is_not_red
-      subject = report(SILENCE)
+      subject = report(SILENCE, HEARTBEAT)
 
       assert_equal(0, subject.failed)
       assert_false(subject.red?)

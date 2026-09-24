@@ -16,7 +16,7 @@ module Makoto
     # ので、**「赤の判定に関わるものを上に置く」では並べられなくなった。**
     # ⚠ **赤の在り処は `RehearsalReport#red?` が正本**で、**この並びは読みやすさのため。**
     SECTIONS = [
-      :header, :execs, :posts, :notify, :slow, :http, :heartbeat, :blind
+      :header, :execs, :rejects, :posts, :notify, :slow, :http, :heartbeat, :unclassified, :blind
     ].freeze
 
     def initialize(report)
@@ -57,8 +57,18 @@ module Makoto
         out.push("#{mark} #{name}: #{row[:slots]} 枠 / exec #{row[:execs]} 回" \
           " / 枠あたり #{format_range(row[:range])}")
       end
-      out.push('  （枠が 1 つも無い）') if @report.slots.empty?
+      # 🔴 **枠が 0 は赤**（#416）。⚠ **「何も落ちていない」ではなく「何も見ていない」。**
+      out.push('🔴 枠が 1 つも無い（入力を間違えたか、常駐が起きていない）') if @report.slots.empty?
       out.push("🔴 #{@report.anomalous_slots.size} 枠が想定と違う") if @report.anomalous_slots.any?
+      return out.join("\n")
+    end
+
+    # 🔴 **起動時の検査で登録を見送った投稿**（#416 / #350）。⚠ **1 行も無いのが普通**なので、
+    # **無ければ節ごと出さない。**
+    def format_rejects
+      return nil if @report.rejects.empty?
+      out = ['', "登録を見送った投稿: #{@report.rejects.size} 本"]
+      out += @report.rejects.map {|row| "🔴 #{row[:post]}: #{row[:reason]}"}
       return out.join("\n")
     end
 
@@ -180,11 +190,23 @@ module Makoto
 
     def format_heartbeat
       out = ['', "ハートビート: #{@report.heartbeats} 回"]
+      # 🔴 **0 回は赤**（#416）。⚠ **常駐が起きていないか、別の unit を読んでいる。**
+      out.push('🔴 ハートビートが 1 回も無い（常駐が起きていないか、別の unit を読んでいる）') \
+        if @report.heartbeats.zero?
       # 🔴 **痕跡が書けなかった回を名指しする**（#362）。⚠⚠ **`/healthz` はこの痕跡を読む**ので、
       # ⚠ **書けていない間は死活監視が古い値を見ている** — **赤にしてある**（→ `RehearsalReport#red?`）。
       if @report.heartbeat_errors.positive?
         out.push("🔴 痕跡の書き込みが #{@report.heartbeat_errors} 回落ちた（監視が古い値を見ていた）")
       end
+      return out.join("\n")
+    end
+
+    # 🔴 **どの受け皿にも入らなかった `error` 行**（#416）。⚠⚠ **名札は行の欄から作る**
+    # （→ `RehearsalReport::LABEL_KEYS`）ので、**新しい形の行でも、どこで落ちたかが出る。**
+    def format_unclassified
+      return nil if @report.unclassified.empty?
+      out = ['', "集計の受け皿に入らなかった error 行: #{@report.unclassified.values.sum} 行"]
+      out += @report.unclassified.map {|label, count| "🔴 #{label}: #{count} 行"}
       return out.join("\n")
     end
 
