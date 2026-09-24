@@ -204,10 +204,14 @@ module Makoto
     private
 
     # ⚠ **偶数本は中央 2 つの平均。**🔴 **ログ自身が 3 桁で丸めている**ので、同じ桁で返す。
+    #
+    # 🔴 **`2.0` で割る**（#351・Codex の P2）。⚠⚠ **`proxy_added` は整数**なので、**`/ 2` だと
+    # 整数除算で切り捨てる**（**12 と 13 の中央が 12 になっていた**）。⚠ **所要（Float）の側は
+    # どちらでも同じ**なので、**整数の側に合わせる。**
     def median(sorted)
       half = sorted.size / 2
       return sorted[half] if sorted.size.odd?
-      return ((sorted[half - 1] + sorted[half]) / 2).round(3)
+      return ((sorted[half - 1] + sorted[half]) / 2.0).round(3)
     end
 
     def parse(line)

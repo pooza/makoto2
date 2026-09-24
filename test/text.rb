@@ -27,6 +27,15 @@ module Makoto
       assert_equal('みてね https://example.com/very/long/path', Text.from_html(html))
     end
 
+    # 🔴 **カスタム絵文字は `<img alt=":shortcode:">` で返る**（Codex の P2）。
+    # ⚠⚠ **alt を戻さないと、送った側にだけ shortcode が残って `proxy_added` が短く出る。**
+    def test_from_html_restores_a_custom_emoji_shortcode
+      html = '<p>おはよう <img draggable="false" class="emojione custom-emoji"' \
+        ' alt=":precure:" title=":precure:" src="https://st2.precure.ml/e.png"></p>'
+
+      assert_equal('おはよう :precure:', Text.from_html(html))
+    end
+
     # ⚠ **実体参照を戻す**（🔴 **戻さないと `&amp;` が 5 字として数えられる**）。
     def test_from_html_unescapes_entities
       assert_equal('A&B <tag>', Text.from_html('<p>A&amp;B &lt;tag&gt;</p>'))

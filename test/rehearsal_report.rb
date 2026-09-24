@@ -60,6 +60,12 @@ module Makoto
       assert_equal({count: 3, min: 12, median: 14, max: 40}, subject)
     end
 
+    # 🔴 **整数の中央 2 つを切り捨てない**（Codex の P2）。⚠⚠ **`/ 2` は整数除算**なので、
+    # **12 と 13 の中央が 12 になっていた** — ⚠ **162 本のうち中央 2 つが違う回で必ず偏る。**
+    def test_the_median_of_two_integer_samples_keeps_the_half
+      assert_in_delta(12.5, report(post_log(12), post_log(13)).proxy_added[:median], 0.0001)
+    end
+
     # ⚠ **迂回した回は入らない**（🔴 **「足されなかった」ではなく「測っていない」**）。
     def test_a_bypassed_post_carries_no_proxy_added
       assert_nil(report(POST_BYPASS).proxy_added)

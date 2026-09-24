@@ -75,6 +75,10 @@ module Makoto
     # @return [String] 本文
     def self.from_html(html)
       text = utf8(html).dup
+      # 🔴 **カスタム絵文字は `<img alt=":shortcode:">` で返る**（#351・Codex の P2）。
+      # ⚠⚠ **剥がす前に `alt` を戻す** — **戻さないと送った側にだけ shortcode が残り、
+      # `proxy_added` が短く出る**（⚠ **絵文字が多い原稿では負の値になる**）。
+      text.gsub!(/<img[^>]*\balt="([^"]*)"[^>]*>/, '\1')
       text.gsub!(/<br[^>]*>/, "\n")
       text.gsub!(%r{</p>}, "\n\n")
       text.gsub!(/<[^>]*>/, '')
