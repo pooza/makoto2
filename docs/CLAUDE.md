@@ -2766,6 +2766,12 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ⚠⚠ **`sentry-ruby` は `value` の末尾に ` (<例外クラス>)` を足す**（実測・7.0.0）ので、⚠ **長いメッセージを切るとクラス名が落ちる** — 🔴 **失われはしない**（**クラスは `SingleExceptionInterface#type` に別で入る**）。
 
+🔴🔴 **切る前に符号化を揃える**（Codex の P1）— ⚠⚠ **`Sequel` / SQLite の例外は非 ASCII を ASCII-8BIT で抱えて来る**（→ `Package#error_message`）ので、**素で `…`（UTF-8）と繋ぐと `Encoding::CompatibilityError`**。🔴 **`scrub` は fail-closed なので、その rescue がイベントを丸ごと落とす** — ⚠ **この上限が相手にしたい「長い SQL」そのものの形で、送るはずの例外が消えていた**（実測: `incompatible character encodings: UTF-8 and BINARY`）。
+
+⚠ **`Text.utf8` は使わない** — 🔴 **妥当でないバイト列で例外を上げる**ので、**落とさないために入れた手当てが別の理由で落とす形になる。**⚠⚠ **`Package#error_message` と同じ `force_encoding` ＋ `scrub`。**
+
+⚠ **長さの検査は 2 回**（🔴 **ASCII-8BIT の `length` はバイト数**なので、**揃える前は超えて見えても文字数では収まっていることがある**）。
+
 ##### ✅ 許可リストを掛けられるのはタグだけ
 
 ⚠ **実測**: `report_error` のキーワード引数に渡っているのは **`post` / `phase` / `daemon` の 3 つだけ**（**呼び出しは 8 か所** — `PostingJob` ×3 / `MakotoDaemon` ×2 / `Scheduler` ×3）。

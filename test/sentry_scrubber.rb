@@ -65,6 +65,36 @@ module Makoto
       assert_include(value, "…(#{original - SentryScrubber::MAX_TEXT_LENGTH} chars truncated)")
     end
 
+    # 🔴🔴 **ASCII-8BIT で来る長いメッセージでイベントを落とさない**（Codex の P1）。
+    #
+    # ⚠⚠ **`Sequel` / SQLite の例外は非 ASCII を ASCII-8BIT で抱えて来る**
+    # （→ `Package#error_message`）ので、**素で `…`（UTF-8）と繋ぐと
+    # `Encoding::CompatibilityError`** — 🔴 **`scrub` の rescue が拾ってイベントを丸ごと
+    # 落とす**（⚠ **この上限が相手にしたい「長い SQL」そのものの形**）。
+    def test_a_long_binary_message_does_not_drop_the_event
+      binary = ('台詞' * 200).dup.force_encoding(Encoding::ASCII_8BIT)
+      event = error_event(Sequel::DatabaseError.new(binary))
+      scrubbed = @scrubber.scrub(event)
+
+      assert_not_nil(scrubbed, 'イベントを落としてはいけない')
+      value = scrubbed.exception.values.first.value
+
+      assert_equal(Encoding::UTF_8, value.encoding)
+      assert_include(value, 'chars truncated')
+      assert_include(value, '台詞')
+    end
+
+    # ⚠ **揃える前の `length` はバイト数**なので、🔴 **文字数では収まっている非 ASCII の
+    # 短いメッセージを切らない**（⚠⚠ **150 バイト ＜ 150 文字にならない形**）。
+    def test_a_short_binary_message_is_not_truncated
+      binary = ('台詞' * 30).dup.force_encoding(Encoding::ASCII_8BIT)
+      event = error_event(Sequel::DatabaseError.new(binary))
+      value = @scrubber.scrub(event).exception.values.first.value
+
+      assert_not_include(value, 'chars truncated')
+      assert_equal(Encoding::UTF_8, value.encoding)
+    end
+
     # ⚠ **実測の長さのメッセージは 1 字も触らない**（🔴 **本物を切ったら調査に使えない**）。
     # ⚠⚠ **`bydo` の journal 50 日で最長の 57 字がこれ**（＋ `sentry-ruby` が足すクラス名）。
     def test_a_message_within_the_limit_is_untouched

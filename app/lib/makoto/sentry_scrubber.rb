@@ -121,9 +121,23 @@ module Makoto
     # ⚠ **`sentry-ruby` は `value` の末尾に ` (<例外クラス>)` を足す**（実測・7.0.0）ので、
     # 🔴 **長いメッセージを切るとクラス名が落ちる。**⚠⚠ **失われはしない** —
     # **クラスは `SingleExceptionInterface#type` に別で入る。**
+    #
+    # 🔴🔴 **符号化を揃えてから切る**（Codex の P1）。⚠⚠ **`Sequel` / SQLite の例外は
+    # 非 ASCII を ASCII-8BIT で抱えて来る**（→ `Package#error_message`）ので、**素で `…`
+    # （UTF-8）と繋ぐと `Encoding::CompatibilityError`** — 🔴 **`scrub` の rescue が拾って
+    # イベントを丸ごと落とす**（⚠ **この上限が相手にしたい「長い SQL」そのものの形**）。
+    #
+    # ⚠ **`Text.utf8` は使わない** — 🔴 **妥当でないバイト列で例外を上げる**ので、
+    # **落とさないためにここへ入れた手当てが、別の理由で落とす形になる。**
+    # ⚠⚠ **`Package#error_message` と同じ `force_encoding` ＋ `scrub`** にする。
+    #
+    # ⚠ **長さの検査を 2 回する。**🔴 **ASCII-8BIT の `length` はバイト数**なので、
+    # **揃える前は「150 を超えている」に見えても、文字数では収まっていることがある。**
     def truncate(text)
       return text if text.length <= MAX_TEXT_LENGTH
-      return "#{text[0, MAX_TEXT_LENGTH]}…(#{text.length - MAX_TEXT_LENGTH} chars truncated)"
+      utf8 = text.dup.force_encoding(Encoding::UTF_8).scrub
+      return utf8 if utf8.length <= MAX_TEXT_LENGTH
+      return "#{utf8[0, MAX_TEXT_LENGTH]}…(#{utf8.length - MAX_TEXT_LENGTH} chars truncated)"
     end
 
     # 🔴 **許可リストに無いキーは値ごと落とす**（#347）。
