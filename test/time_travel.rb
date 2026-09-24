@@ -101,6 +101,23 @@ module Makoto
       end
     end
 
+    # ⚠ **上限そのものは通る**（`1..MAX_SCALE` の右端）。🔴 **off-by-one で
+    # 「上限が使えない」形にしないため。**
+    def test_the_ceiling_itself_passes
+      with_env(start: '2026-11-04 11:55:00 +0900', scale: TimeTravel::MAX_SCALE.to_s) do
+        assert_equal(TimeTravel::MAX_SCALE, TimeTravel.scale)
+      end
+    end
+
+    # 🔴 **弾くときは理由も返す**（#404）。⚠⚠ **範囲だけを返すと「足りないから
+    # 上げればよい数字」に見える** — ⚠ **上限は実測から引いた値。**
+    def test_the_ceiling_error_says_why
+      with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
+        error = assert_raise(Ginseng::ConfigError) {TimeTravel.scale}
+        assert_match('/scheduler/tolerance', error.message)
+      end
+    end
+
     def test_a_broken_scale_raises
       with_env(start: '2026-11-04 11:55:00 +0900', scale: '0') do
         assert_raise(Ginseng::ConfigError) {TimeTravel.scale}
