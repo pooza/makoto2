@@ -53,6 +53,12 @@ module Makoto
     # `exec` 2 回の偽の赤になる**（→ #348 / #284）。
     PHASE_COUNTERS = {'notify' => :count_notify, 'slow' => :count_slow}.freeze
 
+    # ⚠ **受け皿に入らなかった `error` 行の名札に使う欄**（→ `count_unclassified`）。
+    # ⚠ **前から 2 つまで**（`scheduler:tick post:song` のように、どこで落ちたかが分かる粒度）。
+    LABEL_KEYS = [
+      :daemon, :scheduler, :track, :mastodon, :sentry, :time_travel, :post, :config
+    ].freeze
+
     # @param lines [Enumerable<String>] ログの行。⚠ **JSON でない行は捨てる**
     #   （例外のバックトレースは `  /path:12:in …` の素の行で出る）
     def initialize(lines)
@@ -73,12 +79,14 @@ module Makoto
       @http_seconds = {}
       @proxy_added = []
       @proxy_skipped = 0
+      @rejects = []
+      @unclassified = Hash.new(0)
       lines.each {|line| consume(parse(line))}
     end
 
     attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
       :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors,
-      :proxy_skipped
+      :proxy_skipped, :rejects, :unclassified
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -151,11 +159,27 @@ module Makoto
     # なので、🔴 **この行が出たら早送りでも実時間で本当に予算を超えている。**
     # ⚠ **計測そのものが落ちた回（`@slow_errors`）も倒す** — **測れていない窓は、この集計が
     # 嘘をつきうる窓**（#362 と同じ理屈）。
+    #
+    # 🔴 **見ていない回も赤**（#416・`0.7` のリリース前レビュー）。⚠⚠ **枠が 0 かハートビートが 0
+    # なら、入力を間違えたか常駐が起きていない** — ⚠ **「何も落ちていない」ではなく「何も見ていない」。**
+    # 🔴 **登録を見送った投稿（#350）と、受け皿に入らなかった `error` 行も赤**（→ `count_unclassified`）。
     def red?
+      return true if unseen?
       return true if anomalous_slots.any? || duplicated_slots.any?
       return true if @notify_failures.positive? || @heartbeat_errors.positive?
       return true if @slows.any? || @slow_errors.positive?
       return http_errors.positive? || failed.positive?
+    end
+
+    # 🔴 **何も見ていない**（#416）。⚠ **`--since` の打ち間違い・unit 名の誤り・起動で落ちた回。**
+    def blank?
+      return @slots.empty? || @heartbeats.zero?
+    end
+
+    # 🔴 **見えているはずのものが見えていない**（#416）— 何も見ていない回・登録を見送った投稿・
+    # 受け皿に入らなかった `error` 行。
+    def unseen?
+      return blank? || @rejects.any? || @unclassified.any?
     end
 
     def http_errors
@@ -231,11 +255,38 @@ module Makoto
       return count_slot(entry) if entry[:post] && entry[:slot]
       return count_http(entry) if entry[:method] && entry[:url]
       return count_post(entry) if entry[:mastodon] == 'post'
+      return consume_rest(entry)
+    end
+
+    # ⚠ **`consume` の続き**（`Metrics` の上限で割った）。🔴 **最後は必ず `count_unclassified`。**
+    def consume_rest(entry)
       return count_heartbeat(entry) if entry[:scheduler] == 'heartbeat'
       # ⚠ **要約（Hash）だけを拾う**（#417）。🔴 **弾いたときの `{"time_travel":"refused",…}` は
       # 文字列**で、**拾うと見出しが要約として読もうとして落ちる。**
       return @travel = entry[:time_travel] if entry[:time_travel].is_a?(Hash)
-      return nil
+      return count_reject(entry) if entry[:scheduler] == 'reject'
+      return count_unclassified(entry)
+    end
+
+    # 🔴 **起動時の検査で登録を見送った投稿**（#350 → `Scheduler#reject`）。⚠⚠ **`slot` を
+    # 持たないので、受け皿が無かった頃は捨てていた** — **`live` の 160 枠が丸ごと無くても緑だった**（#416）。
+    def count_reject(entry)
+      return @rejects.push(entry.slice(:post, :reason))
+    end
+
+    # 🔴🔴 **どの受け皿にも入らなかった `error` 行を数える**（#416）。⚠⚠ **この集計は行の種類を
+    # 欄の有無だけで判別する**ので、**ログに行の形を足すと、受け皿が無いまま黙って捨てられる**
+    # （#284 / #348 / #351 に続いて 4 回目）。⚠ **最後にここで拾えば、形を増やしても黙らない**
+    # — 🔴 **赤になって、報告書に名札が出る。**
+    #
+    # ⚠ **`errors` も拾う**（`{"config":"invalid","errors":[…]}` → `MakotoDaemon`）。
+    # ⚠⚠ **warn の行も混ざる**（`verify_credentials` の「確かめられなかった」など）— 🔴 **ログの本文に
+    # 水準の欄は無い**（重さは journal の `PRIORITY` 側）ので**分けられない。**⚠ **リハーサル中に
+    # 出たなら、どちらにしても読む価値がある。**
+    def count_unclassified(entry)
+      return nil unless entry[:error] || entry[:errors]
+      label = LABEL_KEYS.filter_map {|key| "#{key}:#{entry[key]}" if entry[key].is_a?(String)}
+      return @unclassified[label.first(2).join(' ').presence || '(名札なし)'] += 1
     end
 
     # 🔴 **`phase` を持つ行は `exec` ではない**（#284 / #277 / #348）。⚠ **受け皿のある
@@ -246,7 +297,8 @@ module Makoto
     # ⚠ **表に足せば、次に `phase` を増やす人が受け皿の有無を 1 か所で決められる。**
     def count_phase(entry)
       counter = PHASE_COUNTERS[entry[:phase]]
-      return counter ? send(counter, entry) : nil
+      # ⚠ **受け皿の無い `phase` でも、`error` を持つなら黙って捨てない**（#416）。
+      return counter ? send(counter, entry) : count_unclassified(entry)
     end
 
     # ⚠ **1 行 = `exec` 1 回。**結末で内訳を分ける（成功 / 失敗 / 沈黙）。
@@ -331,8 +383,12 @@ module Makoto
     # 取りこぼしが成功したように見える。**
     # ⚠ **数えるのは成功の行 1 本につき 1 回**（🔴 **負の警告の行は `status_id` を持たない**ので、
     # **同じ投稿を 2 回数えない**）。
+    #
+    # 🔴 **`status_id` の無い行は受け皿へ回す**（#419 の Codex の P2）。⚠⚠ **`proxy_added` の計測が
+    # 落ちた行（`{"mastodon":"post","message":"proxy_added failed","error":…}`）もここへ来る**ので、
+    # **素で捨てると `count_unclassified` まで届かない** — ⚠ **`error` を持たない警告は向こうで捨てる。**
     def count_post(entry)
-      return nil unless entry[:status_id]
+      return count_unclassified(entry) unless entry[:status_id]
       added = entry[:proxy_added]
       return @proxy_skipped += 1 unless added.is_a?(Numeric)
       return @proxy_skipped += 1 if added.negative?
