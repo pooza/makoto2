@@ -11,8 +11,8 @@ module Makoto
       @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
     end
 
-    # pid ファイルが指すプロセスの状態。⚠ **上流の `:alive` / `:dead` / `:unknown`
-    # に「身元」を足す**（#80 の黄 6）。
+    # 上流が読んだ番号 `found` が指すプロセスの状態。⚠ **上流の `:alive` / `:dead` /
+    # `:unknown` に「身元」を足す**（#80 の黄 6）。
     #
     # 🔴 **番号だけでは足りない。**⚠⚠ **`Process.alive_state` は「その番号が在るか」
     # しか見ない**ので、⚠ **pid が再利用されると無関係なプロセスを常駐だと答える**
@@ -23,44 +23,35 @@ module Makoto
     # 🔴 **ボットは一度も起動せず、理由もログに残らない**（warn は stderr →
     # `bin/makoto_daemon.rb` が `/dev/null` に落とす）。
     #
-    # 🔴 **`alive?` ではなくここを上書きする**（#101 / 2026-08-24）。⚠⚠ **上流が
-    # 起動と停止の判断に使うのは `alive_state` のほう**（`abort_if_running!` /
-    # `run_restart` / `run_status`）で、⚠ **`alive?` は「真偽 2 値のまま残した
-    # 既存の呼び出し側のため」の薄い述語**にすぎない。**あちらを上書きしても
-    # `run_start` は守れない。**
+    # ## 🔴 上書きするのは `alive_state` ではなく `alive_state_of`（#200・2026-09-20）
+    #
+    # ⚠⚠ **`alive_state` を上書きして `super` のあとに `pid` を読み直す形をやめた**
+    # （上流 [`ginseng-core#638`](https://github.com/pooza/ginseng-core/pull/638) が
+    # **「読んだ番号を受け取る上書き点」**を足したので移した・v1.24.0）。
+    #
+    # 🔴 **前の形は pid ファイルを 2 回読んでいた** — ⚠ **1 回目は `super` の中、
+    # 2 回目は身元を確かめるため**で、⚠⚠ **2 回の間に書き換わると「A の生死」に
+    # 「B の身元」を掛けた答え**になった（#200）。**ここで番号を受け取れば読み直さない。**
+    #
+    # ⚠ **`found` は nil にならない** — 🔴 **番号が取れなかったときの答えは上流の
+    # `alive_state` が決める**（**在るのに読めないなら `:unknown`・無いなら `:dead`**）。
+    # ⚠⚠ **したがって #257 で自分の箱に置いた `pid_file_unreadable?` の分岐は要らない**
+    # （**上流と同じ分け方が上流の側に入った**）。⚠ **ここで pid ファイルを読み直さないこと。**
+    #
+    # ## ⚠ 上書き点を選ぶ理由（`alive?` ではない・#101 / 2026-08-24）
+    #
+    # ⚠⚠ **上流が起動と停止の判断に使うのは `alive_state` のほう**（`abort_if_running!` /
+    # `run_restart` / `run_status`）で、⚠ **`alive?` は「真偽 2 値のまま残した既存の
+    # 呼び出し側のため」の薄い述語**にすぎない。**あちらを上書きしても `run_start` は
+    # 守れない。**🔴 **`alive_state_of` はその `alive_state` が通る唯一の点。**
     #
     # ⚠ **`:unknown`（`EPERM` ＝ 居るが触れない）はそのまま返す** — 🔴 **上流は
     # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
     # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
     # `:unknown` という 3 つ目の答えとして上流に入った。**
-    #
-    # 🔴 **番号が取れなかったら `:dead` に倒さない**（#257・上流 `ginseng-core#635`）。
-    # ⚠⚠ **`super` のあとに `pid` を呼び直すこの形を、上流が名指しで警告している**
-    # （`Daemon::PidFile#pid_file_unreadable?` のコメント）— **`pid` は「無い」も
-    # 「読めない」も `nil` に畳む**ので、⚠ **`daemon_pid?` の `pid&.positive?` が
-    # 「読めない」を `false` ＝「常駐ではない」に化けさせる。**
-    #
-    # 🔴 **帰結は二重起動。**⚠⚠ **`run_restart` は `run_stop unless alive_state == :dead`**
-    # なので、**生きている常駐を止めずに 2 本目を立てる**（⚠ **`run_start` のほうは
-    # 上流が `abort_if_running!` で先に拒むので届かない** — **こちらが塞ぐのは
-    # `restart` と `status` の経路**）。
-    #
-    # ⚠ **`1.23.5` までは踏まなかった** — **`pid` が `File.read(...).to_i` で、
-    # 読めなければ例外、空なら `0` だった**（🔴 **`nil` を返す枝そのものが無かった**）。
-    #
-    # 🔴🔴 **ただし `nil` を全部 `:unknown` に倒すと、今度は `restart` が止まる**
-    # （Codex の P2）。⚠⚠ **`super` が見たあとに常駐が終了して pid ファイルを消した**
-    # なら、**それは「読めない」ではなく「もう居ない」** — ⚠ **`:unknown` と答えると
-    # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
-    # **後継を起動しないまま終わる。**
-    #
-    # ⚠ **上流の `alive_state` と同じ分け方にする** — 🔴 **`pid_file_unreadable?` が
-    # 「在るのに読めなかった」だけを指す**（`ENOENT` では立たない）。
-    def alive_state
+    def alive_state_of(found)
       state = super
       return state unless state == :alive
-      # ⚠⚠ **確かめる番号が無いときだけ、読めなかったのか消えたのかを分ける。**
-      return pid_file_unreadable? ? :unknown : :dead unless (found = pid)
       return daemon_pid?(found, proc_dir: @proc_dir) ? :alive : :dead
     end
 
@@ -80,6 +71,8 @@ module Makoto
       logger.info(
         daemon: app_name, version: Package.version, revision: Package.revision, message: 'start',
       )
+      # 🔴 **Sentry の `release` にリビジョンまで載せる**（#347）。
+      tag_sentry_release
       # 🔴 **設定を起動時に 1 回検証する**（#99）。⚠ **止めない**（→ `validate_config`）。
       validate_config
       # ⚠ 登録より先に繋ぐ。原稿を引く口（`MessageSelector`）が接続を要る。
@@ -97,6 +90,8 @@ module Makoto
       # 🔴 **トークンが生きているかを起き上がりで 1 回見る**（#106）。
       # ⚠ **投稿はしないので副作用は無い。**
       verify_credentials
+      # 🔴 **投稿先の本文の上限を、設定と突き合わせる**（#351）。
+      verify_max_length
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -124,33 +119,89 @@ module Makoto
     # ⚠ **投稿の中身はここに書かない。**何を投稿するかは各機能が自分の `PostingJob`
     # を作って持つ（→ `Scheduler`）。ここは並べるだけ。
     # ⚠ **`Scheduler#exec` より前に呼ぶこと**（登録が 0 本だと tick そのものが作られない）。
+    #
+    # ## 🔴 検査に通らない投稿は見送り、常駐は上げる（#350）
+    #
+    # ⚠⚠ **以前は 1 本の検査が落ちると起動ごと拒んでいた** — **`monitor_server.start` に
+    # 届かないので `/healthz` は赤ではなく接続拒否**、**`systemd` が 5 秒ごとに叩き直して
+    # 同じところで落ち続ける。**🔴 **同じ故障が、稼働中なら 1 枠の劣化（#274）なのに、
+    # 起動時なら 7 枠全滅**という非対称だった。⚠ **`validate_config` はもともとこちらに
+    # 倒してある。**
+    #
+    # ⚠ **見送った投稿は痕跡に残し、`/healthz` が名前と理由を言う**（→ `Health#rejected_errors`）。
+    # ⚠⚠ **検査そのものは緩めていない** — **`rake config:lint` はこれまでどおり落ちる。**
     def register_jobs
-      jobs.each {|job| Scheduler.instance.register(job)}
+      built, rejected = build_jobs
+      rejected.each {|name, error| reject_job(name, error)}
+      built.each do |job|
+        Scheduler.instance.register(job)
+      rescue => e
+        reject_job(job.name, e)
+      end
       return Scheduler.instance
     end
 
-    # 常駐が回す投稿の一覧（登録はしない）。
+    # 常駐が回す投稿の一覧（登録はしない）。⚠ **1 本でも検査に通らなければ例外。**
     #
     # 🔴 **作るだけで各機能の起動時の検査が走る**（`Song#validate` など）。⚠⚠ **`rake config:lint`
     # が同じものを 1 回作る**（#276）— **スキーマで書けない相互条件**（「この type が
-    # `/message/anniversary` に登録されているか」）**で常駐が起動を拒むと、`systemd` が 5 秒
-    # ごとに叩き直し、`/healthz` も開かない**ので、**デプロイの前に拾う。**
+    # `/message/anniversary` に登録されているか」）**は、ここを通さないと常駐の起動で
+    # 初めて分かる**ので、**デプロイの前に拾う。**
     def jobs
-      return [
-        Announcement.new.job,
-        # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
-        # 何も返さない**（→ Morning / MessageSelector）。
-        Morning.new.job,
-        # ⚠ 曲紹介は 1 日 3 本（#16 / #292）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
-        # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
-        Song.new.job,
-        # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
-        # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
-        *Live.new.jobs,
-      ]
+      built, rejected = build_jobs
+      raise rejected.values.first if rejected.any?
+      return built
+    end
+
+    # 投稿を作り、作れなかったものを分けて返す（#350）。⚠ **例外を上げない。**
+    #
+    # 🔴 **1 本の検査で他を巻き込まない**（→ `register_jobs`）。⚠ **ライブは 4 本を 1 つの
+    # 検査で作る**ので、**見送るときも `live` の名前で 4 本まとめて。**
+    #
+    # @return [Array(Array<PostingJob>, Hash{String => Exception})]
+    def build_jobs
+      built = []
+      rejected = {}
+      job_sources.each do |name, source|
+        built.concat(Array(source.call))
+      rescue => e
+        rejected[name] = e
+      end
+      return built, rejected
+    end
+
+    # 見送りの理由を人が読む 1 行にする。⚠ **`ConfigError` は文が既に投稿の名前で
+    # 始まる**ので重ねない。⚠⚠ **それ以外はクラス名を添える**（`EISDIR` か `EACCES` かが
+    # 文だけでは残らない・→ `SongSource#spoken?`）。
+    def describe_rejection(error)
+      return error_message(error) if error.is_a?(Ginseng::ConfigError)
+      return "#{error.class}: #{error_message(error)}"
     end
 
     private
+
+    def job_sources
+      return {
+        Announcement::NAME => -> {Announcement.new.job},
+        # ⚠ 朝挨拶は毎朝 1 本（#17）。⚠⚠ **枠は毎日あるが、原稿が 1 件も無ければ
+        # 何も返さない**（→ Morning / MessageSelector）。
+        Morning::NAME => -> {Morning.new.job},
+        # ⚠ 曲紹介は 1 日 3 本（#16 / #292）。⚠⚠ **前置きの原稿が 0 件でも曲だけを出す**
+        # （→ Song / SongSource）。🔴 **原稿が無いことでは黙らない。**
+        Song::NAME => -> {Song.new.job},
+        # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
+        # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
+        'live' => -> {Live.new.jobs},
+      }
+    end
+
+    # ⚠ **起き上がれなかったときと同じく Sentry へ**（#28）— **`/healthz` を見に行かない
+    # 限り、1 本減ったことに気づけない。**
+    def reject_job(name, error)
+      logger.error(daemon: app_name, post: name, error_class: error.class.name, error: error)
+      report_error(error, daemon: app_name, post: name)
+      Scheduler.instance.reject(name, describe_rejection(error))
+    end
 
     # 🔴 **確かめた pid にだけ送る**（#162 / #169 / Codex の P1）。
     #
@@ -305,6 +356,40 @@ module Makoto
         logger.error(mastodon: 'verify_credentials', message: 'token is not valid', error: e)
       rescue => e
         logger.warn(mastodon: 'verify_credentials', message: 'could not verify the token', error: e)
+      end
+    end
+
+    # ⚠⚠ **`Package.version` だけでは `0.6.0` のまま何コミットでも進む**ので、Sentry の「初出」
+    # 「regression」が箱の中で区別できない（#242 と同じ粗さ）。⚠ **常駐だけ**で上書きする —
+    # 🔴 **require 時に `Package.revision` を呼ぶと、全 CLI が `git` を fork する。**
+    def tag_sentry_release
+      revision = Package.revision
+      return unless revision && defined?(Sentry) && Sentry.initialized?
+      Sentry.configuration.release = "#{Package.version}+#{revision}"
+    rescue => e
+      logger.warn(sentry: 'release', error: e)
+    end
+
+    # 投稿先が申告する本文の上限と、`/mastodon/max_length` を突き合わせる（#351）。
+    #
+    # 🔴 **設定は手で書いた値**で、⚠⚠ **投稿先の上限は環境変数 1 つで変わる**（キュアスタ！の
+    # `MAX_CHARS`）。⚠ **下がった日は、取り込みが古い上限で全部通し、投稿の瞬間に 422 で枠が消える。**
+    #
+    # ⚠ **`verify_credentials` と同じく別スレッド・ログだけ・常駐は止めない。**
+    #
+    # @return [Thread] ⚠ テストが待ち合わせに使う
+    def verify_max_length
+      return Thread.new do
+        budget = PostBudget.new
+        declared = MastodonService.new.declared_max_length
+        payload = {mastodon: 'max_length', configured: budget.limit, declared: declared}
+        if (problem = budget.limit_mismatch(declared))
+          logger.error(payload.merge(message: problem))
+        else
+          logger.info(payload)
+        end
+      rescue => e
+        logger.warn(mastodon: 'max_length', message: 'could not read the limit', error: e)
       end
     end
 

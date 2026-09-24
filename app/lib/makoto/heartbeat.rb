@@ -84,7 +84,10 @@ module Makoto
     # **再起動が挟まれば毎回そうなる。**⚠⚠ **成功は冪等キーで Mastodon 側が畳むのに、
     # 失敗だけ畳まれず、落ちた枠 1 つで閾値を 2 つ消費していた**（#81 の指摘・実測）。
     #
-    # 🔴 **「成功は冪等キーで畳まれる」は実機で成立していなかった**（#109・2026-08-18）。
+    # 🔴 **「成功は冪等キーで畳まれる」は実機で成立していなかった**（#109・2026-08-18。
+    # ⚠ **原因は上流の不具合で Mastodon `v4.7.2` で直った** — `with_idempotency` が
+    # `with_redis_lock` のブロックから `return` していた。→ docs/CLAUDE.md「投稿の
+    # 冪等キー」・#278）。
     # ⚠ **プロセス内の重なりは `PostingJob#claim` が塞いだ**ので、⚠⚠ **ここに残るのは
     # 再起動をまたぐ重なりだけ**（記憶はプロセスと一緒に消える）。**この数え直し防止は
     # まだ要る。**
@@ -119,15 +122,33 @@ module Makoto
       #
       # 🔴 **`revision` と `job_names` も残す**（#242）。⚠⚠ **`version` と `jobs` の本数だけでは、
       # 「マージしたあの修正が載っているか」「morning が登録されているか」に答えられない。**
-      def touch(jobs:, job_names: nil, now: nil)
+      #
+      # 🔴 **日付を騙していることも書く**（#174）。⚠⚠ **これを痕跡に置かないと、外から
+      # 誰も知る手段が無い** — ⚠ **`MAKOTO_FAKE_TIME` は systemd の drop-in で常駐にだけ
+      # 渡る**ので、**あとから人が叩く CLI の `ENV` には入っていない**（→ #154）。
+      # ⚠⚠ **騙していなければ `nil` を書く** — **書かずに残すと、撤収したあとも前の
+      # リハーサルの値が居座る。**
+      #
+      # 🔴 **登録を見送った投稿も書く**（#350）。⚠⚠ **`jobs` の本数が減っただけでは、
+      # どれがなぜ減ったかを外から知る手段が無い。**⚠ **無ければ `{}` を書く**（前の起動の
+      # 値を居座らせない・`travel` と同じ）。
+      #
+      # ⚠ **`job_names` は渡されたときだけ書く**（#354）。🔴 **本数だけを渡す呼び出しを足した日に、
+      # 痕跡から名前が消えないように。**
+      def touch(jobs:, job_names: nil, rejected: nil, now: nil)
         return update do |record|
+          record = record.merge(job_names: job_names) if job_names
           record.merge(
             at: (now || Time.now).getutc.iso8601,
             jobs: jobs,
-            job_names: job_names,
+            rejected: rejected || {},
             version: Package.version,
             revision: Package.revision,
             pid: Process.pid,
+            # 🔴 **常駐自身の Sentry の状態**（#347・Codex の P1）。⚠⚠ **CLI が自分で初期化して言うと、
+            # 設定を変えて再起動していない日に、常駐と違う状態を言う。**
+            sentry: Makoto.sentry_state.to_s,
+            travel: TimeTravel.active? ? TimeTravel.describe : nil,
           )
         end
       end
@@ -276,6 +297,15 @@ module Makoto
         return parse_time(stored[:started_at])
       end
 
+      # 🔴 **痕跡を書いた常駐が日付を騙していたか**（#174 → `touch`）。⚠ **騙していなければ nil。**
+      #
+      # ⚠⚠ **旧い痕跡（#174 より前の常駐）にはこの項目が無い**ので、**同じく nil になる** —
+      # ⚠ **「騙していない」と「分からない」を分けていない。**🔴 **分けても人にできることが
+      # 変わらない**（どちらでも `systemctl show makoto2 -p Environment` を見る）。
+      def travel
+        return stored[:travel]
+      end
+
       def jobs
         record = read
         return nil unless record
@@ -289,6 +319,12 @@ module Makoto
 
       def revision
         return read&.dig(:revision)
+      end
+
+      # 起動時に登録を見送った投稿と理由（#350）。⚠ **旧い痕跡・見送り無しは空。**
+      def rejected
+        found = read&.dig(:rejected)
+        return found.is_a?(Hash) ? found.transform_keys(&:to_s) : {}
       end
 
       # 最後のハートビートからの経過（秒）。⚠ **読めなければ nil。**

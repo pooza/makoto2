@@ -1,3 +1,5 @@
+require 'tmpdir'
+
 module Makoto
   # 原稿の運用操作（#12 / #50）。⚠⚠ **`export` は正本を `makoto-scripts` へ移すための口**
   # （#224）。🔴 **本文を public のこのリポジトリに出さない**ので、**書き出し先はファイルだけ。**
@@ -131,6 +133,41 @@ module Makoto
     # ⚠ **type を 1 つも渡さない場合も同じ経路**（`ConfigError`）。
     def test_preview_rejects_an_empty_type_list
       assert_include(capture_warning {command(types: '').preview}, 'no type given')
+    end
+
+    # 🔴 **`add` も取り込みと同じ壁を通る**（#352）。⚠⚠ **上限を超えた本文も、空の本文も入れない。**
+    def test_add_rejects_a_body_over_the_budget
+      body = 'あ' * (PostBudget.new.budget('holiday') + 1)
+
+      before = @repository.by_type('holiday').count
+
+      assert_include(capture_warning {command(type: 'holiday').add(body)}, '本文が長すぎます')
+      assert_equal(before, @repository.by_type('holiday').count)
+    end
+
+    def test_add_rejects_an_empty_body
+      before = @repository.by_type('holiday').count
+
+      assert_include(capture_warning {command(type: 'holiday').add(" \n")}, '本文がありません')
+      assert_equal(before, @repository.by_type('holiday').count)
+    end
+
+    def test_add_accepts_a_body_within_the_budget
+      body = 'あ' * PostBudget.new.budget('holiday')
+      capture {command(type: 'holiday').add(body)}
+
+      assert_predicate(@repository.by_type('holiday').where(body: body), :any?)
+    end
+
+    # ⚠ **報告は解決後のパス**（#355）。🔴 **リンク経由でも、実際に書いた場所を言う。**
+    def test_export_reports_the_resolved_path
+      link = File.join(Dir.mktmpdir('makoto-export-link'), 'dir')
+      File.symlink(@dir, link)
+      output = capture {command(out: File.join(link, 'morning.yaml')).export}
+
+      assert_include(output, "#{File.realpath(@dir)}/morning.yaml へ書き出しました")
+    ensure
+      FileUtils.remove_entry(File.dirname(link)) if link
     end
 
     def test_export_refuses_to_overwrite

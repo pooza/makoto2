@@ -25,7 +25,7 @@ module Makoto
       assert_includes(text, '♪ 〜SONGBIRD〜')
     end
 
-    # 🔴 **供給元の曲名が意図しないタグを作らない**（→ `StatusText`・2026-09-08）。
+    # 🔴 **供給元の曲名が意図しないタグを作らない**（→ `Service.escape_sigils`・2026-09-08）。
     # ⚠⚠ **実データは `#キボウレインボウ#` の 7 行**で、⚠ **`♪ ` の後ろなので
     # `#` の直前が空白になり、投稿先の `HASHTAG_RE` に当たる。**
     def test_a_title_starting_with_a_hash_does_not_become_a_tag

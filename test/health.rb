@@ -70,6 +70,49 @@ module Makoto
       return Heartbeat.touch(jobs: jobs, now: at || now)
     end
 
+    # 🔴 **起動時に見送った投稿は赤**（#350）。⚠⚠ **常駐は起動を拒まない**ので、
+    # **ここが言わないと 1 本少ないまま健全になる。**
+    def test_a_rejected_job_is_an_error
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 6, rejected: {'song' => 'song: broken'}, now: now)
+      subject = health(pid: Process.pid)
+
+      assert_equal(Health::ERROR, subject.code)
+      assert_include(subject.errors, 'song is not registered: song: broken')
+    end
+
+    # ⚠ **別の常駐が書いた見送りは言わない**（→ `own_heartbeat?`）。
+    def test_a_rejected_job_of_another_process_is_ignored
+      Heartbeat.record_tick(now: now)
+      Heartbeat.touch(jobs: 6, rejected: {'song' => 'song: broken'}, now: now)
+
+      assert_equal([], health(pid: Process.pid + 1).rejected_errors)
+    end
+
+    # 🔴 **持ち主・本数・名前・リビジョンを 1 回の読みから出す**（#354・Codex の P2）。
+    def test_identity
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+      own = health(pid: Process.pid).identity
+      foreign = health(pid: Process.pid + 1).identity
+
+      assert_equal([Process.pid, true, 2, ['morning', 'song']], [own.owner, own.own, own.jobs, own.job_names])
+      assert_equal([Process.pid, false, 2, nil, nil],
+        [foreign.owner, foreign.own, foreign.jobs, foreign.job_names, foreign.revision])
+    end
+
+    # 🔴 **常駐の Sentry が送れなければ警告**（#347・Codex の P2）。⚠⚠ **`errors`（復旧させる）には置かない。**
+    def test_a_misconfigured_sentry_is_a_warning
+      beat
+      Heartbeat.touch(jobs: 1, now: now)
+      Heartbeat.update {|record| record.merge(sentry: 'misconfigured')}
+      subject = health(pid: Process.pid)
+
+      assert_include(subject.warnings, 'sentry is misconfigured (a DSN is set but nothing will be sent)')
+      assert_empty(subject.errors)
+      assert_equal(Health::WARNING, subject.code)
+      assert_empty(health(pid: Process.pid + 1).sentry_warnings)
+    end
+
     def test_healthy
       beat
 

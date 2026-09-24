@@ -106,7 +106,7 @@ module Makoto
     # 🔴 **`Ginseng::ValidateError` も握る**（⚠⚠ **握らないと `PostingJob` まで抜けて、
     # #192 が守った「投稿そのものは失わない」が裏返る**）。
     def join(text, tags)
-      return [Text.utf8(text).rstrip, tags].join("\n")
+      return [Text.utf8(text, 'HashtagSource#join').rstrip, tags].join("\n")
     rescue ArgumentError, EncodingError, Ginseng::ValidateError => e
       logger.warn(hashtag: 'skipped', at: 'join', error: e)
       return text

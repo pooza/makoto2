@@ -20,7 +20,7 @@ Ruby は [.ruby-version](.ruby-version) のバージョンを使う。
 
 ```sh
 bundle install
-cp config/local_sample.yaml config/local.yaml   # 秘密情報はここに書く（コミットしない）
+cp config/local_sample.yaml config/local.yaml  # 秘密情報はここに書く（コミットしない）
 bundle exec rake migration:run
 ```
 
@@ -33,22 +33,31 @@ bin/makoto_daemon.rb start|stop|restart|status
 運用操作は CLI のサブコマンドで行う（管理コンソールは作らない）。
 
 ```sh
-bin/makoto version   # バージョンと実行環境
-bin/makoto config    # 設定（秘密情報はマスクされる）
-bin/makoto whoami    # Mastodon のアカウントを表示（投稿はしない）
-bin/makoto post TEXT # 投稿する
-bin/makoto corpus import   # 台詞コーパスを投入する（何度実行してもよい）
-bin/makoto corpus stat     # 投入済みコーパスの件数
-bin/makoto track import    # 曲データを投入する（何度実行してもよい）
+bin/makoto tree  # サブコマンドの一覧（下は抜粋）
+
+bin/makoto version  # バージョンと実行環境
+bin/makoto config  # 設定（秘密情報はマスクされる）
+bin/makoto whoami  # Mastodon のアカウントを表示（投稿はしない）
+bin/makoto post TEXT  # 投稿する
+
+bin/makoto corpus import  # 台詞コーパスを投入する（何度実行してもよい）
+bin/makoto corpus stat  # 投入済みコーパスの件数
+bin/makoto track import  # 曲データを投入する（何度実行してもよい）
+bin/makoto track stat  # 曲データの件数（kind ごと・抽選の母集合）
 bin/makoto message import PATH --prune  # 原稿・台本をファイルから取り込む
-bin/makoto morning preview --days=7      # 朝挨拶を数日ぶん下見する（投稿しない）
+
+bin/makoto morning preview --days=7  # 朝挨拶を数日ぶん下見する（投稿しない）
+bin/makoto morning slot  # 朝挨拶の枠・原稿の本数・一周の長さ
+bin/makoto song preview  # 曲紹介を数日ぶん下見する（投稿しない）
+bin/makoto song sample  # kind ごとに本文を組んで表示する（投稿しない）
+bin/makoto song slot  # 曲紹介の枠・前置きの本数・抽選の母集合
 bin/makoto live setlist --date=2026-11-04 --mc  # ライブの並びを下見する（投稿しない）
 ```
 
 死活監視はここを叩く。⚠⚠ **終了コードで返す。**
 
 ```sh
-bin/makoto status    # 0 健全 / 1 異常（復旧させる）/ 2 警告（人が見る）
+bin/makoto status  # 0 健全 / 1 異常（復旧させる）/ 2 警告（人が見る）
 ```
 
 ⚠ **`2` で復旧を叩かせないこと。**孤児プロセスは再起動の瞬間に一時的に 2 本になりうるので、**検知 → 再起動 → 検知のループ**になる。⚠⚠ **投稿の失敗（`posting`）も `2`** — **トークンの失効も設定の欠落も、常駐を入れ直しても直らない。**
@@ -58,9 +67,9 @@ bin/makoto status    # 0 健全 / 1 異常（復旧させる）/ 2 警告（人�
 箱の外（Uptime Kuma など）からは HTTP で叩く。⚠ **常駐の中で開くので、常駐が落ちれば口も閉じる。**
 
 ```sh
-curl http://127.0.0.1:4567/healthz           # 生死・ハートビート・登録本数（＝ 1）
-curl http://127.0.0.1:4567/healthz/posting   # 投稿が続けて落ちていないか（＝ 2）
-curl http://127.0.0.1:4567/healthz/orphans   # 孤児プロセス（＝ 2）
+curl http://127.0.0.1:4567/healthz  # 生死・ハートビート・登録本数（＝ 1）
+curl http://127.0.0.1:4567/healthz/posting  # 投稿が続けて落ちていないか（＝ 2）
+curl http://127.0.0.1:4567/healthz/orphans  # 孤児プロセス（＝ 2）
 ```
 
 ⚠⚠ **既定は `127.0.0.1` なので、外から叩くには `config/local.yaml` に `monitor.bind` を書く。**⚠ **LAN 限定・読み取り専用の死活の口**であって、管理コンソールではない。
@@ -70,8 +79,8 @@ curl http://127.0.0.1:4567/healthz/orphans   # 孤児プロセス（＝ 2）
 ## 開発
 
 ```sh
-bundle exec rubocop         # lint
-bundle exec rake test       # テスト
+bundle exec rubocop  # lint
+bundle exec rake test  # テスト
 bundle exec rake config:lint  # 設定のスキーマ検証
 ```
 

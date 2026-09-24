@@ -19,9 +19,13 @@ module Makoto
     option :feature, type: :string, desc: '人手のメタ情報（任意）'
     desc 'add BODY', '原稿を足す'
     def add(body)
+      type = options[:type]
       date = parse_date(options[:date])
-      id = MessageRepository.new.create(
-        type: options[:type],
+      # 🔴 **取り込みと同じ壁を通す**（#352）。⚠⚠ **素通りすると、上限を超えた本文が DB に入り、
+      # 当たった枠で 422 ＝ 再送なしで消える**（#282）。
+      PostBudget.new.validate(type, body, type, dated: date[:month].present?)
+      id = repository.create(
+        type: type,
         body: body,
         year: date[:year],
         month: date[:month],
@@ -117,7 +121,7 @@ module Makoto
       file = ScriptExportFile.new(options[:out], force: options[:force])
       records = export_records(options[:type].split(','), exclude_ids(options[:exclude]))
       file.write(export_header(records) + records.to_yaml)
-      puts "#{records.size} 件を #{options[:out]} へ書き出しました"
+      puts "#{records.size} 件を #{file.path} へ書き出しました"
     rescue Errno::EEXIST
       warn "#{options[:out]} は既にあります（上書きするなら --force）"
       exit 1

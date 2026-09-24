@@ -58,9 +58,46 @@ module Makoto
     # モロヘイヤの都合を巻き込まない** — nginx の `map` が掛かるのは投稿の側で、
     # ⚠⚠ **#106 で失効を見に行くときに「モロヘイヤが落ちている」が「トークンが
     # 死んでいる」に化けると、当日いちばん困る形**になる。
+    #
+    # 🔴 **リダイレクト先のホストを検証する**（#349）。⚠⚠ **HTTParty が既定でリダイレクトを
+    # 追うのに、`options[:headers]` に直接置いた `Authorization` はホストが変わっても
+    # 剥がされない**（守られるのは `basic_auth` / `digest_auth` だけ）。⚠ **`/mastodon/url` の
+    # vhost が 301 / 302 を返す構成になった日**（nginx の `return 301`・ドメインの移転・
+    # 証明書切替時の暫定）に、🔴 **常駐の起動ごと（`MakotoDaemon#verify_credentials`）と
+    # `makoto whoami` のたびに、フルスコープのボットトークンが転送先ホストへ送られる。**
+    #
+    # ⚠ **`follow_redirects: false` で一律に切らず、`host_validator` を渡す**
+    # （🔴 **ginseng-core が用意した口** — **ホップごとにホストを検証**し、
+    # ⚠⚠ **オリジンが変わる先へは資格情報のヘッダとオプションを渡さない**）。
+    # ⚠ **同一ホストの 301（`http` → `https` など）は追えるまま**で、**別ホストは
+    # `GatewayError "Rejected host '...'"` で落ちる** — ⚠⚠ **3xx が黙って `nil` の
+    # 本文になるのではなく、読めるエラーになる。**
+    #
+    # 🔴 **上流 [`ginseng-fediverse#280`](https://github.com/pooza/ginseng-fediverse/issues/280)
+    # が入っても、ここは畳まない** — ⚠⚠ **上流の `MastodonService` は
+    # `verify_credentials` を持たず、この呼び出し口は makoto2 のもの**（#282 で
+    # 塞いだ投稿の口とは分界が違う）。
     def account
-      response = http.get('/api/v1/accounts/verify_credentials', {headers: direct_headers})
+      response = http.get('/api/v1/accounts/verify_credentials', {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+      })
       return response.parsed_response
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # 投稿先が申告する本文の上限（#351）。⚠ **無ければ nil。**
+    #
+    # 🔴 **上流の `max_post_text_length` を使わない** — ⚠⚠ **取れないと設定の既定値（500）に
+    # 倒れる**ので、**「申告が 500」と「聞けなかった」の区別が付かない。**⚠ **聞けなければ例外。**
+    #
+    # ⚠ **トークンは付けない**（公開の口）。⚠ **経路の設定に関わらず直で聞く**（→ `#account`）。
+    def declared_max_length
+      response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
+      body = response.parsed_response
+      return nil unless body.is_a?(Hash)
+      return body.dig('configuration', 'statuses', 'max_characters')&.to_i
     rescue Ginseng::GatewayError => e
       raise classify(e)
     end
@@ -79,6 +116,13 @@ module Makoto
         url: status['url'],
         visibility: status['visibility'],
         length: text.to_s.length,
+        # 🔴 **投稿先と同じ数え方の長さも並べる**（#351）。⚠⚠ **`length` はコードポイントで、
+        # 上限（`PostBudget`）は書記素 ＋ URL 23 字** — **422 の日に 1 行で突き合わせられない。**
+        post_length: PostBudget.length(text),
+        # 🔴 **モロヘイヤが足した分を毎回残す**（#351）。⚠⚠ **`/mastodon/proxy_reserve`
+        # （100 字）は見積もりのまま**で、**辞書に多く当たる原稿ほど足される分が増える** —
+        # ⚠ **1 回測って終わりにならない形にする。**
+        proxy_added: proxy_added(text, status),
         # 🔴 **経路をログに出す**（#124）。⚠⚠ **「モロヘイヤを通っていない」ことに
         # 3 週間気付かなかったのは、投稿が 200 で返り、ログにも成功としか出ていな
         # かったから。**⚠ **経路の間違いは投稿の失敗として現れない。**
@@ -89,27 +133,82 @@ module Makoto
       raise classify(e)
     end
 
-    # 🔴 **投稿の口ではリダイレクトを追わない**（#282）。⚠⚠ **HTTParty の既定のまま追うと、
-    # 301 / 302 で POST が GET に化けて body が捨てられ、`Authorization` と `Idempotency-Key`
-    # が別ホストのリダイレクト先へもそのまま送られる。**⚠ **Mastodon の投稿 API はリダイレクトを
-    # 返さない**ので、3xx が来た時点で相手が違う（→ `validate_status` が「status ではない」で落とす）。
+    private
+
+    # 🔴 **モロヘイヤが足した分**（#351）。⚠ **応答の `content` が「足された後の本文」**
+    # なので、**読み取り権は要らない**（🔴 **`/api/v1/statuses/:id/source` は `read` が要るが、
+    # 投稿そのものの応答は `write` で返る**）。
     #
-    # ⚠⚠ **暫定の上書き。**上流の `post` はオプションを外から受けないので、**同じ内容を上流へ
-    # 出した**（[`ginseng-fediverse#278`](https://github.com/pooza/ginseng-fediverse/pull/278)）。
-    # 🔴 **入ってタグが出たら、このメソッドを消して引き上げる**（中身は上流の写しなので、
-    # 上流が `post` を組み替えた日に黙って古くなる）。
-    def post(body, params = {})
-      body = {status: body.to_s} unless body.is_a?(Hash)
-      body = body.deep_symbolize_keys
-      body[:in_reply_to_id] = params.dig(:reply, :id) if params[:reply]
-      return http.post('/api/v1/statuses', {
-        body: body.compact,
-        headers: create_headers(params[:headers]),
-        follow_redirects: false,
-      })
+    # ⚠ **迂回しているときは `nil`**（**モロヘイヤが何もしていないので測る対象が無い**）。
+    #
+    # 🔴🔴 **ここで例外を上げない。**⚠⚠ **投稿は既に成功している** — **記録の都合で
+    # 「成功した投稿が失敗した」に化けさせない**（fail-open）。⚠ **`PostingJob` はこの先で
+    # `record(:success)` と `notify` へ進む**ので、**ここで落ちると履歴も監視も巻き添えになる。**
+    def proxy_added(text, status)
+      return nil unless mulukhiya_enable?
+      # ⚠ **`content` を持たない応答も通す**（🔴 **本物の Status は必ず持つ**が、
+      # **前段が返す 200 の作り物は持たない** — → `validate_status`）。
+      return nil if status['content'].blank?
+      final = Text.from_html(status['content'])
+      return nil if final.empty?
+      added = PostBudget.length(final) + mention_loss(status) - PostBudget.length(text)
+      return warn_over_reserve(added) if added >= 0
+      # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+      # **負なら応答の HTML から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと
+      # 信用できなくなる。**🔴 **「知らない形が来た」を 1 行として見えるようにする。**
+      #
+      # 🔴🔴 **欄の名前を変える**（Codex の P2）。⚠⚠ **`proxy_added` のままだと、この診断の行を
+      # `RehearsalReport#count_post` が拾い、捨てたはずの負の値が分布へ入る** —
+      # ⚠ **歯止めが、歯止めようとした値を自分で流し込む形になっていた。**
+      logger.warn(mastodon: 'post', message: 'proxy_added is negative', rejected_length: added)
+      return nil
+    rescue => e
+      logger.warn(mastodon: 'post', message: 'proxy_added failed', error: e.class.to_s)
+      return nil
     end
 
-    private
+    # 🔴 **予約を超えたら 1 行残す**（#351）。
+    #
+    # ⚠⚠ **`/mastodon/proxy_reserve` は「原稿に許される長さ」を決める根拠**（`PostBudget#limit`）
+    # なので、🔴 **超えたまま気付かないと、上限に近い原稿で 422 になり、その枠が消える**
+    # （`PERMANENT_STATUSES` なので再送しない）。
+    #
+    # ⚠ **この 1 本は落とさない** — **3000 字にはまだ遠い**。⚠⚠ **止めるのではなく、
+    # 線が合っていないことを見せる。**🔴 **2026-09-24 に予約 100 が実測 159 に負けていた**のに
+    # 誰も気付かなかったのは、**超えたことを言う口がどこにも無かったから。**
+    #
+    # 🔴 **`positive?` で条件を絞らない**（Codex の P2 と同じ形）— ⚠⚠ **予約が 0 なら
+    # `PostBudget` は 1 字も取っていない** ＝ **いちばん見たい状態。**
+    #
+    # ⚠ **欄名に `proxy_added` を使わない** — 🔴 **`RehearsalReport#count_post` が拾い、
+    # 集計へ二重に入る**（**同じ形で 1 度踏んでいる**）。
+    def warn_over_reserve(added)
+      reserve = optional_config('/mastodon/proxy_reserve', 0).to_i
+      return added unless added > reserve
+      logger.warn(mastodon: 'post', message: 'proxy_added exceeds the reserve',
+        exceeded_length: added, reserve: reserve)
+      return added
+    end
+
+    # 🔴 **リモートのメンションは HTML から戻らない**（#351・Codex の P2）。
+    #
+    # ⚠⚠ **Mastodon は `@alice@remote.example` を「見える文字は `@alice` だけ」の h-card で返す**
+    # （`<a class="mention">@<span>alice</span></a>`）ので、**タグを剥がすとドメインが消える。**
+    # ⚠ **送った側には残っているので差が縮み、負の値になりうる。**
+    #
+    # ✅ **応答の `mentions` から戻す** — **`acct` と `username` の差 ＝ 消えた `@domain` の長さ。**
+    # ⚠ **同じ相手を 2 回書いた回は 1 回ぶんしか戻らない**（🔴 **`mentions` は相手ごとに 1 件**）。
+    #
+    # ⚠⚠ **いまの投稿にメンションは 1 件も無い**（実測・**原稿 606 本 ＋ 曲 4,305 行で 0 件**）—
+    # 🔴 **踏むのは #18 のチャットボットから**（**返信は必ず相手を名指しする**）。
+    def mention_loss(status)
+      mentions = status['mentions']
+      return 0 unless mentions.is_a?(Array)
+      return mentions.sum do |mention|
+        next 0 unless mention.is_a?(Hash)
+        PostBudget.length(mention['acct']) - PostBudget.length(mention['username'])
+      end
+    end
 
     # 🔴 **200 で status でないものが返る形を弾く**（#272）。
     #

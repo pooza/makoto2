@@ -36,11 +36,48 @@ module Makoto
     end
 
     # 🔴 **起動時のリビジョンと枠の名前を残す**（#242）。⚠ **旧い痕跡には無いので nil。**
+    # 🔴 **騙した日付を痕跡に書く**（#174）。⚠⚠ **外から知る手段がこれしか無い** —
+    # ⚠ **drop-in の env は常駐にだけ渡るので、CLI からは見えない。**
+    def test_touch_records_the_time_travel
+      with_time_travel {Heartbeat.touch(jobs: 1, now: now)}
+
+      assert_equal('2026-11-04T11:58:00+09:00', Heartbeat.travel[:start])
+      assert_equal(10, Heartbeat.travel[:scale])
+    end
+
+    # ⚠⚠ **撤収したら消える**（#174）。🔴 **残す側に倒すと、実時間に戻った常駐の画面に
+    # 前のリハーサルの値が居座る** — ⚠ **「まだ騙している」の偽の合図になる。**
+    def test_touch_clears_the_time_travel
+      with_time_travel {Heartbeat.touch(jobs: 1, now: now)}
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_nil(Heartbeat.travel)
+    end
+
     def test_touch_keeps_the_revision_and_the_job_names
       Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
 
       assert_equal(['morning', 'song'], Heartbeat.job_names)
       assert_equal(Package.revision, Heartbeat.revision)
+    end
+
+    # ⚠ **`job_names` を渡さない `touch` は名前を消さない**（#354）。
+    def test_touch_without_job_names_keeps_them
+      Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
+      Heartbeat.touch(jobs: 2, now: now)
+
+      assert_equal(['morning', 'song'], Heartbeat.job_names)
+    end
+
+    # 🔴 **登録を見送った投稿を残す**（#350）。⚠ **無ければ空に戻す**（前の起動の値を居座らせない）。
+    def test_touch_records_and_clears_the_rejected_jobs
+      Heartbeat.touch(jobs: 6, rejected: {'song' => 'song: broken'}, now: now)
+
+      assert_equal({'song' => 'song: broken'}, Heartbeat.rejected)
+
+      Heartbeat.touch(jobs: 7, now: now)
+
+      assert_equal({}, Heartbeat.rejected)
     end
 
     def test_read_without_file

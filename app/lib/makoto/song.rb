@@ -50,7 +50,7 @@ module Makoto
   # ⚠⚠ **供給元の曲名が `#` で始まると、投稿はそのタグのタイムラインにも載る**
   # （実データは `#キボウレインボウ#` の 7 行）。⚠ **自分で足していなくても、
   # 結果として付く。**✅ **`TrackPresenter#to_s` が組み上げた本文に
-  # `StatusText.escape_unintended` を当てて塞いだ**（→ `StatusText`）。
+  # 上流の `Service.escape_sigils` を当てて塞いだ**（→ `TrackPresenter#to_s`・#327）。
   #
   # ## ✅ 最近出した曲は避ける（#41）
   #
@@ -89,9 +89,12 @@ module Makoto
 
     # 🔴 **`kind` ごとの前置きの type**（#293）。`{kind => type}`。
     #
-    # ⚠⚠ **抽選で出る曲の約 4 割は歌の無い曲**（`bgm` 23.5% / `karaoke` / `tv_size` /
-    # `instrumental` 各 5.9%）なので、**1 つの type だと「口ずさむ」のような前置きが
-    # 劇伴やカラオケに付く。**
+    # ⚠⚠ **抽選で出る曲の約 3 分の 1（35.3%）は歌の無い曲**（`bgm` 23.5% ＋ `karaoke`
+    # 5.9% ＋ `instrumental` 5.9%）なので、**1 つの type だと「口ずさむ」のような
+    # 前置きが劇伴やカラオケに付く。**
+    #
+    # ⚠ **`tv_size` は数えない**（🔴 **2026-09-19 に「約 4 割 / 41.2%」から直した** ＝ #315）—
+    # **歌のある曲の短縮版なので、この表でも `song_vocal` に束ねてある。**
     #
     # ⚠ **設定が無ければ空**（＝全部の `kind` が共通だけ ＝ #293 より前の形 → #77）。
     # ⚠ **複数の `kind` が同じ type を指してよい**（`vocal` と `tv_size` など）。
@@ -220,12 +223,19 @@ module Makoto
     #
     # ⚠ **投稿の瞬間に壊れても枠は落ちない**（→ `TrackHistory#exclude`）ので、
     # **「起動で落ちるか、落ちなければ投稿は出る」の二択になる。**
+    #
+    # 🔴 **DB の例外だけを受けない**（#350）。⚠⚠ **この経路は別名表
+    # （`TrackAliases#load_groups`）も通る**ので、**表がディレクトリ・権限が無い
+    # （`Errno::EISDIR` / `EACCES`）、行が Hash でない（`TypeError`）も来る** —
+    # ⚠ **`SongSource#spoken?`（#312）と揃える。**⚠ **クラス名を文に入れる**
+    # （`rake config:lint` の 1 行だけで、DB か表かが分かるように）。
     def validate_history
       return unless history.enabled?
       history.recent_keys
-    rescue Sequel::DatabaseError, Ginseng::ValidateError => e
+    rescue => e
+      reason = "#{e.class}: #{error_message(e)}"
       raise Ginseng::ConfigError,
-        "song: #{PREFIX}/history is not readable (rake migration:run?): #{error_message(e)}"
+        "song: #{PREFIX}/history is not readable (rake migration:run?): #{reason}"
     end
 
     # 🔴 **`kind` の綴りを間違えたら落とす**（#293）。⚠⚠ **`/track/weight` に無い `kind`

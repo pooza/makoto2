@@ -59,6 +59,20 @@ module Makoto
       assert_include(error.message, 'track_history')
     end
 
+    # 🔴 **DB 以外の壊れ方も起動の検査で拾う**（#350）。⚠⚠ **この経路は別名表も通る**ので、
+    # **表がディレクトリ（`Errno::EISDIR`）でも `ConfigError` の 1 行になる**（クラス名つき）。
+    def test_rejects_an_unreadable_alias_table
+      broken = Object.new
+      def broken.recent_keys(*)
+        raise Errno::EISDIR, 'seed/track_aliases.yaml'
+      end
+      history = TrackHistory.new(post: Song::NAME, size: 3, repository: broken)
+      subject = Song.new(repository: @repository, tracks: @tracks, history: history)
+
+      error = assert_raise(Ginseng::ConfigError) {subject.job}
+      assert_include(error.message, 'Errno::EISDIR')
+    end
+
     # ⚠ **履歴を止めていれば読みに行かない**（#77）。
     def test_skips_the_history_check_when_disabled
       broken = Object.new

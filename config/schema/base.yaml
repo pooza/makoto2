@@ -275,9 +275,6 @@ properties:
         additionalProperties: false
     required:
       - anniversary
-  # 監視の口（#84）。⚠⚠ 3 つとも required にする — optional_config で既定値に
-  # 逃がすと、⚠ 設定を消しただけで監視の口が静かに閉じる（#77 の裏返し。
-  # /scheduler/posting/failure_limit と同じ判断）。
   # 朝挨拶（#17）。⚠ 欠けると PostingJob が作れず、毎朝 1 本も出ない。
   # ⚠⚠ type は /message/anniversary に登録しないこと（登録すると通年の段から外れる）。
   morning:
@@ -344,6 +341,9 @@ properties:
     required:
       - type
       - timetable
+  # 監視の口（#84）。⚠⚠ 3 つとも required にする — optional_config で既定値に
+  # 逃がすと、⚠ 設定を消しただけで監視の口が静かに閉じる（#77 の裏返し。
+  # /scheduler/posting/failure_limit と同じ判断）。
   monitor:
     type: object
     properties:
@@ -435,7 +435,9 @@ properties:
         type:
           - string
           - 'null'
-        pattern: '^https://'
+        # 🔴 **DSN の形（`https://<鍵>@<ホスト>/<プロジェクト>`）まで見る**（#347）。⚠⚠ **`^https://`
+        # だけだと、Web UI のプロジェクトの URL を貼っても通り、初期化に成功して 1 件も送らない。**
+        pattern: '^https://[^@/]+@[^/]+/.+'
       traces_sample_rate:
         type: number
         minimum: 0

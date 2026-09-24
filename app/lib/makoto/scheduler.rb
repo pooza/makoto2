@@ -49,8 +49,25 @@ module Makoto
       return self
     end
 
+    # 🔴 **起動時の検査で登録を見送った投稿**（#350 → `MakotoDaemon#register_jobs`）。
+    # ⚠ **痕跡に残して `/healthz` に言わせる**（→ `Health#errors`）。
+    #
+    # @param name [String] 投稿の名前（ライブは 4 本まとめて `live`）
+    # @param reason [String] 人が読む理由
+    def reject(name, reason)
+      @rejected[name.to_s] = reason
+      logger.error(scheduler: 'reject', post: name.to_s, reason: reason)
+      return self
+    end
+
+    # 見送った投稿と理由。⚠ **無ければ空。**
+    def rejected
+      return @rejected.dup
+    end
+
     def clear
       @jobs.clear
+      @rejected.clear
       return self
     end
 
@@ -88,6 +105,7 @@ module Makoto
     def initialize
       @scheduler = Rufus::Scheduler.new
       @jobs = []
+      @rejected = {}
     end
 
     def schedule_heartbeat
@@ -104,7 +122,7 @@ module Makoto
         logger.warn(time_travel: TimeTravel.describe) if TimeTravel.active?
         # ⚠ **監視はログではなくこの痕跡を見る**（→ `Heartbeat` / `Health`）。
         # 書けなくてもハートビートそのものは止めない（下の rescue の内側）。
-        Heartbeat.touch(jobs: jobs, job_names: job_names)
+        Heartbeat.touch(jobs: jobs, job_names: job_names, rejected: rejected)
       rescue => e
         logger.error(scheduler: 'heartbeat', error: e)
         report_error(e)

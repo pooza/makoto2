@@ -38,10 +38,50 @@ module Makoto
       # ⚠ **MAKOTO は誰ともトレースを繋いでいない**ので、失うものは無い。
       sentry.propagate_traces = false
       # ⚠ `send_default_pii` は既定 false のまま。
+      # 🔴 **フレームのローカル変数を送らない**（#347）。⚠⚠ **`PostingJob` の `rescue` の
+      # 内側には `text`（投稿本文そのもの）が居る**ので、**変数が乗ると原稿・本文が
+      # そのまま public な箱の外へ出る。**
+      # ⚠ **既定は false だが明示する** — 🔴 **`propagate_traces` で「既定に任せていたら
+      # 既定が危ない側だった」を踏んでいる**（v0.6.0 のリリース前レビュー・黄）。
+      # ⚠⚠ **`send_default_pii=` を足すときはこの行より後ろに置かない** — **代入が
+      # `data_collection` を丸ごと差し替える**（`sentry-ruby` 7.0.0 `configuration.rb:635`）。
+      sentry.data_collection.stack_frame_variables = false
+      # 🔴 **breadcrumb は 1 つも積んでいない**（`Sentry.add_breadcrumb` は 0 件・実測）。
+      # ⚠⚠ **既定は 100 件**（`breadcrumb_buffer.rb:7`）で、**積まないものを運ぶ容れ物を
+      # 開けておく理由が無い**（#347）。⚠ **`SentryScrubber#scrub_breadcrumbs` は残す** —
+      # **この行を消された日に素通しにしない。**
+      sentry.max_breadcrumbs = 0
       sentry.before_send = proc {|event, _hint| scrubber.scrub(event)}
     end
+    report_sentry_unsendable unless sentry_state == :on
   rescue => e
     report_sentry_setup_error(e)
+  end
+
+  # Sentry が送れる状態か（#347）。
+  #
+  # | 値 | 意味 |
+  # | --- | --- |
+  # | `:off` | DSN が無い（開発機・CI・テスト）＝ 正常 |
+  # | `:on` | 送れる |
+  # | 🔴 `:misconfigured` | DSN はあるのに送れない（初期化に失敗した・DSN の形でない） |
+  #
+  # ⚠⚠ **`Sentry.initialized?` だけでは足りない** — 🔴 **`https://` だが DSN でない値（Web UI の
+  # プロジェクトの URL など）は、初期化に成功して 1 件も送らない**（`sending_allowed?` が偽）。
+  def self.sentry_state
+    return :off unless sentry_dsn
+    return :misconfigured unless defined?(Sentry) && Sentry.initialized?
+    return :misconfigured unless Sentry.configuration.sending_allowed?
+    return :on
+  rescue
+    return :misconfigured
+  end
+
+  # 🔴 **初期化に成功したのに送れない形を 1 行残す**（#347）。⚠⚠ **sentry-ruby 自身の警告は
+  # `STDOUT` へ出る**ので、常駐では消える（→ `report_sentry_setup_error`）。⚠ **DSN は出さない。**
+  def self.report_sentry_unsendable
+    Logger.new.error(sentry: 'init',
+      message: 'initialized but will not send (the DSN is not valid)')
   end
 
   # 🔴 **`warn` で出さない**（v0.6.0 のリリース前レビュー・赤）。⚠⚠ **`bin/makoto_daemon.rb` は

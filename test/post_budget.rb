@@ -20,9 +20,31 @@ module Makoto
       assert_equal(2, PostBudget.length("が\u{3099}#{family}".unicode_normalize(:nfd)))
     end
 
+    # 🔴 **TLD を持たないホストは URL と数えない**（#351）。⚠⚠ **投稿先はそれを素の長さで数える**
+    # ので、23 字に畳むと短く見積もる。
+    def test_a_host_without_a_tld_is_not_a_url
+      ip = "http://192.168.1.10:9292/#{'x' * 40}"
+
+      assert_equal(ip.length, PostBudget.length(ip))
+      assert_equal(17, PostBudget.length('http://localhost/'))
+      # ⚠ **英字の TLD でも、実在しなければ URL ではない**（Codex の P2）。
+      assert_equal(26, PostBudget.length('https://foo.local/abcdefgh'))
+      assert_equal(23, PostBudget.length("https://music.apple.com/jp/album/#{'x' * 40}"))
+    end
+
+    # 🔴 **申告のほうが短いときだけずれと言う**（#351）。⚠ **申告が無ければ判定しない。**
+    def test_limit_mismatch
+      limit = budget.limit
+
+      assert_nil(budget.limit_mismatch(limit))
+      assert_nil(budget.limit_mismatch(limit + 1))
+      assert_nil(budget.limit_mismatch(nil))
+      assert_include(budget.limit_mismatch(limit - 1), (limit - 1).to_s)
+    end
+
     # ⚠⚠ **前方一致する URL を長く数えない**（Codex の P2）。
     def test_urls_sharing_a_prefix_count_as_23_each
-      assert_equal(23 + 1 + 23, PostBudget.length('https://x.test/a https://x.test/a/b'))
+      assert_equal(23 + 1 + 23, PostBudget.length('https://x.example.com/a https://x.example.com/a/b'))
     end
 
     # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。
@@ -80,6 +102,12 @@ module Makoto
 
       assert_nothing_raised {budget.validate('morning', 'あ' * allowed, 'ok')}
       assert_raise(Ginseng::ValidateError) {budget.validate('morning', 'あ' * (allowed + 1), 'ng')}
+    end
+
+    # ⚠ **空の本文も弾く**（#352・`makoto message add` はここしか通らない）。
+    def test_validate_rejects_an_empty_body
+      assert_raise(Ginseng::ValidateError) {budget.validate('morning', " \n", 'empty')}
+      assert_raise(Ginseng::ValidateError) {budget.validate('morning', nil, 'nil')}
     end
   end
 end

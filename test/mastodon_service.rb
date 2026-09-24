@@ -19,6 +19,12 @@ module Makoto
 
     # 🔴 **リダイレクトを追わない**（#282）。⚠⚠ **追うと POST が GET に化け、資格情報を含む
     # ヘッダが別ホストへ送られる。**⚠ **3xx は「status ではない」として落ちる。**
+    #
+    # 🔴 **当てにしているのは上流の振る舞い**（`ginseng-fediverse` v2.0.1 以降・#349 で
+    # 暫定の上書きを畳んだ）。⚠⚠ **こちらに `post` は無いので、このテストが守るのは
+    # 「引いている gem がこの性質を持ち続けること」** — ⚠ **上流が `post` を組み替えて
+    # `follow_redirects` を落とせば、黙ってトークンが漏れるのではなく、ここが赤くなる**
+    # （#280 で採ったのと同じ置き方）。
     def test_post_status_does_not_follow_a_redirect
       elsewhere = 'https://elsewhere.example/api/v1/statuses'
       stub_request(:post, @url).to_return(status: 302, headers: {'Location' => elsewhere})
@@ -135,6 +141,36 @@ module Makoto
       assert_equal(Package.full_name, headers['X-Mulukhiya'])
     end
 
+    # 🔴 **別ホストへのリダイレクトでトークンを渡さない**（#349）。⚠⚠ **HTTParty が守るのは
+    # `basic_auth` / `digest_auth` だけ**なので、`headers` に置いた `Authorization` は
+    # 素のままだとホストが変わっても付いていく。
+    def test_account_rejects_a_redirect_to_another_host
+      url = "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials"
+      elsewhere = 'https://elsewhere.example/api/v1/accounts/verify_credentials'
+      stub_request(:get, url).to_return(status: 302, headers: {'Location' => elsewhere})
+      stub_request(:any, elsewhere)
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.account}
+      assert_requested(:get, url, times: 1)
+      assert_not_requested(:any, elsewhere)
+    end
+
+    # ⚠ **同じホストのリダイレクトは追える**（#349）。⚠⚠ **一律に `follow_redirects: false`
+    # にしないのはこのため** — **証明書切替やパスの整理で自分のホストが 301 を返す形は、
+    # トークンの漏れ方ではない。**
+    def test_account_follows_a_redirect_within_the_same_host
+      url = "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials"
+      moved = "#{config['/mastodon/url']}/api/v2/accounts/verify_credentials"
+      stub_request(:get, url).to_return(status: 301, headers: {'Location' => moved})
+      stub_request(:get, moved)
+        .with(headers: {'Authorization' => "Bearer #{config['/mastodon/token']}"})
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'},
+          body: {acct: 'test', statuses_count: 1}.to_json)
+
+      assert_equal('test', MastodonService.new.account['acct'])
+      assert_requested(:get, moved, times: 1)
+    end
+
     # ⚠⚠ 経路をログに残すこと（#124）。⚠ 経路の間違いは投稿の失敗として現れない
     # ので、成功したログの側に出ていないと気付けない。
     def test_post_status_logs_the_route
@@ -148,6 +184,193 @@ module Makoto
       service.post_status('こんにちは')
 
       assert_true(messages.first[:mulukhiya])
+    end
+
+    # 🔴 **投稿先と同じ数え方の長さも出す**（#351）。
+    def test_post_status_logs_the_post_length
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status("あ https://example.com/#{'x' * 40}")
+
+      assert_equal(2 + 23, messages.first[:post_length])
+    end
+
+    # 🔴 **モロヘイヤが足した分を毎回残す**（#351）。
+    #
+    # ⚠⚠ **応答の `content` が「足された後の本文」**なので、**読み取り権は要らない** —
+    # ⚠ **`/api/v1/statuses/:id/source` は `read` が要るが、投稿の応答は `write` で返る。**
+    def test_post_status_logs_what_the_proxy_added
+      tag = '<p><a href="https://st2.precure.ml/tags/precure_fun" class="mention hashtag"' \
+        ' rel="tag">#<span>precure_fun</span></a></p>'
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: "<p>こんにちは</p>#{tag}")
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      # ⚠ 空行 2 字 ＋ `#precure_fun` 12 字
+      assert_equal(14, messages.first[:proxy_added])
+    end
+
+    # 🔴 **リモートのメンションはドメインを戻す**（#351・Codex の P2）。
+    #
+    # ⚠⚠ **Mastodon は `@alice@remote.example` を「見える文字は `@alice` だけ」で返す**ので、
+    # ⚠ **戻さないとドメインぶん（15 字）短く出て、足された分が負にもなりうる。**
+    def test_post_status_restores_the_domain_of_a_remote_mention
+      card = '<span class="h-card"><a href="https://remote.example/@alice"' \
+        ' class="u-url mention">@<span>alice</span></a></span>'
+      tag = '<p><a href="https://st2.precure.ml/tags/precure_fun" class="mention hashtag"' \
+        ' rel="tag">#<span>precure_fun</span></a></p>'
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(
+          content: "<p>#{card} おはよう</p>#{tag}",
+          mentions: [{acct: 'alice@remote.example', username: 'alice'}],
+        )
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('@alice@remote.example おはよう')
+
+      # ⚠ 空行 2 字 ＋ `#precure_fun` 12 字（🔴 **メンションのぶんは差に出ない**）
+      assert_equal(14, messages.first[:proxy_added])
+    end
+
+    # 🔴🔴 **負の値は記録しない**（#351）。⚠⚠ **モロヘイヤが字数を減らすことは無い**ので、
+    # **負なら応答から本文を戻しきれていない** — ⚠ **黙って混ぜると分布ごと信用できなくなる。**
+    def test_post_status_refuses_a_negative_proxy_added
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こん</p>')
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_equal(['proxy_added is negative'], messages.filter_map {|m| m[:message]})
+      assert_nil(messages.find {|m| m[:status_id]}[:proxy_added])
+      # 🔴 **診断の行に `proxy_added` を出さない**（Codex の P2）— ⚠⚠ **出すと
+      # `RehearsalReport#count_post` が拾い、捨てた負の値が分布へ入る。**
+      warned = messages.find {|m| m[:message]}
+
+      assert_false(warned.key?(:proxy_added))
+      assert_equal(-3, warned[:rejected_length])
+    end
+
+    # 🔴 **予約を超えたら 1 行残す**（#351）。⚠⚠ **2026-09-24 に予約 100 が実測 159 に
+    # 負けていた**のに気付かなかったのは、**超えたことを言う口が無かったから。**
+    def test_post_status_warns_when_the_proxy_exceeds_the_reserve
+      tag = "<p>#{'あ' * 60}</p>"
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: "<p>こんにちは</p>#{tag}")
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      with_proxy_reserve(50) {service.post_status('こんにちは')}
+
+      warned = messages.find {|message| message[:message]}
+
+      assert_equal('proxy_added exceeds the reserve', warned[:message])
+      assert_equal(62, warned[:exceeded_length])
+      assert_equal(50, warned[:reserve])
+      # 🔴 **欄名を分ける**（⚠⚠ **`proxy_added` だと集計が拾って二重に入る**）。
+      assert_false(warned.key?(:proxy_added))
+      # ⚠ **投稿そのものは落とさない。**
+      assert_equal(62, messages.find {|message| message[:status_id]}[:proxy_added])
+    end
+
+    # ⚠ **予約の内側なら黙る。**
+    def test_post_status_is_quiet_within_the_reserve
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こんにちは</p><p>あああ</p>')
+      )
+      messages = []
+      recorder = log_recorder(messages)
+      service = MastodonService.new
+      service.define_singleton_method(:logger) {recorder}
+      with_proxy_reserve(50) {service.post_status('こんにちは')}
+
+      assert_nil(messages.find {|message| message[:message]})
+    end
+
+    # ⚠ **迂回しているときは測らない**（🔴 **モロヘイヤが何もしていない**）。
+    def test_post_status_does_not_measure_the_proxy_when_bypassing
+      stub_request(:post, @url).to_return(
+        status: 200, headers: {'Content-Type' => 'application/json'},
+        body: status_body(content: '<p>こんにちは</p>')
+      )
+      messages = []
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      service = MastodonService.new
+      service.mulukhiya_enable = false
+      service.define_singleton_method(:logger) {recorder}
+      service.post_status('こんにちは')
+
+      assert_nil(messages.first[:proxy_added])
+    end
+
+    # 🔴 **記録の都合で「成功した投稿が失敗した」に化けさせない**（fail-open・#351）。
+    # ⚠⚠ **`content` を持たない 200 でも `post_status` は通る。**
+    def test_post_status_survives_a_response_without_content
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: status_body)
+      status = @service.post_status('こんにちは')
+
+      assert_equal('114514', status['id'])
+    end
+
+    def stub_instance(status, body)
+      url = "#{config['/mastodon/url']}/api/v1/instance"
+      headers = {'Content-Type' => 'application/json'}
+      return stub_request(:get, url).to_return(status: status, body: body.to_json, headers: headers)
+    end
+
+    # 🔴 **投稿先が申告する上限を読む**（#351）。⚠ **トークンは付けず、直で聞く。**
+    def test_declared_max_length
+      headers = nil
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance").to_return do |request|
+        headers = request.headers
+        {status: 200, headers: {'Content-Type' => 'application/json'},
+         body: {configuration: {statuses: {max_characters: 3000}}}.to_json}
+      end
+
+      assert_equal(3000, MastodonService.new.declared_max_length)
+      assert_equal(Package.full_name, headers['X-Mulukhiya'])
+      assert_false(headers.key?('Authorization'))
+    end
+
+    # ⚠ **書かれていなければ nil**（既定値に倒さない）。
+    def test_declared_max_length_without_the_field
+      stub_instance(200, {})
+
+      assert_nil(MastodonService.new.declared_max_length)
+    end
+
+    # ⚠⚠ **聞けなければ例外**（上流の `max_post_text_length` のように 500 に倒れない）。
+    def test_declared_max_length_raises_when_unreachable
+      config['/http/retry/seconds'] = 0
+      stub_instance(503, {})
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.declared_max_length}
     end
 
     # ⚠ 「テストが本物のサーバーを叩かない」こと自体を見る。WebMock.enable! を忘れると
@@ -323,12 +546,34 @@ module Makoto
     # ⚠ **Mastodon が実際に返す形**（`POST /api/v1/statuses` は必ず `id` を持つ Status）。
     # 🔴 **`'{}'` で書かない** — ⚠⚠ **起こりえない応答を前提にしたテストは、
     # 応答の形を検査し始めた日に「壊れた」ように見える**（#272 で実際にそうなった）。
-    def status_body
-      return {
+    # @param content [String, nil] ⚠ **応答の本文（HTML）** — 🔴 **モロヘイヤが足した後の形**
+    # @param mentions [Array, nil] ⚠ **メンションの一覧**（🔴 **リモートはここからドメインを戻す**）
+    def status_body(content: nil, mentions: nil)
+      body = {
         id: '114514',
         url: "#{config['/mastodon/url']}/@test/114514",
         visibility: 'public',
-      }.to_json
+      }
+      body[:content] = content if content
+      body[:mentions] = mentions if mentions
+      return body.to_json
+    end
+
+    # ⚠ **予約の値を差し替える**（🔴 **実測で引き直した日にテストの意味を変えないため**）。
+    def with_proxy_reserve(value)
+      original = config['/mastodon/proxy_reserve']
+      config['/mastodon/proxy_reserve'] = value
+      yield
+    ensure
+      config['/mastodon/proxy_reserve'] = original
+    end
+
+    # ⚠ **`info` と `warn` の両方を受ける**（🔴 **`proxy_added` は落ちたら `warn` を出す**）。
+    def log_recorder(messages)
+      recorder = Object.new
+      recorder.define_singleton_method(:info) {|message| messages.push(message)}
+      recorder.define_singleton_method(:warn) {|message| messages.push(message)}
+      return recorder
     end
   end
 end

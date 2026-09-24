@@ -3,7 +3,9 @@ require 'uri'
 module Makoto
   # 原稿 1 本に使える本文の長さ（#282）。
   #
-  # 🔴 **原稿を書く側から 500 字の壁が見えなかった。**⚠⚠ **超えると投稿先が 422 を返し、
+  # 🔴 **原稿を書く側から上限が見えなかった。**⚠ **いまの上限は `/mastodon/max_length` = 3000 字**
+  # （キュアスタ！の設定。→ docs/CLAUDE.md「3000 字」）— ⚠⚠ **`PostBudget#limit` は設定から読むので、
+  # ここに数字を書かない**（🔴 **このコメントは #282 の時点の「500 字」で 1 リリース古くなっていた** ＝ #353）。⚠⚠ **超えると投稿先が 422 を返し、
   # 再送なしの失敗としてその枠が消える**（`MastodonService::PERMANENT_STATUSES`）— ⚠ **気づくのは
   # 投稿の瞬間**で、**通年 366 本の朝挨拶を書き足していく箱**では、壁に当たるのは原稿が増えたとき。
   # 🔴 **だから取り込み（`ScriptImporter`）で弾く。**
@@ -43,8 +45,31 @@ module Makoto
     #
     # ⚠⚠ **URL は 1 回の走査で置き換える**（Codex の P2）。🔴 **1 本ずつ `gsub` すると、前方一致
     # する URL（`/a` と `/a/b`）で短いほうが長いほうの中まで置き換え、長く数えてしまう。**
+    #
+    # ⚠ **実在する TLD を持たないホスト（素の IP・`localhost`・`foo.local`）は URL と数えない**（#351）。
+    # 🔴 **投稿先（twitter-text）は IANA の TLD でしか URL と認めず、素の長さで数える**ので、
+    # **23 字に畳むと短く見積もる**（⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
+    # ⚠ **TLD の表は Public Suffix List**（`default_rule: nil` ＝ 表に無ければ URL でない・Codex の P2）。
     def self.length(text)
-      return text.to_s.gsub(URL_PATTERN) {'x' * URL_LENGTH}.grapheme_clusters.size
+      counted = text.to_s.gsub(URL_PATTERN) {|url| url?(url) ? 'x' * URL_LENGTH : url}
+      return counted.grapheme_clusters.size
+    end
+
+    def self.url?(value)
+      return PublicSuffix.valid?(URI.parse(value).host.to_s, default_rule: nil)
+    rescue URI::InvalidURIError
+      return false
+    end
+
+    # 投稿先の申告と設定を突き合わせる（#351）。
+    #
+    # 🔴 **危ないのは申告のほうが短いときだけ**（取り込みは設定の上限で通すので、投稿の瞬間に
+    # 422 ＝ 再送なしで枠が消える）。⚠ **長いぶんには弾きすぎるだけ。**⚠ **申告が無ければ判定しない。**
+    #
+    # @return [String, nil] ずれていれば、その説明
+    def limit_mismatch(declared)
+      return nil if declared.nil? || limit <= declared
+      return "/mastodon/max_length は #{limit} 字だが、投稿先の申告は #{declared} 字"
     end
 
     def limit
@@ -67,7 +92,11 @@ module Makoto
     end
 
     # ⚠ **超えていれば `ValidateError`**（どれだけ超えたかを言う）。
+    #
+    # ⚠ **空の本文も弾く**（#352）。🔴 **取り込みは手前で見ているが、`makoto message add` は
+    # ここしか通らない。**
     def validate(type, body, slug, dated: false)
+      raise Ginseng::ValidateError, "#{slug}: 本文がありません" if body.to_s.strip.empty?
       length = self.class.length(body)
       allowed = budget(type, dated: dated)
       return if length <= allowed

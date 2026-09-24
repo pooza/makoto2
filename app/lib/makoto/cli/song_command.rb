@@ -54,9 +54,7 @@ module Makoto
     def slot
       job = song.job
       puts "#{job.name}: #{job.timetable}"
-      puts "1 日 #{job.timetable.size(today)} 本（#{job.timetable.times(today).map do |time|
-        time.strftime('%H:%M')
-      end.join(' / ')}）"
+      puts "1 日 #{job.timetable.size(today)} 本（#{slot_times(job)}）"
       puts "実況の窓: #{CommentaryWindow.new}"
       dump_quiet_days
       dump_prefixes
@@ -72,6 +70,12 @@ module Makoto
     end
 
     private
+
+    # ⚠ **枠の時刻を並べる。**⚠⚠ **文字列補間の中に複数行の `do…end` を書かない**
+    # （`app/lib` ＋ `bin/makoto` でここだけがその形だった ＝ #285）。
+    def slot_times(job)
+      return job.timetable.times(today).map {|time| time.strftime('%H:%M')}.join(' / ')
+    end
 
     # 🔴 **ライブが持つ日は黙る**（Codex の P1）。⚠⚠ **設定を消すと黙らなくなる**ので、
     # ⚠ **「いま何日が黙る日か」がここに出る。**

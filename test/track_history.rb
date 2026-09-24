@@ -1,3 +1,5 @@
+require 'tmpdir'
+
 module Makoto
   # 最近出した曲を避ける（#41）。
   class TrackHistoryTest < TestCase

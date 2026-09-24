@@ -71,19 +71,39 @@ module Makoto
       end
     end
 
-    # 🔴 **#257 の本体。**⚠⚠ **`pid` は「無い」も「読めない」も `nil` に畳む**ので、
-    # ⚠ **`super` のあとに読み直すこの override は、「読めない」を `:dead` に化けさせうる**
-    # （上流 `ginseng-core#635` がこの形を名指しで警告している）。
+    # 🔴 **#200 の本体 — pid ファイルを 1 回しか読まない。**⚠⚠ **前は `alive_state` を
+    # 上書きして `super` のあとに `pid` を読み直していた**ので、⚠ **2 回の読みの間に
+    # 書き換わると「A の生死」に「B の身元」を掛けた答え**になった。
     #
-    # 🔴 **`:dead` と答えると `run_restart` が `run_stop` を飛ばし、生きている常駐の
-    # 横に 2 本目が立つ。**⚠⚠ **8 時間の配信中なら、そのまま全枠が二重投稿。**
-    #
-    # ⚠ **`super` が `:alive` と答えた直後に読めなくなる形**を作る（1 回目は本物、
-    # 2 回目から `nil`）。⚠⚠ **`pid_file_unreadable?` は「在るのに読めなかった」**。
-    def test_an_unreadable_second_read_is_not_dead
+    # ✅ **v1.24.0 の `alive_state_of(found)` へ移して消えた**（上流 `ginseng-core#638`）。
+    # ⚠ **`pid` を 1 回しか呼ばないことを数えて確かめる** — 🔴 **2 回目以降が別の番号を
+    # 返す形にしておき、それが答えに混ざらないことまで見る。**
+    def test_the_pid_file_is_read_only_once
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        reads = [Process.pid]
-        daemon.define_singleton_method(:pid) {reads.shift}
+        reads = []
+        real = daemon.method(:pid)
+        daemon.define_singleton_method(:pid) do
+          reads.push(reads.empty? ? real.call : 999_999)
+          reads.last
+        end
+
+        assert_equal(:alive, daemon.alive_state)
+        assert_equal(1, reads.size, '2 回目の読みが起きている')
+        assert_equal(Process.pid, reads.first)
+      end
+    end
+
+    # 🔴 **番号が取れなかったときの答えは上流が決める**（#257 → 上流 `ginseng-core#635`）。
+    # ⚠⚠ **`pid` は「無い」も「読めない」も `nil` に畳む**ので、⚠ **「読めない」を
+    # `:dead` と答えると `run_restart` が `run_stop` を飛ばし、生きている常駐の横に
+    # 2 本目が立つ**（**8 時間の配信中なら、そのまま全枠が二重投稿**）。
+    #
+    # ✅ **`alive_state_of` は `found` を受け取るだけなので、この分岐はこちらに無い。**
+    # ⚠ **上流に残っていることを確かめる**（🔴 **`pid_file_unreadable?` は「在るのに
+    # 読めなかった」だけを指し、`ENOENT` では立たない**）。
+    def test_an_unreadable_pid_file_is_not_dead
+      with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
+        daemon.define_singleton_method(:pid) {nil}
         daemon.define_singleton_method(:pid_file_unreadable?) {true}
 
         assert_equal(:unknown, daemon.alive_state)
@@ -91,16 +111,12 @@ module Makoto
       end
     end
 
-    # 🔴 **逆に、消えたのなら `:dead`**（Codex の P2）。⚠⚠ **`super` が見たあとに
-    # 常駐が終了して pid ファイルを消した形** — ⚠ **これを `:unknown` と答えると
+    # 🔴 **逆に、消えたのなら `:dead`**（Codex の P2）。⚠ **これを `:unknown` と答えると
     # `run_restart` が `run_stop` へ入り、番号が無いので `abort_stop!` で落ちて
     # 後継を起動しないまま終わる。**
-    #
-    # ⚠ **`pid_file_unreadable?` は `ENOENT` では立たない**ので、素のままで分かれる。
     def test_a_vanished_pid_file_is_dead
       with_daemon(command: ['bin/makoto_daemon.rb start']) do |daemon|
-        reads = [Process.pid]
-        daemon.define_singleton_method(:pid) {reads.shift}
+        daemon.define_singleton_method(:pid) {nil}
 
         assert_false(daemon.pid_file_unreadable?, '前提: 読めなかった記録は無い')
         assert_equal(:dead, daemon.alive_state)
@@ -574,6 +590,47 @@ module Makoto
       assert_nothing_raised {@daemon.send(:verify_credentials).join}
     end
 
+    # 🔴 **常駐は Sentry の `release` にリビジョンまで載せる**（#347）。⚠ **初期化していなければ何もしない。**
+    def test_the_sentry_release_carries_the_revision
+      assert_nothing_raised {@daemon.send(:tag_sentry_release)}
+      Sentry.init {|sentry| sentry.dsn = 'https://publickey@o1.ingest.sentry.io/456'}
+      @daemon.send(:tag_sentry_release)
+
+      assert_equal("#{Package.version}+#{Package.revision}", Sentry.configuration.release)
+    ensure
+      Sentry.close
+    end
+
+    def records_of_max_length(declared)
+      body = declared ? {configuration: {statuses: {max_characters: declared}}} : {}
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance")
+        .to_return(status: 200, body: body.to_json, headers: {'Content-Type' => 'application/json'})
+      records = Hash.new {|hash, key| hash[key] = []}
+      @daemon.instance_variable_set(:@logger, Recorder.new(records))
+      @daemon.send(:verify_max_length).join
+      return records
+    end
+
+    # 🔴 **投稿先の上限が設定より短ければエラー**（#351）。⚠ **長いぶんには情報どまり。**
+    def test_a_shorter_declared_limit_is_an_error
+      limit = config['/mastodon/max_length']
+
+      assert_equal(1, records_of_max_length(limit - 1)[:error].size)
+      assert_equal(limit + 1, records_of_max_length(limit + 1)[:info].first[:declared])
+    end
+
+    # ⚠ **聞けなくても常駐は止めない**（警告どまり）。
+    def test_an_unreadable_limit_is_only_a_warning
+      config['/http/retry/seconds'] = 0
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance").to_return(status: 503)
+      records = Hash.new {|hash, key| hash[key] = []}
+      @daemon.instance_variable_set(:@logger, Recorder.new(records))
+      @daemon.send(:verify_max_length).join
+
+      assert_equal('could not read the limit', records[:warn].first[:message])
+      assert_empty(records[:error])
+    end
+
     def test_pid_file
       assert_equal(File.join(Environment.dir, 'tmp/pids/MakotoDaemon.pid'), @daemon.pid_file)
     end
@@ -614,6 +671,30 @@ module Makoto
       config['/message/anniversary/11-04'] = []
 
       assert_raise(Ginseng::ConfigError) {with_migrated_connection {@daemon.jobs}}
+    end
+
+    # 🔴 **検査に通らない投稿は見送り、残りは登録する**（#350）。⚠⚠ **以前は起動ごと拒み、
+    # `/healthz` も開かないまま 5 秒ごとに落ち続けていた。**
+    def test_register_jobs_skips_a_rejected_source
+      Scheduler.instance.clear
+      config['/message/anniversary/11-04'] = []
+
+      with_migrated_connection {@daemon.register_jobs}
+
+      rejected = Scheduler.instance.rejected
+
+      assert_false(rejected.empty?)
+      assert_operator(Scheduler.instance.send(:jobs), :>, 0)
+      assert_operator(Scheduler.instance.send(:jobs), :<, 7)
+      assert_include(rejected.keys, Song::NAME)
+    ensure
+      Scheduler.instance.clear
+    end
+
+    # ⚠ **`ConfigError` 以外はクラス名を添える**（`EISDIR` か `EACCES` かが文に残らない）。
+    def test_describe_rejection
+      assert_equal('song: broken', @daemon.describe_rejection(Ginseng::ConfigError.new('song: broken')))
+      assert_equal('Errno::EISDIR: Is a directory - x', @daemon.describe_rejection(Errno::EISDIR.new('x')))
     end
 
     # ⚠ 冪等キーの前半になる名前が衝突しないこと。⚠⚠ **同じ名前が 2 本あると、同じ

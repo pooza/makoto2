@@ -20,13 +20,54 @@ module Makoto
   #
   # ⚠ **rufus は `Time.now` を見ているので scale に自動追従する**（実測）。
   # ⚠⚠ **上限を決めるのは HTTP の実時間** — **投稿 1 本の実時間が見かけでは
-  # scale 倍に伸びる**（実測 0.13〜0.91 秒／投稿）ので、⚠ **`/scheduler/tolerance`
-  # （30 秒）を食い尽くす倍率にしない。**
+  # scale 倍に伸びる**ので、⚠ **`/scheduler/tolerance`（30 秒）を食い尽くす倍率にしない。**
   #
-  # | scale | 投稿 1 本 = 見かけ | |
+  # 🔴 **実測は 0.6〜1.9 秒／投稿**（2026-09-23・#201 の 2.・2026-09-24 に 9 回目の 1.885 を
+  # 足した・#411・**モロヘイヤ経由 ＝ 本番と同じ経路**）:
+  #
+  # | 出どころ | n | min | median | max |
+  # | --- | --- | --- | --- | --- |
+  # | 素の運用（`bydo`・scale 1・09-19〜09-23） | 20 | 0.755 | 0.913 | 1.144 |
+  # | 8 回目のリハーサル（scale 10・見かけを `÷10`） | 162 | 0.595 | 0.710 | 1.141 |
+  # | 9 回目のリハーサル（同上） | 163 | 0.594 | 0.703 | 🔴 **1.885** |
+  # | 7 回目のリハーサル（同上） | 162 | 0.608 | 0.709 | 1.517 |
+  # | 5 回目のリハーサル（同上） | 162 | 0.595 | 0.677 | 1.497 |
+  # | 経路の比較（scale 1・2026-09-23） | 6 | 1.061 | 1.275 | 1.472 |
+  #
+  # ⚠ **max は 1 本目に出やすい**（接続の立ち上げぶん）が、🔴 **9 回目の最大はライブの
+  # 13 本目だった**（実時間 21:00〜21:14 に遅い投稿が固まった・#411）。⚠⚠ **1 本目だけ見ても
+  # 足りないし、外れ値として外してもいけない** — **上限は記録全部の最大で引く。**
+  #
+  # ⚠ **迂回（`X-Mulukhiya` 付き）なら 0.132〜0.219 秒**（同日・同じ `st2`）— 🔴 **差の約 1.1 秒は
+  # モロヘイヤの取り回し**（#201 の 3.）。⚠⚠ **本番はモロヘイヤを通るので、上の表で見る。**
+  #
+  # 🔴 **ログの `seconds` は「見かけ」の側**（2026-09-23・#201）。⚠⚠ **`ginseng-core` の
+  # `HTTP#log` は `Time.now` の差で秒を作り、`Timecop.thread_safe` の既定は `false`** なので、
+  # ⚠ **投稿を投げる別スレッドにも scale が効く** — **実時間へ戻すには `÷ scale`。**
+  # ⚠⚠ **この表の右列と同じ単位**なので、**突き合わせるときはログの値をそのまま読む。**
+  # 🔴 **`PostingJob#warn_slow` の `seconds` は `CLOCK_MONOTONIC` ＝ 実時間で、別物。**
+  #
+  # | scale | 投稿 1 本 = 見かけ（median 〜 max） | |
   # | --- | --- | --- |
-  # | 60 | 8〜55 秒 | 🔴 tolerance を食い尽くす。rufus の分解能も足りず枠あたりの exec 回数が変わる |
-  # | 10 | 1.3〜9 秒 | ✅ 8 時間が 48 分になる |
+  # | 60 | 77〜113 秒 | 🔴 tolerance を食い尽くす。rufus の分解能も足りず枠あたりの exec 回数が変わる |
+  # | 20 | 26〜🔴 **37.7** 秒 | 🔴 **tolerance（30 秒）を超える** — ⚠ **2026-09-24 に降ろした**（#404） |
+  # | 15 | 19〜**28.3** 秒 | ⚠ **tolerance の 94%** — ⚠ **同じ日に降ろした**（#411） |
+  # | 12 | 15〜**22.6** 秒 | ⚠ **いまの `MAX_SCALE`。**max でも tolerance の 75% |
+  # | 10 | 13〜19 秒 | ✅ 8 時間が 48 分になる。**max でも tolerance の 63%**。⚠ **運用値** |
+  #
+  # ⚠ **掛けているのは、median は上の表のいちばん重い行（1.275）・max は全部の中の最大（1.885）。**
+  # 🔴 **軽い回の数字で割ると上限が甘く出る**ので、**倍率を決めるときは重いほうを使う。**
+  #
+  # ✅ **`MAX_SCALE` は 2026-09-24 に 20 → 15 へ下げた**（#404・オーナー判断）。
+  # 🔴 **20 は実測に追い越されていた** — ⚠⚠ **7 回目のリハーサルの 1 本目が見かけ 15.171 秒
+  # ＝ 実時間 1.517 秒**で、**scale 20 なら見かけ 30.3 秒** ＝ ⚠ **`/scheduler/tolerance` の
+  # 30 秒をわずかに超える。**⚠ **実害は出ていなかった**（**使っていたのは `scale 10`**）が、
+  # 🔴 **「上限として置いてある値なら安全」が成り立たない状態だった。**
+  # ⚠⚠ **引き直し方は定数の隣に置いた**（→ `MAX_SCALE`）— **次に実測が動いたときに
+  # 根拠を探さずに引き直せるように。**
+  #
+  # ✅ **同じ日に 15 → 12 へ下げた**（#411）— 🔴 **9 回目のリハーサルが実時間 1.885 秒を出し、
+  # 15 では見かけ 28.3 秒 ＝ tolerance の 94%** になった。⚠ **#404 と同じ余裕（24%）を取り直した。**
   #
   # ## ⚠⚠ 早送りで取れないもの
   #
@@ -52,7 +93,22 @@ module Makoto
 
     # 早送りの上限。⚠⚠ **これを超えると投稿 1 本が `tolerance` を食い尽くし、
     # 「枠を跨ぐ」状態を人工的に作ってしまう**（→ このクラスの冒頭の表）。
-    MAX_SCALE = 20
+    #
+    # 🔴 **引き直し方**（2026-09-24・#404）— **`記録の中の最大（実時間） × scale ≤ tolerance`**:
+    #
+    # | | 値 | 出どころ |
+    # | --- | --- | --- |
+    # | 記録の中の最大（実時間） | **1.885** 秒 | 9 回目のリハーサルのライブ 13 本目（→ 冒頭の表・#411） |
+    # | `/scheduler/tolerance` | **30** 秒 | `config/application.yaml` |
+    # | 理論上の上限（`30 ÷ 1.885`） | **15**（15.9） | 🔴 **余裕 6%** — ホストが少し遅くなるだけで越える |
+    # | 🔴 **ここで採る値** | **12** | 見かけ **22.6** 秒 ＝ tolerance の **75%**（余裕 25%） |
+    #
+    # ⚠⚠ **max を落とさない。**⚠ **1 本目に出やすいが、1 本目とは限らない**（#411）ので、
+    # 🔴 **記録全部の最大を使う。**外れ値として外すと上限が甘く出る。
+    MAX_SCALE = 12
+
+    # 出発時刻に要る「時:分」（#375）。⚠ **`T01:00` の形も通す。**
+    TIME_OF_DAY = /(?:\A|[\sT])\d{1,2}:\d{2}/
 
     class << self
       # 発動を要求されているか。⚠ **要求と、実際に発動できるかは別。**
@@ -75,12 +131,39 @@ module Makoto
         return nil unless requested?
         # ⚠ テストは自前で時刻を作る。ここが効くと固定時刻の期待値が壊れる。
         return nil if Environment.test?
+        return engage!
+      end
+
+      # ⚠ **`activate!` の中身**（テストが `Environment.test?` を越えて呼べるように分けた）。
+      #
+      # 🔴 **弾いたら理由を 1 行残してから raise し直す**（#417・`0.7` のリリース前レビュー）。
+      # ⚠⚠ **ここは `require 'makoto'` の中**で、**`bin/makoto_daemon.rb` はその前に `$stderr` を
+      # `/dev/null` へ繋いでいる** — ⚠ **素で raise すると、#375 / #404 で書いた理由の文言は
+      # systemd の下で誰にも届かず、見えるのは 5 秒ごとの再起動だけ**（v0.6.0 の赤と同じ形）。
+      # 🔴 **止まる側に倒れる挙動は変えない**（偽の日付のまま本番へ出すくらいなら起動しない）。
+      def engage!
         verify!
         Timecop.travel(start_time)
         Timecop.scale(scale) unless scale == 1
         @active = describe
         logger.warn(time_travel: @active)
         return @active
+      rescue Ginseng::ConfigError => e
+        report_refusal(e)
+        raise
+      end
+
+      # 🔴 **観測のための 1 行で、弾いた理由の例外を上書きしない。**⚠⚠ **logger が落ちたら
+      # syslog へ、それも落ちたら諦める**（`Makoto.report_sentry_setup_error` と同じ倒し方）。
+      # ⚠ **理由の文言に秘密は載らない**（出発時刻・倍率・投稿先のホスト名・環境の名前だけ）。
+      def report_refusal(error)
+        logger.error(time_travel: 'refused', error: error)
+      rescue
+        begin
+          ::Syslog::Logger.new(Package.name).error("time travel: refused: #{error.message}")
+        rescue
+          return nil
+        end
       end
 
       # 人が読むための要約。⚠ **ハートビートのたびに出す**（→ `Scheduler`）。
@@ -94,20 +177,39 @@ module Makoto
 
       # 出発時刻。⚠ **読めなければ例外**（既定値に逃がすと、書き間違いが
       # 「いまの時刻で普通に動く」に化ける）。
+      #
+      # 🔴 **時刻を持たない値も弾く**（#375）。⚠⚠ **systemd の `Environment=` は空白で
+      # 値を区切る**ので、**drop-in を引用符なしで書くと `2026-11-04` だけが残る** —
+      # **`Time.parse` はそれを 11/4 00:00 として通し、別のリハーサルが静かに始まる**
+      # （2026-09-19 に踏んだ）。⚠ **00:00 から始めたいときは `00:00:00` と明示する。**
       def start_time
-        return @start_time ||= Time.parse(ENV[START_KEY].to_s)
+        return @start_time ||= begin
+          value = ENV[START_KEY].to_s
+          unless value.match?(TIME_OF_DAY)
+            hint = 'quote the whole value in the drop-in, e.g. "2026-11-04 11:58:00 +0900"'
+            raise Ginseng::ConfigError,
+              "time travel: #{START_KEY} '#{value}' has no time of day (#{hint})"
+          end
+          Time.parse(value)
+        end
       rescue ArgumentError
         raise Ginseng::ConfigError,
           "time travel: bad #{START_KEY} '#{ENV.fetch(START_KEY, nil)}'"
       end
 
       # 早送りの倍率。⚠ **省略時は 1（等速）。**
+      #
+      # 🔴 **上限で弾くときは理由も返す**（#404）。⚠⚠ **範囲だけを返すと、drop-in を
+      # 書く人には「足りないから上げればよい数字」に見える** — ⚠ **上限は実測から
+      # 引いた値**なので、**上げるなら実測ごと引き直すしかない**（→ `MAX_SCALE`）。
       def scale
         return @scale ||= begin
           value = ENV[SCALE_KEY].presence&.to_i || 1
           unless value.positive? && value <= MAX_SCALE
+            raw = ENV.fetch(SCALE_KEY, nil)
+            hint = 'the ceiling keeps one post inside /scheduler/tolerance'
             raise Ginseng::ConfigError,
-              "time travel: bad #{SCALE_KEY} '#{ENV.fetch(SCALE_KEY, nil)}' (1..#{MAX_SCALE})"
+              "time travel: bad #{SCALE_KEY} '#{raw}' (1..#{MAX_SCALE}: #{hint})"
           end
           value
         end

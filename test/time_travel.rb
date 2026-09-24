@@ -55,6 +55,32 @@ module Makoto
       end
     end
 
+    # 🔴 **時刻が落ちた値で起動しない**（#375）。⚠⚠ **drop-in を引用符なしで書くと
+    # systemd が空白で切り、`2026-11-04` だけが残る** — **`Time.parse` は 11/4 00:00 として
+    # 通すので、選んだ時刻ではなくその日の頭から全枠が出る。**
+    def test_a_date_without_time_of_day_raises
+      with_env(start: '2026-11-04') do
+        error = assert_raise(Ginseng::ConfigError) {TimeTravel.start_time}
+        assert_match(/no time of day/, error.message)
+      end
+    end
+
+    # ⚠ **明示すれば 00:00 でも通る。**
+    def test_an_explicit_midnight_passes
+      with_env(start: '2026-11-04 00:00:00 +0900') do
+        assert_equal(Time.parse('2026-11-04 00:00:00 +0900'), TimeTravel.start_time)
+      end
+    end
+
+    # ⚠⚠ **既存のリハーサルの書き方**（→ docs/CLAUDE.md リリース手順 4）と ISO 8601 は通る。
+    def test_existing_forms_pass
+      ['2026-11-04 11:58:00 +0900', '2026-11-04T11:58:00+09:00', '2026-11-04 11:58'].each do |value|
+        with_env(start: value) do
+          assert_equal(Time.parse(value), TimeTravel.start_time)
+        end
+      end
+    end
+
     def test_scale_defaults_to_one
       with_env(start: '2026-11-04 11:55:00 +0900') do
         assert_equal(1, TimeTravel.scale)
@@ -73,6 +99,57 @@ module Makoto
       with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
         assert_raise(Ginseng::ConfigError) {TimeTravel.scale}
       end
+    end
+
+    # ⚠ **上限そのものは通る**（`1..MAX_SCALE` の右端）。🔴 **off-by-one で
+    # 「上限が使えない」形にしないため。**
+    def test_the_ceiling_itself_passes
+      with_env(start: '2026-11-04 11:55:00 +0900', scale: TimeTravel::MAX_SCALE.to_s) do
+        assert_equal(TimeTravel::MAX_SCALE, TimeTravel.scale)
+      end
+    end
+
+    # 🔴 **弾くときは理由も返す**（#404）。⚠⚠ **範囲だけを返すと「足りないから
+    # 上げればよい数字」に見える** — ⚠ **上限は実測から引いた値。**
+    def test_the_ceiling_error_says_why
+      with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
+        error = assert_raise(Ginseng::ConfigError) {TimeTravel.scale}
+        assert_match('/scheduler/tolerance', error.message)
+      end
+    end
+
+    # 🔴 **弾いたら理由を 1 行残してから raise し直す**（#417）。⚠⚠ **常駐では `$stderr` が
+    # `/dev/null` なので、残さないと理由がどこにも届かない。**
+    def test_a_refusal_is_reported_and_still_raises
+      reported = []
+      with_singleton(TimeTravel, :report_refusal, ->(error) {reported.push(error)}) do
+        with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
+          assert_raise(Ginseng::ConfigError) {TimeTravel.engage!}
+        end
+      end
+
+      assert_equal(1, reported.size)
+      assert_match('/scheduler/tolerance', reported.first.message)
+    end
+
+    # 🔴 **観測の 1 行が落ちても、弾いた理由の例外を上書きしない**（#417）。
+    def test_a_broken_logger_does_not_mask_the_refusal
+      broken = Object.new
+      broken.define_singleton_method(:error) {|*| raise IOError, 'syslog is gone'}
+      with_singleton(TimeTravel, :logger, -> {broken}) do
+        with_env(start: '2026-11-04 11:55:00 +0900', scale: (TimeTravel::MAX_SCALE + 1).to_s) do
+          assert_raise(Ginseng::ConfigError) {TimeTravel.engage!}
+        end
+      end
+    end
+
+    # ⚠ **特異メソッドを一時的に差し替える。**🔴 **戻さないと後のテストに漏れる。**
+    def with_singleton(target, name, body)
+      original = target.method(name)
+      target.define_singleton_method(name, &body)
+      yield
+    ensure
+      target.define_singleton_method(name, original)
     end
 
     def test_a_broken_scale_raises
