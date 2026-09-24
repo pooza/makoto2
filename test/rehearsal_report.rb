@@ -336,6 +336,12 @@ module Makoto
 
       assert_equal(10, subject.travel[:scale])
       assert_nothing_raised {report(refused, SUCCESS).to_s}
+      # 🔴 **捨てずに赤にする**（#418 の Codex の P1）。⚠⚠ **弾かれた回は常駐が起きていない**ので、
+      # **他の行が通っていても緑にしない** — ⚠ **受け皿に入らなかった `error` 行として拾う**（#416）。
+      refused_run = report(refused, TRAVEL, HEARTBEAT, SUCCESS)
+
+      assert_equal({'time_travel:refused' => 1}, refused_run.unclassified)
+      assert_true(refused_run.red?)
     end
 
     # 🔴 **登録を見送った投稿は赤**（#416 / #350）。⚠⚠ **実機が出す 2 行をそのまま写した** —
