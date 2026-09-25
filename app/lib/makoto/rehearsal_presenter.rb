@@ -91,7 +91,8 @@ module Makoto
       return out.join("\n")
     end
 
-    # 🔴 **モロヘイヤが足した字数**（#351）。⚠ **`/mastodon/proxy_reserve` は見積もり**なので、
+    # 🔴 **モロヘイヤが足した字数**（#351）。⚠ **`/mastodon/proxy_reserve` は実測から引いた値**
+    # （→ `config/application.yaml`）だが、**辞書は稼働中のモロヘイヤ側で増えうる**ので、
     # **毎回この行で突き合わせる。**
     #
     # 🔴🔴 **超えても赤にしない。**⚠⚠ **予約を超えただけでは投稿は落ちない** — **落ちるのは
@@ -157,8 +158,15 @@ module Makoto
         mark = status.to_i >= 400 ? '🔴' : '  '
         out.push("#{mark} #{method} #{status}: #{count} 回")
       end
-      out.push('  （1 本も無い）') if @report.http.empty?
-      out.push("⚠ 再送 #{@report.retries} 回") if @report.retries.positive?
+      # 🔴 **再送しない失敗は赤**（#420 → `RehearsalReport#count_http`）。
+      @report.http_failures.sort.each do |method, count|
+        out.push("🔴 #{method} 応答が返らなかった（再送しない失敗 ＝ ReadTimeout など）: #{count} 回")
+      end
+      out.push('  （1 本も無い）') if @report.http.empty? && @report.http_failures.empty?
+      # ⚠ **「再送」ではなく「落ちた試行」と名乗る**（#439 → `RehearsalReport#count_http`）。
+      if @report.failed_attempts.positive?
+        out.push("⚠ 落ちた試行 #{@report.failed_attempts} 回（再送したものと、諦めた最後の 1 回を含む）")
+      end
       return (out + format_durations).join("\n")
     end
 
@@ -169,13 +177,24 @@ module Makoto
     # 掛けていた** — ⚠⚠ **「中央値 6.772 秒 ＝ scale 10 で見かけ 67 秒」と書いていたが、
     # 6.772 秒がすでに見かけ**（**実時間 0.677 秒**）。🔴 **枠の間隔（見かけ 180 秒）に対して
     # 37% ではなく 3.7%。**⚠ **毎回この行が出れば、同じ取り違えは二度と起きない。**
+    #
+    # 🔴 **再送があった回は、max がふくらんでいることを言う**（#420）。⚠⚠ **再送のあとに成功した
+    # 行の `seconds` は落ちた試行と待ちを含む**（→ `RehearsalReport#http_durations`）ので、
+    # ⚠ **`MAX_SCALE` を「記録全部の最大」で引くと（#411）上限を不要に下げる。**
     def format_durations
       unit = scaled? ? '（見かけ）' : ''
-      return @report.http_durations.sort.flat_map do |method, row|
-        lines = ["   #{method} の所要#{unit}: #{row[:count]} 本 / #{format_stats(row)}"]
-        lines.push("   #{method} の所要（実時間）: #{format_stats(scale_down(row))}") if scaled?
-        lines
+      lines = @report.http_durations.sort.flat_map do |method, row|
+        rows = ["   #{method} の所要#{unit}: #{row[:count]} 本 / #{format_stats(row)}"]
+        rows.push("   #{method} の所要（実時間）: #{format_stats(scale_down(row))}") if scaled?
+        rows
       end
+      # ⚠ **「含みうる」と書く**（PR #449 の Codex の P2）— ⚠⚠ **どの成功が再送のあとだったかは
+      # 行から結び付けられない**（→ `RehearsalReport#count_http`）。🔴 **所要の行が無ければ出さない。**
+      if @report.failed_attempts.positive? && lines.any?
+        lines.push('⚠ 落ちた試行があった。再送のあとに成功した行があれば、その所要は落ちた試行と' \
+          '待ちを含む（max がふくらみうる → #420）')
+      end
+      return lines
     end
 
     def format_stats(row)
@@ -226,10 +245,8 @@ module Makoto
       # 「測れた」と読ませない**（**分布に最大が居るとは限らない**）。
       out.push('- モロヘイヤが足した字数（迂回・content 無し・復元できない形は測れない → #351）') \
         if @report.proxy_added.nil? || @report.proxy_skipped.positive?
-      # 🔴 **所要に再送ぶんが入っていないことを言う**（#201）。⚠⚠ **落ちた試行の行は
-      # `seconds` を持たない**ので、⚠ **再送が多い回ほど「1 本の所要」は実態より軽く出る。**
-      out.push('- 再送で食った時間（落ちた試行の行は seconds を持たない → #201）') \
-        if @report.retries.positive?
+      # ⚠ **再送ぶんの時間は「読めないもの」ではなくなった**（#420）— ⚠⚠ **成功した行の所要に
+      # 含まれる**（**#201 の時点では「現れない」と逆に書いていた**）。→ `format_durations`
       out.push('- 投稿が枠を跨ぐか（早送りでは見かけ上 scale 倍かかる → #90 / #92）') if scaled?
       return out.join("\n")
     end

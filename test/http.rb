@@ -123,5 +123,18 @@ module Makoto
 
       assert_operator(worst, :<, interval)
     end
+
+    # 🔴 **json 3 の下で HTTParty と ActiveSupport が JSON を読めること**（#426）。
+    #
+    # ⚠⚠ **json 3.x は未知のキーワードを `ArgumentError` にする** — **HTTParty の `parser.rb` は
+    # `JSON.parse(body, quirks_mode: true, allow_nan: true)`、`ActiveSupport::JSON.decode` は
+    # 位置引数の Hash を渡す**ので、素の json 3 ではどちらも落ちる（実測）。
+    # ⚠ **通っているのは `ginseng-core` の `ginseng.rb` が `require 'yajl/json_gem'` で
+    # `JSON.parse` を差し替えているから。**🔴 **上流が yajl を外した日に、ここが赤くなる**
+    # （**外れると Mastodon・cure-api・iTunes の `parsed_response` が全部 `ArgumentError`**）。
+    def test_json_is_parsed_through_the_yajl_override
+      assert_equal({'id' => '1'}, HTTParty::Parser.call('{"id":"1"}', :json))
+      assert_equal({'id' => '1'}, ActiveSupport::JSON.decode('{"id":"1"}'))
+    end
   end
 end

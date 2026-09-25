@@ -173,9 +173,15 @@ module Makoto
     # 見送りの理由を人が読む 1 行にする。⚠ **`ConfigError` は文が既に投稿の名前で
     # 始まる**ので重ねない。⚠⚠ **それ以外はクラス名を添える**（`EISDIR` か `EACCES` かが
     # 文だけでは残らない・→ `SongSource#spoken?`）。
+    #
+    # 🔴 **ログと同じマスクを通す**（#423）。⚠⚠ **この 1 行は痕跡を経て `/healthz` の本文に
+    # 出る** — **syslog（`Logger`）と Sentry（`SentryScrubber`）は伏せるのに、ここだけが
+    # 素の文字列を出す口だった。**⚠ **正本は `/logger/mask_fields` など上流の合成**なので、
+    # 同等品を書かずに `logger.mask` を呼ぶ。
     def describe_rejection(error)
-      return error_message(error) if error.is_a?(Ginseng::ConfigError)
-      return "#{error.class}: #{error_message(error)}"
+      message = error_message(error)
+      message = "#{error.class}: #{message}" unless error.is_a?(Ginseng::ConfigError)
+      return logger.mask(message)
     end
 
     private
@@ -191,7 +197,7 @@ module Makoto
         Song::NAME => -> {Song.new.job},
         # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
         # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
-        'live' => -> {Live.new.jobs},
+        Live::NAME => -> {Live.new.jobs},
       }
     end
 
@@ -384,7 +390,9 @@ module Makoto
         declared = MastodonService.new.declared_max_length
         payload = {mastodon: 'max_length', configured: budget.limit, declared: declared}
         if (problem = budget.limit_mismatch(declared))
-          logger.error(payload.merge(message: problem))
+          # 🔴 **`error` 欄に入れる**（#440）。⚠⚠ **`message` だけだと `rehearsal report` の受け皿
+          # （`count_unclassified`）が拾わず、上限が下がっていてもリハーサルが緑だった。**
+          logger.error(payload.merge(message: problem, error: problem))
         else
           logger.info(payload)
         end

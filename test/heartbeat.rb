@@ -387,6 +387,95 @@ module Makoto
       assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
     end
 
+    # 🔴 **リハーサルが残した未来の `ticked_at` で、撤収後の tick の停止を見逃さない**（#421）。
+    # ⚠⚠ **見かけの 11/4 に書いた時刻が、実時間の再起動のあとも基準に残っていた。**
+    def test_a_start_drops_a_future_tick
+      real = now - (40 * 86_400)
+      Heartbeat.record_start(now: now - 3600)
+      Heartbeat.record_tick(now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_nil(Heartbeat.ticked_at)
+      assert_false(Heartbeat.tick_stale?(real))
+      assert_true(Heartbeat.tick_stale?(real + Heartbeat.tick_limit + 1))
+    end
+
+    # ⚠ **初回 tick の前に撤収した形**（未来の `started_at` だけが残る）でも猶予を据え置かない（#421）。
+    def test_a_start_drops_a_future_start
+      real = now - (40 * 86_400)
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_equal(real.getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+      assert_true(Heartbeat.tick_stale?(real + Heartbeat.tick_limit + 1))
+    end
+
+    # 🔴 **リハーサルで落ちた枠を、撤収後も「失敗中」と言い続けない**（#421）。
+    # ⚠⚠ **未来の `failed_at` は `now - failed` が負なので `failure_stale` を超えず、
+    # 実時間で 6 週間ほど警告が残っていた。**
+    def test_a_start_drops_future_failures
+      config['/scheduler/posting/failure_stale'] = '7d'
+      real = now - (40 * 86_400)
+      Heartbeat.failure_limit.times do |i|
+        Heartbeat.record_failure(post: 'live', slot: "live-#{i}", now: now)
+      end
+      Heartbeat.record_failure(post: 'song', now: real - 60)
+
+      assert_true(Heartbeat.failing?(now: real))
+
+      Heartbeat.record_start(now: real)
+
+      assert_false(Heartbeat.failing?(now: real))
+      assert_equal(0, Heartbeat.posts[:live][:failures])
+      assert_nil(Heartbeat.posts[:live][:failed_at])
+      # ⚠ **過去の失敗は触らない。**
+      assert_equal(1, Heartbeat.posts[:song][:failures])
+      assert_equal((real - 60).getutc.iso8601, Heartbeat.failed_at.getutc.iso8601)
+    end
+
+    # 🔴 **リハーサル中の起き直しでは、未来の起動と tick だけを捨て、失敗は残す**（#421・PR #434 の
+    # Codex の P1 ×2・#442）。⚠⚠ **起き直した常駐は見かけの時刻を開始時刻からやり直す**ので、
+    # **前の常駐が書いた同じリハーサルの記録が「未来」に見える** — ⚠ **失敗まで捨てると証拠が消える。**
+    # 🔴 **`ticked_at` を残すと、初回 tick が詰まっても見かけの時刻が追いつくまで stale にならない。**
+    def test_a_start_during_time_travel_keeps_failures_and_drops_the_future_tick
+      config['/scheduler/posting/failure_stale'] = '7d'
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_tick(now: now + 3600)
+      Heartbeat.failure_limit.times do |i|
+        Heartbeat.record_failure(post: 'live', slot: "live-#{i}", now: now + 3600)
+      end
+      with_time_travel {Heartbeat.record_start(now: now)}
+
+      assert_true(Heartbeat.failing?(now: now))
+      assert_nil(Heartbeat.ticked_at)
+      assert_equal(now.getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+      assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
+    end
+
+    # ⚠ **2 回目の起き直しが 1 回目より早いと、1 回目の `started_at` が未来に残る**（#442 の緑）。
+    # 🔴 **捨てて張り直す** — ⚠⚠ **騙している間は起き直すたびに見かけの時刻が戻る**ので、
+    # **据え置いても猶予は実質張り直されている**（→ `Heartbeat.record_start` のコメント）。
+    def test_a_start_during_time_travel_drops_a_future_start
+      Heartbeat.record_start(now: now + 40)
+      with_time_travel {Heartbeat.record_start(now: now + 20)}
+
+      assert_equal((now + 20).getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+    end
+
+    # 🔴 **撤収後の実時間の起き直しで、未来の `posted_at` も捨てる**（#441）。⚠⚠ **残すと
+    # `makoto status` の "last success" が見かけの 11/4 を言い続ける**（年に 1 日の枠は翌年まで）。
+    # ⚠ **過去の成功は残し、全体の `posted_at` は残った枠の最新に引き直す。**
+    def test_a_start_drops_future_successes
+      real = now - (40 * 86_400)
+      Heartbeat.record_success(post: 'song', now: real - 60)
+      Heartbeat.record_success(post: 'live', now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_nil(Heartbeat.posts[:live][:posted_at])
+      assert_equal((real - 60).getutc.iso8601, Heartbeat.posts[:song][:posted_at])
+      assert_equal((real - 60).getutc.iso8601, Heartbeat.posted_at.getutc.iso8601)
+    end
+
     # 設定を消しただけで検知が静かに緩む形を作らない（#77 の裏返し）。
     def test_rejects_bad_failure_limit
       config['/scheduler/posting/failure_limit'] = 0

@@ -615,7 +615,11 @@ module Makoto
     def test_a_shorter_declared_limit_is_an_error
       limit = config['/mastodon/max_length']
 
-      assert_equal(1, records_of_max_length(limit - 1)[:error].size)
+      errors = records_of_max_length(limit - 1)[:error]
+
+      assert_equal(1, errors.size)
+      # 🔴 **`error` 欄を持つ**（#440）— ⚠⚠ **無いと `rehearsal report` の受け皿（`count_unclassified`）が捨てる。**
+      assert_include(errors.first[:error].to_s, (limit - 1).to_s)
       assert_equal(limit + 1, records_of_max_length(limit + 1)[:info].first[:declared])
     end
 
@@ -695,6 +699,18 @@ module Makoto
     def test_describe_rejection
       assert_equal('song: broken', @daemon.describe_rejection(Ginseng::ConfigError.new('song: broken')))
       assert_equal('Errno::EISDIR: Is a directory - x', @daemon.describe_rejection(Errno::EISDIR.new('x')))
+    end
+
+    # 🔴 **見送りの理由は `/healthz` の本文に出るので、ログと同じマスクを通す**（#423）。
+    def test_describe_rejection_masks_urls
+      error = RuntimeError.new('GET https://x.example/?access_token=SECRET')
+      description = @daemon.describe_rejection(error)
+
+      assert_not_include(description, 'SECRET')
+      assert_include(description, 'access_token=[FILTERED]')
+      config_error = Ginseng::ConfigError.new('song: https://x.example/?access_token=SECRET')
+
+      assert_not_include(@daemon.describe_rejection(config_error), 'SECRET')
     end
 
     # ⚠ 冪等キーの前半になる名前が衝突しないこと。⚠⚠ **同じ名前が 2 本あると、同じ
