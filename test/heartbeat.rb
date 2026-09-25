@@ -433,10 +433,11 @@ module Makoto
       assert_equal((real - 60).getutc.iso8601, Heartbeat.failed_at.getutc.iso8601)
     end
 
-    # 🔴 **リハーサル中の起き直しでは捨てない**（#421・PR #434 の Codex の P1）。⚠⚠ **起き直した
-    # 常駐は見かけの時刻を開始時刻からやり直す**ので、**前の常駐が書いた同じリハーサルの記録が
-    # 「未来」に見える** — ⚠ **捨てると失敗の証拠が消え、猶予も張り直される**（クラッシュループの塞ぎが外れる）。
-    def test_a_start_during_time_travel_keeps_the_record
+    # 🔴 **リハーサル中の起き直しでは、未来の起動と tick だけを捨て、失敗は残す**（#421・PR #434 の
+    # Codex の P1 ×2・#442）。⚠⚠ **起き直した常駐は見かけの時刻を開始時刻からやり直す**ので、
+    # **前の常駐が書いた同じリハーサルの記録が「未来」に見える** — ⚠ **失敗まで捨てると証拠が消える。**
+    # 🔴 **`ticked_at` を残すと、初回 tick が詰まっても見かけの時刻が追いつくまで stale にならない。**
+    def test_a_start_during_time_travel_keeps_failures_and_drops_the_future_tick
       config['/scheduler/posting/failure_stale'] = '7d'
       Heartbeat.record_start(now: now)
       Heartbeat.record_tick(now: now + 3600)
@@ -446,12 +447,33 @@ module Makoto
       with_time_travel {Heartbeat.record_start(now: now)}
 
       assert_true(Heartbeat.failing?(now: now))
-      # 🔴 **ただし未来の `ticked_at` は捨てる**（2 巡目の P1）。⚠⚠ **残すと、起き直した常駐の
-      # 初回 tick が詰まっても、見かけの時刻がそこへ追いつくまで stale にならない。**
-      # ⚠ **`started_at` は残す**（**猶予を張り直さない** ＝ クラッシュループの塞ぎ）。
       assert_nil(Heartbeat.ticked_at)
       assert_equal(now.getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
       assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
+    end
+
+    # ⚠ **2 回目の起き直しが 1 回目より早いと、1 回目の `started_at` が未来に残る**（#442 の緑）。
+    # 🔴 **捨てて張り直す** — ⚠⚠ **騙している間は起き直すたびに見かけの時刻が戻る**ので、
+    # **据え置いても猶予は実質張り直されている**（→ `Heartbeat.record_start` のコメント）。
+    def test_a_start_during_time_travel_drops_a_future_start
+      Heartbeat.record_start(now: now + 40)
+      with_time_travel {Heartbeat.record_start(now: now + 20)}
+
+      assert_equal((now + 20).getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+    end
+
+    # 🔴 **撤収後の実時間の起き直しで、未来の `posted_at` も捨てる**（#441）。⚠⚠ **残すと
+    # `makoto status` の "last success" が見かけの 11/4 を言い続ける**（年に 1 日の枠は翌年まで）。
+    # ⚠ **過去の成功は残し、全体の `posted_at` は残った枠の最新に引き直す。**
+    def test_a_start_drops_future_successes
+      real = now - (40 * 86_400)
+      Heartbeat.record_success(post: 'song', now: real - 60)
+      Heartbeat.record_success(post: 'live', now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_nil(Heartbeat.posts[:live][:posted_at])
+      assert_equal((real - 60).getutc.iso8601, Heartbeat.posts[:song][:posted_at])
+      assert_equal((real - 60).getutc.iso8601, Heartbeat.posted_at.getutc.iso8601)
     end
 
     # 設定を消しただけで検知が静かに緩む形を作らない（#77 の裏返し）。

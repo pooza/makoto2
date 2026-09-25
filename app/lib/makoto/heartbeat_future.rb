@@ -13,19 +13,16 @@ module Makoto
     # ⚠ **`started_at` / `ticked_at` は消すだけ**（**`record_start` が猶予を張り直す**）。
     # ⚠⚠ **枠の失敗は数ごと 0 に戻す**（→ `forget_future_failures`）— 🔴 **`failed_at` だけを
     # 消すと「時刻が読めない記録は古くない扱い」で、かえって永久に鳴る。**
+    # ⚠ **枠の成功（`posted_at`）も捨てる**（#441 → `forget_future_successes`）。
     #
-    # 🔴 **日付を騙している間は `ticked_at` だけ**（→ `forget_future_tick`・`record_start` の注記）。
+    # 🔴 **日付を騙している間は `started_at` / `ticked_at` だけ**（#421 の Codex の P1 ×2・#442）—
+    # ⚠⚠ **失敗と成功は同じリハーサルの証拠なので残す**（→ `record_start` の注記）。
     def forget_future(record, time)
-      return forget_future_tick(record, time) if TimeTravel.active?
       cleaned = record.reject do |key, value|
         [:started_at, :ticked_at].include?(key) && future?(value, time)
       end
-      return forget_future_failures(cleaned, time)
-    end
-
-    # ⚠ **未来の `ticked_at` だけを捨てる**（日付を騙している間の起き直し → `record_start`）。
-    def forget_future_tick(record, time)
-      return record.reject {|key, value| key == :ticked_at && future?(value, time)}
+      return cleaned if TimeTravel.active?
+      return forget_future_successes(forget_future_failures(cleaned, time), time)
     end
 
     def future?(value, time)
@@ -38,16 +35,29 @@ module Makoto
     # ⚠⚠ **リハーサルの見かけの時刻で落ちた記録**なので、**実時間の常駐の健全さとは関係が無い。**
     # ⚠ **全枠の `failed_at` は、残った枠のうちいちばん新しいものに引き直す**（**無ければ消す**）。
     def forget_future_failures(record, time)
+      return forget_future_posts(record, time, :failed_at) do |value|
+        value.except(:failed_at).merge(failures: 0, slots: [])
+      end
+    end
+
+    # ⚠ **未来の `posted_at` を捨てる**（#441）。⚠⚠ **残すと `makoto status` の "last success" と
+    # `/healthz/posting` の文面が見かけの 11/4 を言い続ける**（判定には使わないので表示だけ）。
+    def forget_future_successes(record, time)
+      return forget_future_posts(record, time, :posted_at) {|value| value.except(:posted_at)}
+    end
+
+    # ⚠ **枠ごとの `key` が未来なら `yield` で書き換え、全体の `key` を残った枠の最新に引き直す。**
+    def forget_future_posts(record, time, key)
       posts = record[:posts].is_a?(Hash) ? record[:posts] : {}
-      kept = posts.to_h do |key, value|
-        next [key, value] unless value.is_a?(Hash) && future?(value[:failed_at], time)
-        [key, value.except(:failed_at).merge(failures: 0, slots: [])]
+      kept = posts.to_h do |name, value|
+        next [name, value] unless value.is_a?(Hash) && future?(value[key], time)
+        [name, yield(value)]
       end
       cleaned = posts.empty? ? record : record.merge(posts: kept)
-      return cleaned unless future?(cleaned[:failed_at], time)
-      latest = kept.values.filter_map {|v| parse_time(v[:failed_at]) if v.is_a?(Hash)}.max
-      return cleaned.except(:failed_at) unless latest
-      return cleaned.merge(failed_at: latest.getutc.iso8601)
+      return cleaned unless future?(cleaned[key], time)
+      latest = kept.values.filter_map {|v| parse_time(v[key]) if v.is_a?(Hash)}.max
+      return cleaned.except(key) unless latest
+      return cleaned.merge(key => latest.getutc.iso8601)
     end
   end
 end
