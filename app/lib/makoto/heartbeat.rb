@@ -107,6 +107,9 @@ module Makoto
       # `Heartbeat.` で呼べる。**
       include HeartbeatPosts
 
+      # 🔴 **リハーサルが痕跡に残した未来の時刻を捨てる口**（#421 → `HeartbeatFuture`）。
+      include HeartbeatFuture
+
       # ⚠ **テストは別のファイルに落とす。**`Environment.db` と同じ理由で、稼働中の
       # 痕跡をテストが書き換えると `makoto status` が嘘をつく。
       def path
@@ -185,13 +188,27 @@ module Makoto
       # 🔴 **初回 tick の途中で落ち続ける常駐は、tick の観点で永遠に健全を返す。**
       # ⚠⚠ **#80 の黄 7 が消したかった「検知のための痕跡が、検知したい状態で更新され
       # 続ける」構造そのもの**なので、ここで塞ぐ。
+      #
+      # 🔴 **未来の時刻は先に捨てる**（#421）。⚠⚠ **リハーサルは見かけの 11/4 で痕跡を書く**ので、
+      # **撤収して実時間で起き直すと `ticked_at` / `started_at` / `failed_at` が未来に残る** —
+      # ⚠ **`tick_stale?` は未来の基準で止まりを見逃し、`failing?` は `failure_stale` を超えずに
+      # 6 週間ほど鳴り続けていた。**⚠ **捨てるのは起き上がりのときだけ**（読む側で捨てると、
+      # リハーサル中の失敗を外から見られなくなる）。
+      #
+      # 🔴 **日付を騙している間は、未来の `ticked_at` だけを捨てる**（PR #434 の Codex の P1 ×2）。
+      # ⚠⚠ **リハーサル中に落ちて起き直した常駐は、見かけの時刻を開始時刻からやり直す**ので、
+      # **同じリハーサルの記録が「未来」に見える** — ⚠ **失敗まで捨てると証拠が消え、`started_at`
+      # まで捨てると猶予が張り直される**（上のクラッシュループの塞ぎが外れる）。🔴 **一方で
+      # `ticked_at` を残すと、初回 tick が詰まっても見かけの時刻が追いつくまで stale にならない。**
       def record_start(now: nil)
+        time = now || Time.now
         return update do |record|
-          started = parse_time(record[:started_at])
-          ticked = parse_time(record[:ticked_at])
+          cleaned = forget_future(record, time)
+          started = parse_time(cleaned[:started_at])
+          ticked = parse_time(cleaned[:ticked_at])
           # ⚠ 前回の猶予がまだ 1 回も tick で解消されていなければ、据え置く。
-          next record if started && (ticked.nil? || ticked < started)
-          record.merge(started_at: (now || Time.now).getutc.iso8601)
+          next cleaned if started && (ticked.nil? || ticked < started)
+          cleaned.merge(started_at: time.getutc.iso8601)
         end
       end
 

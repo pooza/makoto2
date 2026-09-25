@@ -387,6 +387,73 @@ module Makoto
       assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
     end
 
+    # 🔴 **リハーサルが残した未来の `ticked_at` で、撤収後の tick の停止を見逃さない**（#421）。
+    # ⚠⚠ **見かけの 11/4 に書いた時刻が、実時間の再起動のあとも基準に残っていた。**
+    def test_a_start_drops_a_future_tick
+      real = now - (40 * 86_400)
+      Heartbeat.record_start(now: now - 3600)
+      Heartbeat.record_tick(now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_nil(Heartbeat.ticked_at)
+      assert_false(Heartbeat.tick_stale?(real))
+      assert_true(Heartbeat.tick_stale?(real + Heartbeat.tick_limit + 1))
+    end
+
+    # ⚠ **初回 tick の前に撤収した形**（未来の `started_at` だけが残る）でも猶予を据え置かない（#421）。
+    def test_a_start_drops_a_future_start
+      real = now - (40 * 86_400)
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_equal(real.getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+      assert_true(Heartbeat.tick_stale?(real + Heartbeat.tick_limit + 1))
+    end
+
+    # 🔴 **リハーサルで落ちた枠を、撤収後も「失敗中」と言い続けない**（#421）。
+    # ⚠⚠ **未来の `failed_at` は `now - failed` が負なので `failure_stale` を超えず、
+    # 実時間で 6 週間ほど警告が残っていた。**
+    def test_a_start_drops_future_failures
+      config['/scheduler/posting/failure_stale'] = '7d'
+      real = now - (40 * 86_400)
+      Heartbeat.failure_limit.times do |i|
+        Heartbeat.record_failure(post: 'live', slot: "live-#{i}", now: now)
+      end
+      Heartbeat.record_failure(post: 'song', now: real - 60)
+
+      assert_true(Heartbeat.failing?(now: real))
+
+      Heartbeat.record_start(now: real)
+
+      assert_false(Heartbeat.failing?(now: real))
+      assert_equal(0, Heartbeat.posts[:live][:failures])
+      assert_nil(Heartbeat.posts[:live][:failed_at])
+      # ⚠ **過去の失敗は触らない。**
+      assert_equal(1, Heartbeat.posts[:song][:failures])
+      assert_equal((real - 60).getutc.iso8601, Heartbeat.failed_at.getutc.iso8601)
+    end
+
+    # 🔴 **リハーサル中の起き直しでは捨てない**（#421・PR #434 の Codex の P1）。⚠⚠ **起き直した
+    # 常駐は見かけの時刻を開始時刻からやり直す**ので、**前の常駐が書いた同じリハーサルの記録が
+    # 「未来」に見える** — ⚠ **捨てると失敗の証拠が消え、猶予も張り直される**（クラッシュループの塞ぎが外れる）。
+    def test_a_start_during_time_travel_keeps_the_record
+      config['/scheduler/posting/failure_stale'] = '7d'
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_tick(now: now + 3600)
+      Heartbeat.failure_limit.times do |i|
+        Heartbeat.record_failure(post: 'live', slot: "live-#{i}", now: now + 3600)
+      end
+      with_time_travel {Heartbeat.record_start(now: now)}
+
+      assert_true(Heartbeat.failing?(now: now))
+      # 🔴 **ただし未来の `ticked_at` は捨てる**（2 巡目の P1）。⚠⚠ **残すと、起き直した常駐の
+      # 初回 tick が詰まっても、見かけの時刻がそこへ追いつくまで stale にならない。**
+      # ⚠ **`started_at` は残す**（**猶予を張り直さない** ＝ クラッシュループの塞ぎ）。
+      assert_nil(Heartbeat.ticked_at)
+      assert_equal(now.getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+      assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
+    end
+
     # 設定を消しただけで検知が静かに緩む形を作らない（#77 の裏返し）。
     def test_rejects_bad_failure_limit
       config['/scheduler/posting/failure_limit'] = 0
