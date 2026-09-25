@@ -63,8 +63,7 @@ module Makoto
     #   （例外のバックトレースは `  /path:12:in …` の素の行で出る）
     def initialize(lines)
       @slots = {}
-      @http = {}
-      @retries = 0
+      init_http
       @heartbeats = 0
       @versions = Set.new
       @travel = nil
@@ -76,7 +75,6 @@ module Makoto
       @slow_errors = 0
       @heartbeat_errors = 0
       @revisions = Set.new
-      @http_seconds = {}
       @proxy_added = []
       @proxy_skipped = 0
       @rejects = []
@@ -84,9 +82,9 @@ module Makoto
       lines.each {|line| consume(parse(line))}
     end
 
-    attr_reader :slots, :http, :retries, :heartbeats, :versions, :travel, :lines, :notifies,
-      :notify_failures, :notify_misses, :slows, :slow_errors, :revisions, :heartbeat_errors,
-      :proxy_skipped, :rejects, :unclassified
+    attr_reader :slots, :http, :retries, :http_failures, :heartbeats, :versions, :travel, :lines,
+      :notifies, :notify_failures, :notify_misses, :slows, :slow_errors, :revisions,
+      :heartbeat_errors, :proxy_skipped, :rejects, :unclassified
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -168,6 +166,7 @@ module Makoto
       return true if anomalous_slots.any? || duplicated_slots.any?
       return true if @notify_failures.positive? || @heartbeat_errors.positive?
       return true if @slows.any? || @slow_errors.positive?
+      return true if @http_failures.values.sum.positive?
       return http_errors.positive? || failed.positive?
     end
 
@@ -197,8 +196,11 @@ module Makoto
     # 実時間**なので割り引けない → `count_slow`）。**同じ名前で単位が違う。**
     # 🔴 **実時間へ戻すのは読ませる側の仕事**（→ `RehearsalPresenter#format_durations`）。
     #
-    # ⚠ **応答が返った行だけが入る。**⚠⚠ **落ちた試行の行は `seconds` を持たない**
-    # （`log_retry_error` は `start` を素のまま出す）ので、🔴 **再送で食った時間はここに現れない。**
+    # ⚠ **応答が返った行だけが入る**（落ちた試行の行は `seconds` を持たない）。🔴🔴 **ただし再送の
+    # あとに成功した行の `seconds` は、落ちた試行と待ち（`/http/retry/seconds`）を含む**（#420）—
+    # ⚠⚠ **`ginseng-core` の `repeat(method, uri, start)` は `retry` しても `start` を取り直さない。**
+    # ⚠ **再送があった回は max がふくらむ**ので、🔴 **`MAX_SCALE` を「記録全部の最大」で引くとき
+    # （#411）は、その回の max を除いて読む**（→ `RehearsalPresenter#format_durations`）。
     #
     # ⚠ **4xx / 5xx も混ぜる**（🔴 **手で `grep POST` した #201 の数え方に合わせる** — ⚠⚠ **落ちた
     # 応答は速く返るので、混ぜると中央値が下がる**。**ただし応答が 400 台なら `red?` が先に倒す**）。
@@ -228,6 +230,14 @@ module Makoto
     end
 
     private
+
+    # ⚠ **HTTP の行の入れ物**（→ `count_http`）。応答の内訳・再送・再送しない失敗（#420）・所要。
+    def init_http
+      @http = {}
+      @retries = 0
+      @http_failures = Hash.new(0)
+      @http_seconds = {}
+    end
 
     # ⚠ **偶数本は中央 2 つの平均。**🔴 **ログ自身が 3 桁で丸めている**ので、同じ桁で返す。
     #
@@ -356,8 +366,14 @@ module Makoto
 
     # ⚠ **応答が返った行と、落ちた試行の行を分ける。**⚠⚠ **後者は `count` を持ち、
     # 再送の回数そのもの**なので、`status` ごとの内訳には混ぜない。
+    #
+    # 🔴 **`count` を持たない `error` 行は「再送しない失敗」**（#420）。⚠⚠ **`ginseng-core` は
+    # ReadTimeout を再送せずに `count:` 無しで出す**ので、**応答の行として `[method, nil]` に
+    # 数えていた** — ⚠ **同じ GET が 503 なら赤、タイムアウトなら緑と割れていた。**
+    # 🔴 **赤にする**（2026-09-26 オーナー判断 → `red?`）。
     def count_http(entry)
       return @retries += 1 if entry[:count]
+      return @http_failures[entry[:method]] += 1 if entry[:error]
       key = [entry[:method], entry[:status]]
       @http[key] = @http.fetch(key, 0) + 1
       # ⚠ **所要はメソッド単位で貯める**（→ `http_durations`）。🔴 **status では割らない** —
