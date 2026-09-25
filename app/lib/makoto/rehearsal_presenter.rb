@@ -163,7 +163,10 @@ module Makoto
         out.push("🔴 #{method} 応答が返らなかった（再送しない失敗 ＝ ReadTimeout など）: #{count} 回")
       end
       out.push('  （1 本も無い）') if @report.http.empty? && @report.http_failures.empty?
-      out.push("⚠ 再送 #{@report.retries} 回") if @report.retries.positive?
+      # ⚠ **「再送」ではなく「落ちた試行」と名乗る**（#439 → `RehearsalReport#count_http`）。
+      if @report.failed_attempts.positive?
+        out.push("⚠ 落ちた試行 #{@report.failed_attempts} 回（再送したものと、諦めた最後の 1 回を含む）")
+      end
       return (out + format_durations).join("\n")
     end
 
@@ -185,8 +188,11 @@ module Makoto
         rows.push("   #{method} の所要（実時間）: #{format_stats(scale_down(row))}") if scaled?
         rows
       end
-      lines.push('⚠ 再送のあとに成功した行は、落ちた試行と待ちを所要に含む（max がふくらむ → #420）') \
-        if @report.retries.positive?
+      count = @report.retried_successes
+      if count.positive?
+        lines.push("⚠ 落ちた試行のあとに成功した行（#{count} 本）は、落ちた試行と待ちを所要に含む" \
+          '（max がふくらむ → #420）')
+      end
       return lines
     end
 
