@@ -3935,6 +3935,8 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ⚠ **`Retry-After`（#100）も上流 `#525` で入った**ので、**こちらは追随しただけ**（⚠⚠ **長すぎる待ちは待たずに諦める**上限つき）。
 
+🔴 **ただし Mastodon 本体は 429 に `Retry-After` を返さない**（2026-09-26・#425）— ⚠⚠ **付けるのは `X-RateLimit-Reset`（ISO 8601）だけ**（`config/initializers/rack_attack.rb` の `throttled_responder` と `Api::RateLimitHeaders`）。**したがって投稿の口では「従う」が効いておらず、429 が来ると `/http/retry/seconds`（1 秒）間隔で `limit: 3` 回叩き直し、窓が明ける前に使い切ってその枠が落ちる。**⚠ **いまの投稿頻度では届かない**（制限は 300 本 / 3 時間・ライブ当日 160 本 / 8 時間・リハーサルも scale 12 で 160 本 / 40 分）。✅ **上流へ PR を出した**（[`ginseng-core#657`](https://github.com/pooza/ginseng-core/pull/657) — `Retry-After` が無ければ `X-RateLimit-Reset` を読む。⚠ **投稿数の制限の窓（3 時間）は上限を超えるので、入れば待たずに 1 回で諦める側になる**）。⚠ **入ったら `tag:` を上げて追随する**（→ 手順 8.）。
+
 🔴 **出口の名前が変わった** — ⚠⚠ **ログの出口は `create_message` ではなく `create_entry`。**⚠ **`create_message` はマスク済みの Hash を返すだけで scrub はしない**ので、**テストもそちらを見るように書き換えた。**
 
 🔴 **`alive?` ではなく `alive_state` を上書きする。**⚠⚠ **上流が起動と停止の判断に使うのは `alive_state`**（`abort_if_running!` / `run_restart` / `run_status`）で、⚠ **`alive?` は真偽 2 値の薄い述語にすぎない** — **あちらを上書きしても `run_start` は守れない。**⚠⚠ **身元の判定（#80 の黄 6 ／ `/proc` の argv）は上流に無いので、こちらに残す。**
