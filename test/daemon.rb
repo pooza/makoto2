@@ -615,7 +615,11 @@ module Makoto
     def test_a_shorter_declared_limit_is_an_error
       limit = config['/mastodon/max_length']
 
-      assert_equal(1, records_of_max_length(limit - 1)[:error].size)
+      errors = records_of_max_length(limit - 1)[:error]
+
+      assert_equal(1, errors.size)
+      # 🔴 **`error` 欄を持つ**（#440）— ⚠⚠ **無いと `rehearsal report` の受け皿（`count_unclassified`）が捨てる。**
+      assert_include(errors.first[:error].to_s, (limit - 1).to_s)
       assert_equal(limit + 1, records_of_max_length(limit + 1)[:info].first[:declared])
     end
 
