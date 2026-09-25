@@ -390,7 +390,9 @@ module Makoto
         declared = MastodonService.new.declared_max_length
         payload = {mastodon: 'max_length', configured: budget.limit, declared: declared}
         if (problem = budget.limit_mismatch(declared))
-          logger.error(payload.merge(message: problem))
+          # 🔴 **`error` 欄に入れる**（#440）。⚠⚠ **`message` だけだと `rehearsal report` の受け皿
+          # （`count_unclassified`）が拾わず、上限が下がっていてもリハーサルが緑だった。**
+          logger.error(payload.merge(message: problem, error: problem))
         else
           logger.info(payload)
         end

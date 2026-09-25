@@ -411,6 +411,17 @@ module Makoto
     end
 
     # ⚠ **`error` を持たない行は拾わない**（登録・黙る日・「新しい曲が残っていない」の warn）。
+    # 🔴 **投稿先の上限が設定より短い行は赤**（#440）。⚠⚠ **error 水準なのに `error` 欄が無く、
+    # `count_unclassified` が捨てていた** — ⚠ **#416 の「行の形を足すと集計が黙る」の 5 件目。**
+    # ⚠ **行の形は `MakotoDaemon#verify_max_length` が出すものを写した。**
+    def test_a_max_length_mismatch_is_red
+      line = '{"mastodon":"max_length","configured":3000,"declared":500,"message":"/mastodon/max_length は 3000 字だが、投稿先の申告は 500 字","error":"/mastodon/max_length は 3000 字だが、投稿先の申告は 500 字"}'
+      subject = report(line, HEARTBEAT, SUCCESS)
+
+      assert_equal({'mastodon:max_length' => 1}, subject.unclassified)
+      assert_true(subject.red?)
+    end
+
     def test_lines_without_an_error_stay_out_of_the_unclassified
       nothing = '{"track":"history","post":"song","size":3,"message":"nothing fresh left"}'
       subject = report(nothing, REGISTER, QUIET, HEARTBEAT, SUCCESS)
