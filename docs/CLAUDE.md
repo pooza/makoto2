@@ -3935,7 +3935,7 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ⚠ **`Retry-After`（#100）も上流 `#525` で入った**ので、**こちらは追随しただけ**（⚠⚠ **長すぎる待ちは待たずに諦める**上限つき）。
 
-🔴 **ただし Mastodon 本体は 429 に `Retry-After` を返さない**（2026-09-26・#425）— ⚠⚠ **付けるのは `X-RateLimit-Reset`（ISO 8601）だけ**（`config/initializers/rack_attack.rb` の `throttled_responder` と `Api::RateLimitHeaders`）。**したがって投稿の口では「従う」が効いておらず、429 が来ると `/http/retry/seconds`（1 秒）間隔で `limit: 3` 回叩き直し、窓が明ける前に使い切ってその枠が落ちる。**⚠ **いまの投稿頻度では届かない**（制限は 300 本 / 3 時間・ライブ当日 160 本 / 8 時間・リハーサルも scale 12 で 160 本 / 40 分）。✅ **上流へ PR を出した**（[`ginseng-core#657`](https://github.com/pooza/ginseng-core/pull/657) — `Retry-After` が無ければ `X-RateLimit-Reset` を読む。⚠ **投稿数の制限の窓（3 時間）は上限を超えるので、入れば待たずに 1 回で諦める側になる**）。⚠ **入ったら `tag:` を上げて追随する**（→ 手順 8.）。
+🔴 **ただし Mastodon 本体は 429 に `Retry-After` を返さない**（2026-09-26・#425）— ⚠⚠ **付けるのは `X-RateLimit-Reset`（ISO 8601）だけ**（`config/initializers/rack_attack.rb` の `throttled_responder` と `Api::RateLimitHeaders`）。**したがって投稿の口では「従う」が効いておらず、429 が来ると `/http/retry/seconds`（1 秒）間隔で叩き直し（⚠ **`/http/retry/limit: 3` は初回を含む試行回数** ＝ 計 3 回・再送 2 回）、窓が明ける前に使い切ってその枠が落ちる。**⚠ **いまの投稿頻度では届かない**（制限は 300 本 / 3 時間・ライブ当日 160 本 / 8 時間・リハーサルも scale 12 で 160 本 / 40 分）。✅ **上流へ PR を出した**（[`ginseng-core#657`](https://github.com/pooza/ginseng-core/pull/657) — `Retry-After` が無ければ `X-RateLimit-Reset` を読む。⚠ **投稿数の制限の窓（3 時間）は上限を超えるので、入れば待たずに 1 回で諦める側になる**）。⚠ **入ったら `tag:` を上げて追随する**（→ 手順 8.）。
 
 🔴 **出口の名前が変わった** — ⚠⚠ **ログの出口は `create_message` ではなく `create_entry`。**⚠ **`create_message` はマスク済みの Hash を返すだけで scrub はしない**ので、**テストもそちらを見るように書き換えた。**
 
