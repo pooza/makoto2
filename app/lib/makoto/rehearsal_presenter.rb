@@ -188,10 +188,11 @@ module Makoto
         rows.push("   #{method} の所要（実時間）: #{format_stats(scale_down(row))}") if scaled?
         rows
       end
-      count = @report.retried_successes
-      if count.positive?
-        lines.push("⚠ 落ちた試行のあとに成功した行（#{count} 本）は、落ちた試行と待ちを所要に含む" \
-          '（max がふくらむ → #420）')
+      # ⚠ **「含みうる」と書く**（PR #449 の Codex の P2）— ⚠⚠ **どの成功が再送のあとだったかは
+      # 行から結び付けられない**（→ `RehearsalReport#count_http`）。🔴 **所要の行が無ければ出さない。**
+      if @report.failed_attempts.positive? && lines.any?
+        lines.push('⚠ 落ちた試行があった。再送のあとに成功した行があれば、その所要は落ちた試行と' \
+          '待ちを含む（max がふくらみうる → #420）')
       end
       return lines
     end

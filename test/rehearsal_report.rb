@@ -316,19 +316,16 @@ module Makoto
     # 落ちた試行と待ちを含む**（#420・`repeat` は `retry` しても `start` を取り直さない）。
     # 🔴 **だから「現れない」ではなく「max がふくらむ」と書く。**
     #
-    # ⚠ **注記は「落ちた試行のあとに同じ要求が成功した」ときだけ出す**（#439）— ⚠⚠ **成功した行が
-    # 1 本も無ければ、ふくらむ所要がそもそも無い。**
+    # ⚠ **注記は「落ちた試行があり、所要の行もある」ときだけ出す**（#439）— ⚠⚠ **成功した行が
+    # 1 本も無ければ、ふくらむ所要がそもそも無い。**🔴 **どの成功が再送のあとだったかは断定しない**
+    # （**成功の行は `start` を持たず、投稿はすべて同じ URL** — PR #449 の Codex の P2）。
     def test_retries_inflate_the_duration
-      subject = report(RETRY, HTTP_OK)
+      note = '再送のあとに成功した行があれば'
 
-      assert_equal(1, subject.retried_successes)
-      assert_include(subject.to_s, '落ちた試行のあとに成功した行（1 本）は')
-      assert_not_include(subject.to_s, '再送で食った時間')
-      assert_equal(0, report(RETRY, RETRY).retried_successes)
-      assert_not_include(report(RETRY, RETRY).to_s, 'のあとに成功した行')
-      assert_not_include(report(HTTP_OK).to_s, 'のあとに成功した行')
-      # ⚠ **別の要求の成功は数えない**（`verify_credentials` の GET）。
-      assert_equal(0, report(RETRY, HTTP_GET).retried_successes)
+      assert_include(report(RETRY, HTTP_OK).to_s, note)
+      assert_not_include(report(RETRY, HTTP_OK).to_s, '再送で食った時間')
+      assert_not_include(report(RETRY, RETRY).to_s, note)
+      assert_not_include(report(HTTP_OK).to_s, note)
     end
 
     # 🔴 **再送しない失敗（ReadTimeout）は赤**（#420・2026-09-26 オーナー判断）。
