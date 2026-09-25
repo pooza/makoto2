@@ -47,6 +47,49 @@ module Makoto
       assert_equal(23 + 1 + 23, PostBudget.length('https://x.example.com/a https://x.example.com/a/b'))
     end
 
+    # 🔴 **URL の末尾の句読点は URL の外で数える**（#424）。⚠⚠ **期待値は Mastodon の
+    # initializer を読み込んだ twitter-text 3.1.0 の実測**（`StatusLengthValidator` と同じ数え方）。
+    def test_trailing_punctuation_is_not_part_of_the_url
+      {
+        'https://example.com/a.' => 24,
+        'https://example.com/a!' => 24,
+        'https://example.com/a;' => 24,
+        'https://example.com/a~' => 24,
+        'https://example.com/a=' => 24,
+        'https://example.com/a:' => 24,
+        'https://example.com/a,' => 24,
+        'https://example.com/a?' => 24,
+        'https://example.com/a&' => 24,
+        'https://example.com/a*' => 24,
+        "https://example.com/a'" => 24,
+        'https://example.com.' => 24,
+        'https://example.com/a...' => 26,
+        'https://example.com/a)' => 24,
+        '(https://example.com/a)' => 25,
+        '見て https://example.com/a. 次' => 29,
+      }.each do |text, length|
+        assert_equal(length, PostBudget.length(text), text)
+      end
+    end
+
+    # ⚠ **URL の中で終わってよい形は削らない**（#424）。⚠⚠ **クエリの末尾は path と規則が違う**
+    # （`=` / `&` で終わってよい）。**釣り合った括弧も URL の一部。**
+    def test_url_endings_that_stay_in_the_url
+      [
+        'https://example.com/a/',
+        'https://example.com/a#b',
+        'https://example.com/a?b=',
+        'https://example.com/a?b=1&',
+        'https://example.com/a-',
+        'https://ja.wikipedia.org/wiki/Foo_(bar)',
+        'https://music.apple.com/jp/album/x/123?i=456',
+      ].each do |text|
+        assert_equal(23, PostBudget.length(text), text)
+      end
+      assert_equal(24, PostBudget.length('https://example.com/a?b=1.'))
+      assert_equal(24, PostBudget.length('https://ja.wikipedia.org/wiki/Foo_(bar).'))
+    end
+
     # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。
     def test_a_dated_morning_does_not_reserve_the_greeting
       assert_equal(config['/mastodon/max_length'] - budget.proxy_reserve, budget.budget('morning', dated: true))

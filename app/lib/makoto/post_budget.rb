@@ -50,9 +50,44 @@ module Makoto
     # 🔴 **投稿先（twitter-text）は IANA の TLD でしか URL と認めず、素の長さで数える**ので、
     # **23 字に畳むと短く見積もる**（⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
     # ⚠ **TLD の表は Public Suffix List**（`default_rule: nil` ＝ 表に無ければ URL でない・Codex の P2）。
+    #
+    # 🔴 **URL の末尾の句読点は URL の外で数える**（#424）。⚠⚠ **`URL_PATTERN` は `a.` の `.` まで
+    # 飲み込むが、投稿先はそれを URL から外して 1 字と数える** ＝ **URL 1 本につき 1 字通しすぎる**
+    # （→ `split_trailing`）。
     def self.length(text)
-      counted = text.to_s.gsub(URL_PATTERN) {|url| url?(url) ? 'x' * URL_LENGTH : url}
+      counted = text.to_s.gsub(URL_PATTERN) do |url|
+        core, trailing = split_trailing(url)
+        url?(core) ? ('x' * URL_LENGTH) + trailing : url
+      end
       return counted.grapheme_clusters.size
+    end
+
+    # ⚠ **クエリの末尾に来てよい文字**（Mastodon の `valid_url_query_ending_chars` の ASCII ぶん）。
+    QUERY_ENDING = %r{[a-z0-9_&=#/-]}i
+
+    # ⚠ **path の末尾に来てはいけない文字**（Mastodon の `valid_url_path_ending_chars` の否定）。
+    # ⚠⚠ **括弧は釣り合っていれば URL の一部**なので、ここではなく `split_trailing` で見る。
+    PATH_NOT_ENDING = /[(?!*"'<>;:=,.$%\[\]~&|]/
+
+    # URL を「投稿先が URL と数える部分」と「その後ろの文字」に割る（#424）。
+    #
+    # 🔴 **正本は Mastodon の `config/initializers/twitter_regex.rb`**（twitter-text の規則を
+    # 上書きしている）。⚠⚠ **クエリと path で末尾の規則が違う** — **`?b=` / `?b=1&` はクエリなら
+    # URL の一部、path なら外**。⚠ **閉じ括弧は開き括弧より多いときだけ外す**（`Foo_(bar)` は URL）。
+    def self.split_trailing(url)
+      core = url
+      while core.length.positive?
+        last = core[-1]
+        if core.include?('?') && !core.end_with?('?')
+          break if last.match?(QUERY_ENDING)
+        elsif last == ')'
+          break if core.count('(') >= core.count(')')
+        else
+          break unless last.match?(PATH_NOT_ENDING)
+        end
+        core = core[0...-1]
+      end
+      return core, url[core.length..]
     end
 
     def self.url?(value)
