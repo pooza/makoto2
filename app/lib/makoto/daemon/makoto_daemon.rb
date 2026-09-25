@@ -191,7 +191,7 @@ module Makoto
         Song::NAME => -> {Song.new.job},
         # ⚠ ライブは 4 本（前日増量・開始告知・8 時間の進行・終了告知）。
         # ⚠⚠ **どれも枠は毎日あるが、ライブ当日以外は何も返さない**（→ Live）。
-        'live' => -> {Live.new.jobs},
+        Live::NAME => -> {Live.new.jobs},
       }
     end
 

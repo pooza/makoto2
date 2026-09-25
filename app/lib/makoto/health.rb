@@ -72,19 +72,6 @@ module Makoto
       return Heartbeat.jobs
     end
 
-    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
-    def job_names
-      return nil unless own_heartbeat?
-      return Heartbeat.job_names
-    end
-
-    # ⚠ **常駐が起動時に読み込んだもの**（#242）。🔴 **`git log -1`（置いてあるもの）と違う。**
-    # ⚠ **いま生きている常駐が書いたものだけ**（→ `own_heartbeat?`）。
-    def revision
-      return nil unless own_heartbeat?
-      return Heartbeat.revision
-    end
-
     # 🔴 **痕跡を書いたのが pid ファイルの常駐か**（#242・Codex の P2）。
     #
     # ⚠⚠ **痕跡のファイルは 1 つを共有する**ので、**再起動の直後**（`record_start` は前の
@@ -156,7 +143,7 @@ module Makoto
 
     # 🔴 **常駐が日付を騙しているか**（#174 → `Heartbeat.touch`）。⚠ **騙していなければ nil。**
     #
-    # ⚠⚠ **`revision` と違って身元（`own_heartbeat?`）で落とさない。**⚠ **あちらは
+    # ⚠⚠ **`identity` の `revision` と違って身元（`own`）で落とさない。**⚠ **あちらは
     # 「動いているもの」を言う行なので取り違えを隠すほうが危ない**が、🔴 **こちらは
     # 危険の合図** — **取り違えのおそれより、黙るおそれを重く見る。**⚠⚠ **痕跡に
     # 残っていれば言う**（誰が書いたかは `systemctl show makoto2 -p Environment` で確かめる）。
