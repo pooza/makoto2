@@ -3860,6 +3860,14 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 | `ginseng-fediverse` | `mastodon_service.rb` があり、投稿疎通（#7）がほぼ消える |
 | 常駐 1 本 ＋ 内蔵スケジューラ | Redis 不要で 2GB CT に収まる。監視対象が 1 プロセスなので死活監視も単純 |
 
+### 🔴 json 3 が安全なのは yajl の上書きに依存しているから（2026-09-26・#426）
+
+⚠⚠ **`Gemfile.lock` の json は 3.x で、json 3 は未知のキーワードを `ArgumentError` にする。**⚠ **HTTParty の `parser.rb` は `JSON.parse(body, quirks_mode: true, allow_nan: true)`、`ActiveSupport::JSON.decode` は位置引数の Hash を渡す**ので、**素の json 3 ではどちらも落ちる**（実測: `unknown keyword: quirks_mode` / `wrong number of arguments (given 2, expected 1)`）。
+
+🔴 **アプリで通っているのは、`ginseng-core` の `ginseng.rb` が `require 'yajl/json_gem'` して `JSON.parse` / `generate` を差し替えているから**（`JSON.method(:parse).source_location` が yajl を指す）。⚠ **重複キーを拒む json 3 の挙動も yajl が消している。**
+
+⚠⚠ **`ginseng-core` が yajl を外した日には、Mastodon・cure-api・iTunes の `parsed_response` が全部 `ArgumentError`** — **投稿の口では「投稿は出たのに unexpected shape で失敗」の形になる。**✅ **`test/http.rb` の `test_json_is_parsed_through_the_yajl_override` がその日に赤くなる。**⚠ **上流の追随（手順 8.）で `ginseng.rb` の `require` が動いていたら、まずここを見る。**
+
 ### 🔴 上流に追随する当番が無い（2026-08-18・#101）
 
 ⚠⚠ **`Gemfile` は `branch: 'main'` で固定していないのに、`Gemfile.lock` が 2026-08-01 前後で止まっている** — **`ginseng-core` は `1.15.28` / `4b134ce`、`ginseng-fediverse` は `1.8.25` / `60a38da` のまま。**🔴 **差は開き続けている** — ⚠ **2026-08-18 時点で 33 commits 先だった `ginseng-core` は、2026-08-23 時点で 86 commits 先**（`4a029e9`。`1.15.29` 〜 `1.16.x` 〜 `1.18.x` を跨ぐ）。⚠ **`ginseng-fediverse` は 8 → 17 commits 先**（`0129fa5`）。
