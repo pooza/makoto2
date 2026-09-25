@@ -8,6 +8,11 @@ module Makoto
     HTTP_OK = '{"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","status":200,"seconds":0.447}'.freeze
     HTTP_500 = '{"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","status":500,"seconds":0.1}'.freeze
     RETRY = '{"error":{"message":"Bad response 500","file":"lib/ginseng/http.rb","line":70},"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","count":2}'.freeze
+    # 🔴 **再送しない失敗（ReadTimeout）の行**（#420）。⚠⚠ **実機では未観測** — **`ginseng-core` の
+    # `RetryMethods#log_retry_error` が `count:` 無しで出す形をコードから組んだ**（`count` は nil）。
+    TIMEOUT = '{"error":{"message":"Net::ReadTimeout with #<TCPSocket:(closed)>"},"method":"GET","url":"https://cure-api.example/api/v1/songs","start":"2026-11-04T03:02:00Z","count":null}'.freeze
+    # ⚠ **マスクが空の値を落とした形**（`Ginseng::Masking#mask` は `to_s` が空の値を捨てる）。
+    TIMEOUT_BARE = '{"error":{"message":"Net::ReadTimeout"},"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","start":"2026-11-04T03:02:00Z"}'.freeze
     # ⚠ **所要の長い 1 本**（#201）。🔴 **`seconds` は `ginseng-core` の `HTTP#log` が入れる。**
     HTTP_SLOW = '{"method":"POST","url":"https://st2.precure.ml/api/v1/statuses","status":200,"seconds":9.0}'.freeze
     # ⚠ **メソッドが混ざること自体を固定する**（🔴 **#201 の 1 回目の数え直しは GET 2 本の
@@ -297,14 +302,31 @@ module Makoto
       assert_in_delta(0.274, subject['POST'][:median], 0.0001)
     end
 
-    # 🔴 **落ちた試行の行は `seconds` を持たない**（`log_retry_error` は `start` を素で出す）。
-    # ⚠⚠ **再送で食った時間は「1 本の所要」に現れない** — ⚠ **読めないものとして本文に書く。**
-    def test_retry_lines_carry_no_duration
+    # 🔴 **落ちた試行の行は `seconds` を持たない**が、⚠⚠ **再送のあとに成功した行の `seconds` は
+    # 落ちた試行と待ちを含む**（#420・`repeat` は `retry` しても `start` を取り直さない）。
+    # 🔴 **だから「現れない」ではなく「max がふくらむ」と書く。**
+    def test_retries_inflate_the_duration
       subject = report(RETRY, RETRY)
 
       assert_empty(subject.http_durations)
-      assert_include(subject.to_s, '再送で食った時間')
-      assert_not_include(report(HTTP_OK).to_s, '再送で食った時間')
+      assert_include(subject.to_s, '再送のあとに成功した行は')
+      assert_not_include(subject.to_s, '再送で食った時間')
+      assert_not_include(report(HTTP_OK).to_s, '再送のあとに成功した行は')
+    end
+
+    # 🔴 **再送しない失敗（ReadTimeout）は赤**（#420・2026-09-26 オーナー判断）。
+    # ⚠⚠ **同じ GET が 503 なら赤、タイムアウトなら緑と割れていた**（`count` が偽なので応答の行に
+    # `[method, nil]` で数えていた）。⚠ **再送ではないので `retries` にも入れない。**
+    def test_a_timeout_is_red
+      subject = report(TIMEOUT, TIMEOUT_BARE, HTTP_OK, HEARTBEAT, SUCCESS)
+
+      assert_equal({'GET' => 1, 'POST' => 1}, subject.http_failures)
+      assert_nil(subject.http[['GET', nil]])
+      assert_nil(subject.http[['POST', nil]])
+      assert_equal(0, subject.retries)
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '🔴 GET 応答が返らなかった')
+      assert_false(report(HTTP_OK, HEARTBEAT, SUCCESS).red?)
     end
 
     # 🔴🔴 **早送りの回の `seconds` は見かけ**（2026-09-23 に実測）。⚠⚠ **`HTTP#log` は
