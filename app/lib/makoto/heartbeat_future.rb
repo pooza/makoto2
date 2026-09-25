@@ -13,11 +13,19 @@ module Makoto
     # ⚠ **`started_at` / `ticked_at` は消すだけ**（**`record_start` が猶予を張り直す**）。
     # ⚠⚠ **枠の失敗は数ごと 0 に戻す**（→ `forget_future_failures`）— 🔴 **`failed_at` だけを
     # 消すと「時刻が読めない記録は古くない扱い」で、かえって永久に鳴る。**
+    #
+    # 🔴 **日付を騙している間は `ticked_at` だけ**（→ `forget_future_tick`・`record_start` の注記）。
     def forget_future(record, time)
+      return forget_future_tick(record, time) if TimeTravel.active?
       cleaned = record.reject do |key, value|
         [:started_at, :ticked_at].include?(key) && future?(value, time)
       end
       return forget_future_failures(cleaned, time)
+    end
+
+    # ⚠ **未来の `ticked_at` だけを捨てる**（日付を騙している間の起き直し → `record_start`）。
+    def forget_future_tick(record, time)
+      return record.reject {|key, value| key == :ticked_at && future?(value, time)}
     end
 
     def future?(value, time)

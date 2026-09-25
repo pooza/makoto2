@@ -446,7 +446,12 @@ module Makoto
       with_time_travel {Heartbeat.record_start(now: now)}
 
       assert_true(Heartbeat.failing?(now: now))
-      assert_equal((now + 3600).getutc.iso8601, Heartbeat.ticked_at.getutc.iso8601)
+      # 🔴 **ただし未来の `ticked_at` は捨てる**（2 巡目の P1）。⚠⚠ **残すと、起き直した常駐の
+      # 初回 tick が詰まっても、見かけの時刻がそこへ追いつくまで stale にならない。**
+      # ⚠ **`started_at` は残す**（**猶予を張り直さない** ＝ クラッシュループの塞ぎ）。
+      assert_nil(Heartbeat.ticked_at)
+      assert_equal(now.getutc.iso8601, Heartbeat.started_at.getutc.iso8601)
+      assert_true(Heartbeat.tick_stale?(now + Heartbeat.tick_limit + 1))
     end
 
     # 設定を消しただけで検知が静かに緩む形を作らない（#77 の裏返し）。
