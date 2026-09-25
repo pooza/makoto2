@@ -82,9 +82,9 @@ module Makoto
       lines.each {|line| consume(parse(line))}
     end
 
-    attr_reader :slots, :http, :retries, :http_failures, :heartbeats, :versions, :travel, :lines,
-      :notifies, :notify_failures, :notify_misses, :slows, :slow_errors, :revisions,
-      :heartbeat_errors, :proxy_skipped, :rejects, :unclassified
+    attr_reader :slots, :http, :failed_attempts, :http_failures, :heartbeats,
+      :versions, :travel, :lines, :notifies, :notify_failures, :notify_misses, :slows,
+      :slow_errors, :revisions, :heartbeat_errors, :proxy_skipped, :rejects, :unclassified
 
     # 🔴 **枠あたりの exec が 1 でないもの。**⚠ **#109 の回帰はここに出る。**
     def anomalous_slots
@@ -234,7 +234,7 @@ module Makoto
     # ⚠ **HTTP の行の入れ物**（→ `count_http`）。応答の内訳・再送・再送しない失敗（#420）・所要。
     def init_http
       @http = {}
-      @retries = 0
+      @failed_attempts = 0
       @http_failures = Hash.new(0)
       @http_seconds = {}
     end
@@ -364,15 +364,25 @@ module Makoto
       return @slows.push(entry.slice(:post, :slot, :seconds, :budget))
     end
 
-    # ⚠ **応答が返った行と、落ちた試行の行を分ける。**⚠⚠ **後者は `count` を持ち、
-    # 再送の回数そのもの**なので、`status` ごとの内訳には混ぜない。
+    # ⚠ **応答が返った行と、落ちた試行の行を分ける。**⚠⚠ **後者は `count` を持つ**ので、
+    # `status` ごとの内訳には混ぜない。
+    #
+    # 🔴 **`count` は「再送した」ではなく「落ちた試行」**（#439）。⚠⚠ **`ginseng-core` の `repeat` は
+    # 再送するかを決める前に `count:` 付きで出す**ので、**再送しない失敗（422 / `TooLargeError` など）
+    # と、再送を使い切った最後の 1 回もここへ来る。**⚠ **行 1 本からは「このあと再送したか」が
+    # 分からない**ので、**再送の回数としては名乗らない。**
+    #
+    # ⚠⚠ **落ちた試行と、そのあとの成功を要求単位で結び付けない**（PR #449 の Codex の P2）。🔴 **成功の
+    # 行は `start` を持たない**（`HTTP#log` が `seconds` に変えて消す）ので手掛かりが無く、⚠ **投稿は
+    # すべて同じ `POST /api/v1/statuses`** なので、**メソッド ＋ URL で結ぶと、諦めた失敗が次の無関係な
+    # 成功に付く。**
     #
     # 🔴 **`count` を持たない `error` 行は「再送しない失敗」**（#420）。⚠⚠ **`ginseng-core` は
     # ReadTimeout を再送せずに `count:` 無しで出す**ので、**応答の行として `[method, nil]` に
     # 数えていた** — ⚠ **同じ GET が 503 なら赤、タイムアウトなら緑と割れていた。**
     # 🔴 **赤にする**（2026-09-26 オーナー判断 → `red?`）。
     def count_http(entry)
-      return @retries += 1 if entry[:count]
+      return @failed_attempts += 1 if entry[:count]
       return @http_failures[entry[:method]] += 1 if entry[:error]
       key = [entry[:method], entry[:status]]
       @http[key] = @http.fetch(key, 0) + 1

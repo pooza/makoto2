@@ -270,13 +270,23 @@ module Makoto
       assert_true(subject.red?)
     end
 
-    # ⚠ **落ちた試行の行は `count` を持つ。**内訳に混ぜず、再送の回数として数える。
+    # ⚠ **落ちた試行の行は `count` を持つ。**内訳に混ぜず、落ちた試行の回数として数える。
     def test_retry_lines_are_counted_separately
       subject = report(RETRY, RETRY)
 
-      assert_equal(2, subject.retries)
+      assert_equal(2, subject.failed_attempts)
       assert_true(subject.http.empty?)
       assert_equal(0, subject.http_errors)
+    end
+
+    # 🔴 **`count` を持つ行は「再送した」ではなく「落ちた試行」**（#439）。⚠⚠ **`ginseng-core` は
+    # 再送するかを決める前に `count:` 付きで出す**ので、**再送しない失敗（422 など）と、再送を
+    # 使い切った最後の 1 回もこの形で来る。**⚠ **「再送 N 回」と名乗ると実際より多く読ませる。**
+    def test_a_failed_attempt_is_not_called_a_retry
+      text = report(RETRY).to_s
+
+      assert_include(text, '落ちた試行 1 回')
+      assert_not_include(text, '再送 1 回')
     end
 
     # 🔴 **1 本あたりの所要をメソッドごとに出す**（#201 の 1.）。
@@ -305,25 +315,29 @@ module Makoto
     # 🔴 **落ちた試行の行は `seconds` を持たない**が、⚠⚠ **再送のあとに成功した行の `seconds` は
     # 落ちた試行と待ちを含む**（#420・`repeat` は `retry` しても `start` を取り直さない）。
     # 🔴 **だから「現れない」ではなく「max がふくらむ」と書く。**
+    #
+    # ⚠ **注記は「落ちた試行があり、所要の行もある」ときだけ出す**（#439）— ⚠⚠ **成功した行が
+    # 1 本も無ければ、ふくらむ所要がそもそも無い。**🔴 **どの成功が再送のあとだったかは断定しない**
+    # （**成功の行は `start` を持たず、投稿はすべて同じ URL** — PR #449 の Codex の P2）。
     def test_retries_inflate_the_duration
-      subject = report(RETRY, RETRY)
+      note = '再送のあとに成功した行があれば'
 
-      assert_empty(subject.http_durations)
-      assert_include(subject.to_s, '再送のあとに成功した行は')
-      assert_not_include(subject.to_s, '再送で食った時間')
-      assert_not_include(report(HTTP_OK).to_s, '再送のあとに成功した行は')
+      assert_include(report(RETRY, HTTP_OK).to_s, note)
+      assert_not_include(report(RETRY, HTTP_OK).to_s, '再送で食った時間')
+      assert_not_include(report(RETRY, RETRY).to_s, note)
+      assert_not_include(report(HTTP_OK).to_s, note)
     end
 
     # 🔴 **再送しない失敗（ReadTimeout）は赤**（#420・2026-09-26 オーナー判断）。
     # ⚠⚠ **同じ GET が 503 なら赤、タイムアウトなら緑と割れていた**（`count` が偽なので応答の行に
-    # `[method, nil]` で数えていた）。⚠ **再送ではないので `retries` にも入れない。**
+    # `[method, nil]` で数えていた）。⚠ **`count` を持たないので `failed_attempts` にも入れない。**
     def test_a_timeout_is_red
       subject = report(TIMEOUT, TIMEOUT_BARE, HTTP_OK, HEARTBEAT, SUCCESS)
 
       assert_equal({'GET' => 1, 'POST' => 1}, subject.http_failures)
       assert_nil(subject.http[['GET', nil]])
       assert_nil(subject.http[['POST', nil]])
-      assert_equal(0, subject.retries)
+      assert_equal(0, subject.failed_attempts)
       assert_true(subject.red?)
       assert_include(subject.to_s, '🔴 GET 応答が返らなかった')
       assert_false(report(HTTP_OK, HEARTBEAT, SUCCESS).red?)
