@@ -194,10 +194,15 @@ module Makoto
       # ⚠ **`tick_stale?` は未来の基準で止まりを見逃し、`failing?` は `failure_stale` を超えずに
       # 6 週間ほど鳴り続けていた。**⚠ **捨てるのは起き上がりのときだけ**（読む側で捨てると、
       # リハーサル中の失敗を外から見られなくなる）。
+      #
+      # 🔴 **日付を騙している間は捨てない**（PR #434 の Codex の P1）。⚠⚠ **リハーサル中に落ちて
+      # 起き直した常駐は、見かけの時刻を開始時刻からやり直す**ので、**同じリハーサルの記録が
+      # 「未来」に見える** — ⚠ **捨てると失敗の証拠が消え、猶予も張り直される**（上のクラッシュ
+      # ループの塞ぎが外れる）。**捨てるのは撤収して実時間で起き直したときだけ。**
       def record_start(now: nil)
         time = now || Time.now
         return update do |record|
-          cleaned = forget_future(record, time)
+          cleaned = TimeTravel.active? ? record : forget_future(record, time)
           started = parse_time(cleaned[:started_at])
           ticked = parse_time(cleaned[:ticked_at])
           # ⚠ 前回の猶予がまだ 1 回も tick で解消されていなければ、据え置く。

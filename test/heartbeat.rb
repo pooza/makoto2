@@ -433,6 +433,22 @@ module Makoto
       assert_equal((real - 60).getutc.iso8601, Heartbeat.failed_at.getutc.iso8601)
     end
 
+    # 🔴 **リハーサル中の起き直しでは捨てない**（#421・PR #434 の Codex の P1）。⚠⚠ **起き直した
+    # 常駐は見かけの時刻を開始時刻からやり直す**ので、**前の常駐が書いた同じリハーサルの記録が
+    # 「未来」に見える** — ⚠ **捨てると失敗の証拠が消え、猶予も張り直される**（クラッシュループの塞ぎが外れる）。
+    def test_a_start_during_time_travel_keeps_the_record
+      config['/scheduler/posting/failure_stale'] = '7d'
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_tick(now: now + 3600)
+      Heartbeat.failure_limit.times do |i|
+        Heartbeat.record_failure(post: 'live', slot: "live-#{i}", now: now + 3600)
+      end
+      with_time_travel {Heartbeat.record_start(now: now)}
+
+      assert_true(Heartbeat.failing?(now: now))
+      assert_equal((now + 3600).getutc.iso8601, Heartbeat.ticked_at.getutc.iso8601)
+    end
+
     # 設定を消しただけで検知が静かに緩む形を作らない（#77 の裏返し）。
     def test_rejects_bad_failure_limit
       config['/scheduler/posting/failure_limit'] = 0
