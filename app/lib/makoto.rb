@@ -66,7 +66,7 @@ module Makoto
   # | `:on` | 送れる |
   # | 🔴 `:misconfigured` | DSN はあるのに送れない（初期化に失敗した・DSN の形でない） |
   #
-  # ⚠⚠ **`Sentry.initialized?` だけでは足りない** — 🔴 **`https://` だが DSN でない値（Web UI の
+  # ⚠⚠ **`Sentry.initialized?` だけでは足りない** — 🔴 **`https://` だが DSN でない値（WebUI の
   # プロジェクトの URL など）は、初期化に成功して 1 件も送らない**（`sending_allowed?` が偽）。
   def self.sentry_state
     return :off unless sentry_dsn

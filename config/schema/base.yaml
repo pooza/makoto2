@@ -436,7 +436,7 @@ properties:
           - string
           - 'null'
         # 🔴 **DSN の形（`https://<鍵>@<ホスト>/<プロジェクト>`）まで見る**（#347）。⚠⚠ **`^https://`
-        # だけだと、Web UI のプロジェクトの URL を貼っても通り、初期化に成功して 1 件も送らない。**
+        # だけだと、WebUI のプロジェクトの URL を貼っても通り、初期化に成功して 1 件も送らない。**
         pattern: '^https://[^@/]+@[^/]+/.+'
       traces_sample_rate:
         type: number
