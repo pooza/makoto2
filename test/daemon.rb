@@ -697,6 +697,18 @@ module Makoto
       assert_equal('Errno::EISDIR: Is a directory - x', @daemon.describe_rejection(Errno::EISDIR.new('x')))
     end
 
+    # 🔴 **見送りの理由は `/healthz` の本文に出るので、ログと同じマスクを通す**（#423）。
+    def test_describe_rejection_masks_urls
+      error = RuntimeError.new('GET https://x.example/?access_token=SECRET')
+      description = @daemon.describe_rejection(error)
+
+      assert_not_include(description, 'SECRET')
+      assert_include(description, 'access_token=[FILTERED]')
+      config_error = Ginseng::ConfigError.new('song: https://x.example/?access_token=SECRET')
+
+      assert_not_include(@daemon.describe_rejection(config_error), 'SECRET')
+    end
+
     # ⚠ 冪等キーの前半になる名前が衝突しないこと。⚠⚠ **同じ名前が 2 本あると、同じ
     # 枠の時刻で同じキーになり、片方の投稿が Mastodon 側で畳まれて消える。**
     def test_job_names_are_unique
