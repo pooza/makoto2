@@ -4,7 +4,7 @@ source 'https://rubygems.org'
 #   ⚠⚠ 事故が理由の pin ではない。外すのは「実機と CI の Ruby を 5.x にし、
 #   当日通しリハーサルを 5.x で通した」とき（→ docs/CLAUDE.md の当日通し）。
 ruby '>= 4.0', '< 5.0'
-gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v1.25.0', require: 'ginseng'
+gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v1.25.1', require: 'ginseng'
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v3.1.0',
   require: 'ginseng/fediverse'
 gem 'rufus-scheduler'
