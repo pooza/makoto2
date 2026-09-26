@@ -110,6 +110,34 @@ module Makoto
       end
     end
 
+    # 🔴 **Mastodon は 429 に `Retry-After` を付けず、`X-RateLimit-Reset`（ISO 8601）だけを返す**
+    # （#425）。✅ **上流（`pooza/ginseng-core#657`・v1.25.1）がそれを読む**ようになったので追随した
+    # （#438）。⚠ **こちらは追随しただけ**なので、🔴 **戻ったときにここが落ちる。**
+    def test_a_429_honours_the_ratelimit_reset
+      reset = (Time.now + 3).utc.iso8601
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => reset})
+      http = HTTP.new
+      with_captured_sleep(http) do |slept|
+        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+        assert_equal(2, slept.size)
+        slept.each {|seconds| assert_includes(1..3, seconds)}
+      end
+    end
+
+    # 🔴 **投稿数の制限（300 本 / 3 時間）の窓は待たずに 1 回で諦める**（#438）。⚠⚠ **追随する前は
+    # 1 秒おきに計 3 回叩いていた**（→ docs/CLAUDE.md の #100 の記述）。
+    def test_a_long_ratelimit_reset_gives_up
+      reset = (Time.now + (3 * 3600)).utc.iso8601
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => reset})
+      http = HTTP.new
+      with_captured_sleep(http) do |slept|
+        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+        assert_equal([], slept)
+      end
+    end
+
     # 設定した予算（タイムアウト × 再送 ＋ 待ち）が、ライブの枠間隔より短いこと。
     #
     # ⚠⚠ **これは wall-clock の上限ではない**（2026-08-16・#91 のレビュー指摘・#92）。
