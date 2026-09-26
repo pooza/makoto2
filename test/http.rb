@@ -129,7 +129,10 @@ module Makoto
     end
 
     # 🔴 **投稿数の制限（300 本 / 3 時間）の窓は待たずに 1 回で諦める**（#438）。⚠⚠ **追随する前は
-    # 1 秒おきに計 3 回叩いていた**（→ docs/CLAUDE.md の #100 の記述）。
+    # 1 秒おきに計 3 回叩いていた**（→ docs/CLAUDE.md の #425 の段落）。
+    #
+    # ⚠⚠ **成り立つのは直に投稿するときだけ**（v0.7.2 のリリース前レビュー）— 🔴 **モロヘイヤ経由では
+    # ヘッダが中継されない**（未検証）、**日付を騙している間は待ちが 0 秒に丸まる**（見かけの時刻との差）。
     def test_a_long_ratelimit_reset_gives_up
       stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T15:00:00Z'})
       http = HTTP.new
@@ -144,13 +147,17 @@ module Makoto
 
     # 設定した予算（タイムアウト × 再送 ＋ 待ち）が、ライブの枠間隔より短いこと。
     #
+    # 🔴 **待ちは 429 の上限（`/http/retry/max_seconds`）でも数える**（v0.7.2 のリリース前レビュー）。
+    # ⚠⚠ **#438 で `X-RateLimit-Reset` が効きはじめ、待ちが `/http/retry/seconds` より長くなりうる。**
+    #
     # ⚠⚠ **これは wall-clock の上限ではない**（2026-08-16・#91 のレビュー指摘・#92）。
     # ⚠ **HTTParty の `timeout` は Net::HTTP の 1 回の socket 操作ごとに効く**ので、
     # ⚠⚠ **チャンクを 30 秒未満の間隔で送り続ける相手は、この予算を超えて掴んでいられる。**
     # **ここが見ているのは「設定の値どうしが噛み合っているか」まで。**
     def test_configured_budget_stays_inside_a_live_slot
       worst = config['/http/timeout/seconds'] * config['/http/retry/limit']
-      worst += config['/http/retry/seconds'] * (config['/http/retry/limit'] - 1)
+      wait = [config['/http/retry/seconds'], config['/http/retry/max_seconds']].max
+      worst += wait * (config['/http/retry/limit'] - 1)
       interval = Fugit::Duration.parse(config['/live/timetable/interval']).to_sec
 
       assert_operator(worst, :<, interval)

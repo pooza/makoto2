@@ -42,7 +42,8 @@ module Makoto
 
     # 🔴 **Public Suffix List にあって twitter-text 3.1.0 の TLD 表に無いもの**（#443）。⚠⚠ **投稿先は
     # URL と認めず素の長さで数える**（⚠ **`.music` は音楽 bot として現実的**）。
-    # ⚠ **表は gem の `tld_lib.yml` と PSL の差分を取った実測**（2026-09-26）。
+    # ⚠ **表は gem の `tld_lib.yml` と PSL の差分を取った実測**（2026-09-26・`public_suffix` 7.0.5）。
+    # 🔴 **`public_suffix` を上げたら差分を取り直す**（PSL に TLD が増えると、投稿先より短く数える）。
     UNKNOWN_TLDS = ['amazon', 'hotel', 'kids', 'merck', 'music', 'spa'].freeze
 
     # ⚠ **これより長い URL を投稿先は URL と認めない**（twitter-text の `MAX_URL_LENGTH`）。
@@ -69,7 +70,8 @@ module Makoto
     # ⚠ **実在する TLD を持たないホスト（素の IP・`localhost`・`foo.local`）は URL と数えない**（#351）。
     # 🔴 **投稿先（twitter-text）は IANA の TLD でしか URL と認めず、素の長さで数える**ので、
     # **23 字に畳むと短く見積もる**（⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
-    # ⚠ **TLD の表は Public Suffix List**（`default_rule: nil` ＝ 表に無ければ URL でない・Codex の P2）。
+    # ⚠ **TLD の表は Public Suffix List**（`default_rule: nil` ＝ 表に無ければ URL でない・Codex の P2）から、
+    # **twitter-text の表に無いものを除いたもの**（→ `UNKNOWN_TLDS`・#443）。
     #
     # 🔴 **URL の末尾の句読点は URL の外で数える**（#424）。⚠⚠ **`URL_PATTERN` は `a.` の `.` まで
     # 飲み込むが、投稿先はそれを URL から外して 1 字と数える** ＝ **URL 1 本につき 1 字通しすぎる**
@@ -108,7 +110,8 @@ module Makoto
     #
     # 🔴 **末尾だけでなく途中でも終わる**（#443）— ⚠⚠ **`URL_PATTERN`（RFC2396）は投稿先より広く飲み込む**:
     #
-    # - ホスト（と port）の後ろは `/` か `?` でなければ URL はそこで終わる（`#frag`・`%20`・userinfo の `@`）
+    # - ホスト（と port）の後ろは `/` か `?` でなければ URL はそこで終わる（`#frag`・`%20`）。
+    #   ⚠ **userinfo の `@` は切らずに素の長さ**（→ `cut_at_authority`）
     # - path の括弧は中身のある 1 組（入れ子 1 段まで）だけ（→ `cut_at_parens`）
     # - path の末尾を削ったら、その後ろのクエリも URL ではない（クエリは path の直後にしか付かない）
     #
