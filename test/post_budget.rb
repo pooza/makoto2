@@ -109,6 +109,11 @@ module Makoto
         # ⚠ **TLD の直後の `-` では戻らない**（PR #458 の Codex の P2 への実測 — 投稿先も素の長さ）。
         'https://a.com-' => 14,
         'https://a.com-foo/bar' => 21,
+        # 🔴 **長すぎる t.co の slug と、唯一の TLD の直後の `+`**（PR #458 の Codex の P2 ×2 — 投稿先は素の長さ）。
+        "https://t.co/#{'a' * 41}" => 54,
+        "https://t.co/#{'a' * 40}" => 23,
+        'https://abcdefghijklmnop.com+x' => 30,
+        'https://a.com+x' => 15,
         'https://a.io#frag' => 28,
         'https://a.io/~?b=' => 27,
         'https://t.co/abc/def' => 27,

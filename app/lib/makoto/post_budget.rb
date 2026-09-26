@@ -81,6 +81,7 @@ module Makoto
     def self.length(text)
       counted = text.to_s.gsub(URL_PATTERN) do |url|
         core, trailing = split_trailing(url, Regexp.last_match.post_match[0])
+        next url unless core
         folded = ('x' * URL_LENGTH) + trailing
         case url_kind(core)
         when :url then folded
@@ -112,10 +113,16 @@ module Makoto
     # - path の末尾を削ったら、その後ろのクエリも URL ではない（クエリは path の直後にしか付かない）
     #
     # ⚠ **`following` は照合の直後の 1 字**（`URL_PATTERN` はホストの `+` の手前で止まる → `cut_at_tld`）。
+    #
+    # ⚠ **URL と認められない形は `core` を nil で返す**（→ `length` は素の長さで数える）。🔴 **`url_kind` に
+    # 渡すと、ホストだけを見て 23 字に畳んでしまう**（PR #458 の Codex の P2 ×2 — 長すぎる t.co の slug と、
+    # 唯一の TLD の直後の `+`）。
     def self.split_trailing(url, following = nil)
-      core = cut_at_parens(cut_at_authority(cut_at_tld(url, following)))
+      core = cut_at_tld(url, following)
+      return nil, url unless core
+      core = cut_at_parens(cut_at_authority(core))
       if (tco = core.match(TCO_PATTERN))
-        return core, url[core.length..] if tco[1].length > MAX_TCO_SLUG_LENGTH
+        return nil, url if tco[1].length > MAX_TCO_SLUG_LENGTH
         core = tco[0]
       end
       path, query = core.split('?', 2)
@@ -139,6 +146,7 @@ module Makoto
     #
     # 🔴 **投稿先はホストの正規表現を後戻りさせる**ので、**`example.com.aaa` は `example.com` までを
     # URL と数える**（実測）。⚠⚠ **全体を URL でないとして素の長さで数えると、短く見積もる。**
+    # ⚠ **戻れる TLD が無ければ nil**（URL ではない）。
     def self.cut_at_tld(url, following = nil)
       matched = url.match(AUTHORITY)
       return url unless matched
@@ -150,7 +158,7 @@ module Makoto
         next if index == last && TLD_NOT_FOLLOWED_BY.include?(following)
         return index == last ? url : "#{matched[1]}://#{labels[0..index].join('.')}"
       end
-      return url
+      return nil
     end
 
     def self.known_tld?(label)
