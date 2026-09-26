@@ -113,28 +113,32 @@ module Makoto
     # 🔴 **Mastodon は 429 に `Retry-After` を付けず、`X-RateLimit-Reset`（ISO 8601）だけを返す**
     # （#425）。✅ **上流（`pooza/ginseng-core#657`・v1.25.1）がそれを読む**ようになったので追随した
     # （#438）。⚠ **こちらは追随しただけ**なので、🔴 **戻ったときにここが落ちる。**
+    #
+    # ⚠ **時計は止める**（PR #459 の Codex の P2）。⚠⚠ **ヘッダは秒の精度**なので、実時間で
+    # 組むと、遅い CI で待ちが 0 秒に丸まって落ちる。
     def test_a_429_honours_the_ratelimit_reset
-      reset = (Time.now + 3).utc.iso8601
-      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => reset})
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T12:00:03Z'})
       http = HTTP.new
-      with_captured_sleep(http) do |slept|
-        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+      Timecop.freeze(Time.utc(2026, 11, 4, 12, 0, 0)) do
+        with_captured_sleep(http) do |slept|
+          assert_raise(Ginseng::GatewayError) {http.get(URL)}
 
-        assert_equal(2, slept.size)
-        slept.each {|seconds| assert_includes(1..3, seconds)}
+          assert_equal([3, 3], slept)
+        end
       end
     end
 
     # 🔴 **投稿数の制限（300 本 / 3 時間）の窓は待たずに 1 回で諦める**（#438）。⚠⚠ **追随する前は
     # 1 秒おきに計 3 回叩いていた**（→ docs/CLAUDE.md の #100 の記述）。
     def test_a_long_ratelimit_reset_gives_up
-      reset = (Time.now + (3 * 3600)).utc.iso8601
-      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => reset})
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T15:00:00Z'})
       http = HTTP.new
-      with_captured_sleep(http) do |slept|
-        assert_raise(Ginseng::GatewayError) {http.get(URL)}
+      Timecop.freeze(Time.utc(2026, 11, 4, 12, 0, 0)) do
+        with_captured_sleep(http) do |slept|
+          assert_raise(Ginseng::GatewayError) {http.get(URL)}
 
-        assert_equal([], slept)
+          assert_equal([], slept)
+        end
       end
     end
 
