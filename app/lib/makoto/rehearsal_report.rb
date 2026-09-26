@@ -381,9 +381,14 @@ module Makoto
     # ReadTimeout を再送せずに `count:` 無しで出す**ので、**応答の行として `[method, nil]` に
     # 数えていた** — ⚠ **同じ GET が 503 なら赤、タイムアウトなら緑と割れていた。**
     # 🔴 **赤にする**（2026-09-26 オーナー判断 → `red?`）。
+    #
+    # 🔴 **`status` も `count` も `error` も無い行は受け皿へ回す**（#445）。⚠⚠ **`[method, nil]` に
+    # 数えると、上流が行の形を変えた日にまた黙る**（#420 と同じ形）。⚠ **`error` を持たないので
+    # `count_unclassified` では捨てられる** — **名札をここで付けて赤にする。**
     def count_http(entry)
       return @failed_attempts += 1 if entry[:count]
       return @http_failures[entry[:method]] += 1 if entry[:error]
+      return @unclassified["http:#{entry[:method]} (status なし)"] += 1 if entry[:status].nil?
       key = [entry[:method], entry[:status]]
       @http[key] = @http.fetch(key, 0) + 1
       # ⚠ **所要はメソッド単位で貯める**（→ `http_durations`）。🔴 **status では割らない** —
