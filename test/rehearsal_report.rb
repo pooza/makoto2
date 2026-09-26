@@ -436,6 +436,18 @@ module Makoto
       assert_true(subject.red?)
     end
 
+    # 🔴 **`status` も `count` も `error` も無い HTTP の行は受け皿へ回して赤**（#445）。
+    # ⚠⚠ **`[method, nil]` に数えると、上流が行の形を変えた日に黙る**（#420 と同じ形）。
+    def test_an_http_line_without_a_status_is_red
+      line = '{"method":"GET","url":"https://example.com/api/v1/instance","seconds":0.1}'
+      subject = report(line, HTTP_OK, HEARTBEAT, SUCCESS)
+
+      assert_equal({'http:GET (status なし)' => 1}, subject.unclassified)
+      assert_nil(subject.http[['GET', nil]])
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '🔴 http:GET (status なし): 1 行')
+    end
+
     def test_lines_without_an_error_stay_out_of_the_unclassified
       nothing = '{"track":"history","post":"song","size":3,"message":"nothing fresh left"}'
       subject = report(nothing, REGISTER, QUIET, HEARTBEAT, SUCCESS)
