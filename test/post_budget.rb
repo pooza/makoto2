@@ -90,6 +90,32 @@ module Makoto
       assert_equal(24, PostBudget.length('https://ja.wikipedia.org/wiki/Foo_(bar).'))
     end
 
+    # 🔴 **投稿先より短く数えない**（#443）。⚠⚠ **期待値は Mastodon の initializer を読み込んだ
+    # twitter-text 3.1.0 の実測**（`StatusLengthValidator` と同じ置換）。⚠ **前半は #443 の表・
+    # 後半は同じ突き合わせ（46,000 通りの生成）で見つかった形。**
+    def test_shapes_the_destination_counts_longer
+      {
+        'https://example.com/a(b' => 25,
+        'https://example.com/a()' => 25,
+        'https://example.com/a(((b)))' => 30,
+        "https://example.music/#{'a' * 44}" => 66,
+        'https://user@example.com/aaaaaaaaaaaaaaaaa' => 42,
+        "xhttps://example.com/#{'a' * 29}" => 50,
+        'https://-foo.example.com/a' => 26,
+        'gemini://a.io' => 23,
+        'https://co.uk' => 23,
+        "https://example.com.#{'a' * 30}" => 54,
+        'https://a.com.io+x' => 28,
+        'https://a.io#frag' => 28,
+        'https://a.io/~?b=' => 27,
+        'https://t.co/abc/def' => 27,
+        "https://example.com/#{'a' * 4100}" => 4120,
+      }.each do |text, length|
+        assert_equal(length, PostBudget.length(text), text)
+      end
+      assert_equal(23, PostBudget.length('https://example.com/a(b(c)d)e'))
+    end
+
     # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。
     def test_a_dated_morning_does_not_reserve_the_greeting
       assert_equal(config['/mastodon/max_length'] - budget.proxy_reserve, budget.budget('morning', dated: true))
