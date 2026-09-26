@@ -29,8 +29,28 @@ module Makoto
     # 🔴 **Mastodon は URL の長さによらず 23 字と数える。**
     URL_LENGTH = 23
 
-    # ⚠ **`URI.extract` と同じ規則**（`http` / `https`）。
-    URL_PATTERN = URI::RFC2396_PARSER.make_regexp(['http', 'https'])
+    # ⚠ **投稿先が URL と認めるスキーム**（Mastodon の `valid_url` の上書き）。🔴 **`gemini://` なども
+    # 23 字と数える**ので、**素の長さで数えると短い URL を短く見積もる**（#443）。
+    SCHEMES = ['http', 'https', 'dat', 'dweb', 'ipfs', 'ipns', 'ssb', 'gopher', 'gemini'].freeze
+
+    # ⚠ **`URI.extract` と同じ規則**。🔴 **直前に英数字・`@`・`$`・`#` があれば URL ではない**
+    # （twitter-text の `valid_url_preceding_chars`・#443）— ⚠⚠ **`xhttps://…` を投稿先は素の長さで数える。**
+    URL_PATTERN = Regexp.new(
+      "(?<![A-Za-z0-9@＠$#＃\uFFFE\uFEFF\uFFFF])#{URI::RFC2396_PARSER.make_regexp(SCHEMES).source}",
+      Regexp::EXTENDED,
+    )
+
+    # 🔴 **Public Suffix List にあって twitter-text 3.1.0 の TLD 表に無いもの**（#443）。⚠⚠ **投稿先は
+    # URL と認めず素の長さで数える**（⚠ **`.music` は音楽 bot として現実的**）。
+    # ⚠ **表は gem の `tld_lib.yml` と PSL の差分を取った実測**（2026-09-26）。
+    UNKNOWN_TLDS = ['amazon', 'hotel', 'kids', 'merck', 'music', 'spa'].freeze
+
+    # ⚠ **これより長い URL を投稿先は URL と認めない**（twitter-text の `MAX_URL_LENGTH`）。
+    MAX_URL_LENGTH = 4096
+
+    # ⚠ **t.co は英数字の slug までしか URL にしない**（twitter-text の `valid_tco_url`）。
+    TCO_PATTERN = %r{\Ahttps?://t\.co/([a-z0-9]+)}i
+    MAX_TCO_SLUG_LENGTH = 40
 
     # ⚠⚠ **曲の行（曲名・名義・アルバム名・URL）に取っておく長さ。**🔴 **実測の最大は 277 字**
     # （2026-09-08・`bgm`・名義 102 字 → #282）＋ 空行 2 字に余裕を持たせた。
@@ -54,10 +74,19 @@ module Makoto
     # 🔴 **URL の末尾の句読点は URL の外で数える**（#424）。⚠⚠ **`URL_PATTERN` は `a.` の `.` まで
     # 飲み込むが、投稿先はそれを URL から外して 1 字と数える** ＝ **URL 1 本につき 1 字通しすぎる**
     # （→ `split_trailing`）。
+    #
+    # 🔴 **URL と言い切れないときは長いほうで数える**（#443）。⚠⚠ **TLD は投稿先も知っているのに
+    # ホストとしては認めない形**（`co.uk` のような接尾辞そのもの）は、**投稿先が URL と数えるかを
+    # こちらで決めきれない** — 🔴 **素の長さと 23 字の大きいほうを取る**（弾きすぎる向きに倒す）。
     def self.length(text)
       counted = text.to_s.gsub(URL_PATTERN) do |url|
-        core, trailing = split_trailing(url)
-        url?(core) ? ('x' * URL_LENGTH) + trailing : url
+        core, trailing = split_trailing(url, Regexp.last_match.post_match[0])
+        folded = ('x' * URL_LENGTH) + trailing
+        case url_kind(core)
+        when :url then folded
+        when :maybe then [folded, url].max_by(&:length)
+        else url
+        end
       end
       return counted.grapheme_clusters.size
     end
@@ -66,34 +95,134 @@ module Makoto
     QUERY_ENDING = %r{[a-z0-9_&=#/-]}i
 
     # ⚠ **path の末尾に来てはいけない文字**（Mastodon の `valid_url_path_ending_chars` の否定）。
-    # ⚠⚠ **括弧は釣り合っていれば URL の一部**なので、ここではなく `split_trailing` で見る。
+    # ⚠⚠ **閉じ括弧は含めない** — 🔴 **`cut_at_parens` を通った後に残る `)` は認められた 1 組の閉じ**
+    # （`Foo_(bar)` は URL）。
     PATH_NOT_ENDING = /[(?!*"'<>;:=,.$%\[\]~&|]/
 
-    # URL を「投稿先が URL と数える部分」と「その後ろの文字」に割る（#424）。
+    # URL を「投稿先が URL と数える部分」と「その後ろの文字」に割る（#424 / #443）。
     #
     # 🔴 **正本は Mastodon の `config/initializers/twitter_regex.rb`**（twitter-text の規則を
     # 上書きしている）。⚠⚠ **クエリと path で末尾の規則が違う** — **`?b=` / `?b=1&` はクエリなら
-    # URL の一部、path なら外**。⚠ **閉じ括弧は開き括弧より多いときだけ外す**（`Foo_(bar)` は URL）。
-    def self.split_trailing(url)
-      core = url
-      while core.length.positive?
-        last = core[-1]
-        if core.include?('?') && !core.end_with?('?')
-          break if last.match?(QUERY_ENDING)
-        elsif last == ')'
-          break if core.count('(') >= core.count(')')
-        else
-          break unless last.match?(PATH_NOT_ENDING)
-        end
-        core = core[0...-1]
+    # URL の一部、path なら外**。
+    #
+    # 🔴 **末尾だけでなく途中でも終わる**（#443）— ⚠⚠ **`URL_PATTERN`（RFC2396）は投稿先より広く飲み込む**:
+    #
+    # - ホスト（と port）の後ろは `/` か `?` でなければ URL はそこで終わる（`#frag`・`%20`・userinfo の `@`）
+    # - path の括弧は中身のある 1 組（入れ子 1 段まで）だけ（→ `cut_at_parens`）
+    # - path の末尾を削ったら、その後ろのクエリも URL ではない（クエリは path の直後にしか付かない）
+    #
+    # ⚠ **`following` は照合の直後の 1 字**（`URL_PATTERN` はホストの `+` の手前で止まる → `cut_at_tld`）。
+    def self.split_trailing(url, following = nil)
+      core = cut_at_parens(cut_at_authority(cut_at_tld(url, following)))
+      if (tco = core.match(TCO_PATTERN))
+        return core, url[core.length..] if tco[1].length > MAX_TCO_SLUG_LENGTH
+        core = tco[0]
+      end
+      path, query = core.split('?', 2)
+      core = trim_path(path)
+      if core == path && query
+        query = trim_query(query)
+        core = "#{path}?#{query}" unless query.empty?
       end
       return core, url[core.length..]
     end
 
-    def self.url?(value)
-      return PublicSuffix.valid?(URI.parse(value).host.to_s, default_rule: nil)
+    # ⚠ **ホストに来てよい文字と port**（twitter-text の `valid_domain` の ASCII ぶん・`valid_port_number`）。
+    # ⚠⚠ **`_` は入れない**（サブドメインには来てよいが、TLD の直後で切れる）— **切って短く見るのは
+    # 長く数える向き**なので、ここでは区別しない。
+    AUTHORITY = %r{\A([^:]+)://([a-z0-9.-]*)(?::[0-9]+)?}i
+
+    # ⚠ **TLD の直後に来てはいけない文字**（twitter-text の `valid_tld` の先読み）。
+    TLD_NOT_FOLLOWED_BY = ['@', '+'].freeze
+
+    # ホストの最後が知らない TLD なら、手前の知っている TLD まで戻って切る（#443）。
+    #
+    # 🔴 **投稿先はホストの正規表現を後戻りさせる**ので、**`example.com.aaa` は `example.com` までを
+    # URL と数える**（実測）。⚠⚠ **全体を URL でないとして素の長さで数えると、短く見積もる。**
+    def self.cut_at_tld(url, following = nil)
+      matched = url.match(AUTHORITY)
+      return url unless matched
+      labels = matched[2].split('.', -1)
+      following = url[matched.begin(2) + matched[2].length] || following
+      last = labels.size - 1
+      last.downto(1) do |index|
+        next unless known_tld?(labels[index])
+        next if index == last && TLD_NOT_FOLLOWED_BY.include?(following)
+        return index == last ? url : "#{matched[1]}://#{labels[0..index].join('.')}"
+      end
+      return url
+    end
+
+    def self.known_tld?(label)
+      tld = label.to_s.downcase
+      return false if tld.empty? || UNKNOWN_TLDS.include?(tld)
+      return PublicSuffix.valid?("x.#{tld}", default_rule: nil)
+    end
+
+    # ホスト（と port）の直後が `/` か `?` でなければ、そこで切る（#443）。
+    #
+    # ⚠ **直後が `@` なら切らない**（userinfo の形）— 🔴 **投稿先はホストだけを URL にせず、全体を
+    # 素の長さで数える**（実測）。**切らずに渡せば `url_kind` が userinfo として弾く。**
+    def self.cut_at_authority(url)
+      authority = url[AUTHORITY]
+      return url if authority.nil? || ['/', '?', '@'].include?(url[authority.length])
+      return authority
+    end
+
+    def self.trim_path(path)
+      path = path[0...-1] while path.length.positive? && path[-1].match?(PATH_NOT_ENDING)
+      return path
+    end
+
+    def self.trim_query(query)
+      query = query[0...-1] while query.length.positive? && !query[-1].match?(QUERY_ENDING)
+      return query
+    end
+
+    # ⚠ **path に来てよい文字**（Mastodon の `valid_general_url_path_chars`）。
+    PATH_CHARS = '[^\\s<>()?]'.freeze
+
+    # ⚠ **path に認められる括弧の 1 組**（Mastodon の `valid_url_balanced_parens`）。
+    BALANCED_PARENS = /\G\((?:#{PATH_CHARS}+|#{PATH_CHARS}*\(#{PATH_CHARS}+\)#{PATH_CHARS}*)\)/
+
+    # path の途中で、投稿先が認めない括弧の手前まで切る（#443）。⚠ **クエリの括弧は URL の一部**なので見ない。
+    def self.cut_at_parens(url)
+      start = url.index('/', url.index('://').to_i + 3)
+      return url unless start
+      finish = url.index('?', start) || url.length
+      index = start
+      while index < finish
+        case url[index]
+        when '('
+          matched = url.match(BALANCED_PARENS, index)
+          return url[0...index] unless matched && matched.end(0) <= finish
+          index = matched.end(0)
+        when ')' then return url[0...index]
+        else index += 1
+        end
+      end
+      return url
+    end
+
+    # 投稿先がその URL を 23 字と数えるか（#351 / #443）。
+    #
+    # - `:url` — 数える
+    # - `:maybe` — TLD は知っているが、ホストとしては認めない（→ `length` は長いほうで数える）
+    # - `:none` — 数えない（素の長さ）
+    #
+    # ⚠⚠ **`:none` は「投稿先も URL と認めない」と言い切れる形だけ**（素の IP・TLD の無いホスト・
+    # userinfo・`-` で始まるか終わるラベル・長すぎる URL・twitter-text の表に無い TLD）。
+    def self.url_kind(value)
+      return :none if value.length > MAX_URL_LENGTH
+      uri = URI.parse(value)
+      host = uri.host.to_s
+      return :none if uri.userinfo || host.empty?
+      labels = host.split('.')
+      return :none if labels.any? {|label| label.start_with?('-') || label.end_with?('-')}
+      return :none unless known_tld?(labels.last)
+      return PublicSuffix.valid?(host, default_rule: nil) ? :url : :maybe
     rescue URI::InvalidURIError
-      return false
+      return :none
     end
 
     # 投稿先の申告と設定を突き合わせる（#351）。
