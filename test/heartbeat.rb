@@ -57,8 +57,8 @@ module Makoto
     def test_touch_keeps_the_revision_and_the_job_names
       Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
 
-      assert_equal(['morning', 'song'], Heartbeat.job_names)
-      assert_equal(Package.revision, Heartbeat.revision)
+      assert_equal(['morning', 'song'], Heartbeat.read[:job_names])
+      assert_equal(Package.revision, Heartbeat.read[:revision])
     end
 
     # ⚠ **`job_names` を渡さない `touch` は名前を消さない**（#354）。
@@ -66,7 +66,7 @@ module Makoto
       Heartbeat.touch(jobs: 2, job_names: ['morning', 'song'], now: now)
       Heartbeat.touch(jobs: 2, now: now)
 
-      assert_equal(['morning', 'song'], Heartbeat.job_names)
+      assert_equal(['morning', 'song'], Heartbeat.read[:job_names])
     end
 
     # 🔴 **登録を見送った投稿を残す**（#350）。⚠ **無ければ空に戻す**（前の起動の値を居座らせない）。
