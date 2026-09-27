@@ -124,6 +124,49 @@ module Makoto
       assert_equal(23, PostBudget.length('https://example.com/a(b(c)d)e'))
     end
 
+    # 🔴 **投稿先より短く数えない 3 系統**（#461）。⚠⚠ **期待値は同じ oracle**（Mastodon の initializer ＋
+    # twitter-text 3.1.0）の実測。
+    def test_shapes_found_after_the_release_review
+      {
+        # ⚠ **URL を切った後・認めなかった後から探し直す**（`gsub` は飲んだ後ろを探さなかった）。
+        'https://a.com.https://b.com' => 47,
+        'https://https://b.com' => 31,
+        'http://a.jp/x(http://b.jp/y(http://c.jp' => 71,
+        # ⚠ **非 ASCII のホスト**（IDN・Unicode の TLD）。
+        'https://例え.jp' => 23,
+        'https://プリキュア.com' => 23,
+        'https://例え.コム' => 23,
+        # ⚠ **port の後の `@`**。
+        'https://a.com:80@b.com' => 29,
+      }.each do |text, length|
+        assert_equal(length, PostBudget.length(text), text)
+      end
+      assert_equal((10 * 23) + 9, PostBudget.length(Array.new(10, 'https://a.jp').join('.')))
+    end
+
+    # 🔴 **TLD は twitter-text の表で判定する**（#461）。⚠⚠ **Public Suffix List とは両方向にずれる** —
+    # **`.za` は PSL に単独の規則が無いが投稿先は URL**、**`.music` は PSL にあるが投稿先は素の長さ。**
+    def test_tlds_follow_twitter_text
+      assert_equal(23, PostBudget.length('https://a.za'))
+      assert_equal(23, PostBudget.length("https://a.za/#{'x' * 40}"))
+      assert_equal(15, PostBudget.length('https://a.music'))
+    end
+
+    # ⚠⚠ **非 ASCII のホストは、23 字と素の長さの長いほう**（#461）。🔴 **投稿先は libidn に通して
+    # 失敗すれば URL と認めない**が、その判定はこちらで再現できないので、短く数えない側に倒す。
+    def test_a_non_ascii_host_counts_the_longer
+      url = "https://例え.jp/#{'x' * 40}"
+
+      assert_equal(url.length, PostBudget.length(url))
+    end
+
+    # ⚠ **ラベルが 63 字を超えるホストは URL ではない**（投稿先の IDN 変換が失敗する）。
+    def test_a_too_long_label_is_not_a_url
+      url = "https://#{'a' * 64}.com"
+
+      assert_equal(url.length, PostBudget.length(url))
+    end
+
     # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。
     def test_a_dated_morning_does_not_reserve_the_greeting
       assert_equal(config['/mastodon/max_length'] - budget.proxy_reserve, budget.budget('morning', dated: true))
