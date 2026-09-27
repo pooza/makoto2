@@ -88,8 +88,8 @@ module Makoto
     Identity = Data.define(:owner, :own, :jobs, :job_names, :revision, :sentry)
 
     # 🔴 **痕跡を 1 回だけ読み、持ち主・本数・名前・リビジョンを同じ版から出す**（#354・Codex の P2）。
-    # ⚠⚠ **痕跡は別のプロセスも書く**ので、**`own_heartbeat?` と `job_names` を別々に読むと、間で
-    # 持ち主が替わって「古い本数を、持ち主の注記なしで」出しうる。**⚠ **`makoto status` はこれを使う。**
+    # ⚠⚠ **痕跡は別のプロセスも書く**ので、**持ち主と名前を別々に読むと、間で持ち主が替わって
+    # 「古い本数を、持ち主の注記なしで」出しうる。**⚠ **`makoto status` はこれを使う。**
     def identity
       record = Heartbeat.read || {}
       owner = record[:pid]&.to_i

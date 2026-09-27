@@ -110,7 +110,45 @@ module Makoto
       end
     end
 
+    # 🔴 **Mastodon は 429 に `Retry-After` を付けず、`X-RateLimit-Reset`（ISO 8601）だけを返す**
+    # （#425）。✅ **上流（`pooza/ginseng-core#657`・v1.25.1）がそれを読む**ようになったので追随した
+    # （#438）。⚠ **こちらは追随しただけ**なので、🔴 **戻ったときにここが落ちる。**
+    #
+    # ⚠ **時計は止める**（PR #459 の Codex の P2）。⚠⚠ **ヘッダは秒の精度**なので、実時間で
+    # 組むと、遅い CI で待ちが 0 秒に丸まって落ちる。
+    def test_a_429_honours_the_ratelimit_reset
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T12:00:03Z'})
+      http = HTTP.new
+      Timecop.freeze(Time.utc(2026, 11, 4, 12, 0, 0)) do
+        with_captured_sleep(http) do |slept|
+          assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+          assert_equal([3, 3], slept)
+        end
+      end
+    end
+
+    # 🔴 **投稿数の制限（300 本 / 3 時間）の窓は待たずに 1 回で諦める**（#438）。⚠⚠ **追随する前は
+    # 1 秒おきに計 3 回叩いていた**（→ docs/CLAUDE.md の #425 の段落）。
+    #
+    # ⚠⚠ **成り立つのは直に投稿するときだけ**（v0.7.2 のリリース前レビュー）— 🔴 **モロヘイヤ経由では
+    # ヘッダが中継されない**（未検証）、**日付を騙している間は待ちが 0 秒に丸まる**（見かけの時刻との差）。
+    def test_a_long_ratelimit_reset_gives_up
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T15:00:00Z'})
+      http = HTTP.new
+      Timecop.freeze(Time.utc(2026, 11, 4, 12, 0, 0)) do
+        with_captured_sleep(http) do |slept|
+          assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+          assert_equal([], slept)
+        end
+      end
+    end
+
     # 設定した予算（タイムアウト × 再送 ＋ 待ち）が、ライブの枠間隔より短いこと。
+    #
+    # 🔴 **待ちは 429 の上限（`/http/retry/max_seconds`）でも数える**（v0.7.2 のリリース前レビュー）。
+    # ⚠⚠ **#438 で `X-RateLimit-Reset` が効きはじめ、待ちが `/http/retry/seconds` より長くなりうる。**
     #
     # ⚠⚠ **これは wall-clock の上限ではない**（2026-08-16・#91 のレビュー指摘・#92）。
     # ⚠ **HTTParty の `timeout` は Net::HTTP の 1 回の socket 操作ごとに効く**ので、
@@ -118,7 +156,8 @@ module Makoto
     # **ここが見ているのは「設定の値どうしが噛み合っているか」まで。**
     def test_configured_budget_stays_inside_a_live_slot
       worst = config['/http/timeout/seconds'] * config['/http/retry/limit']
-      worst += config['/http/retry/seconds'] * (config['/http/retry/limit'] - 1)
+      wait = [config['/http/retry/seconds'], config['/http/retry/max_seconds']].max
+      worst += wait * (config['/http/retry/limit'] - 1)
       interval = Fugit::Duration.parse(config['/live/timetable/interval']).to_sec
 
       assert_operator(worst, :<, interval)

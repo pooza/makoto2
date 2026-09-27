@@ -74,8 +74,8 @@ module Makoto
       assert_equal("not running\n", status_output(alive: false))
     end
 
-    # ⚠ **画面に出る 6 つが揃っていること**（docs の「見るのは 6 つ」）。
-    def test_all_six_lines_are_printed
+    # ⚠ **画面に出る行が揃っていること**（docs の「見るのは次のとおり」）。⚠ 増えていく数を名前に書かない。
+    def test_all_lines_are_printed
       Heartbeat.record_tick(now: now)
       Heartbeat.touch(jobs: 1, now: now)
       output = status_output

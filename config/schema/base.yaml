@@ -182,6 +182,10 @@ properties:
           seconds:
             type: number
             minimum: 0
+          # 429 の待ちを受け入れる上限（秒）。⚠ 省くと ginseng-core の既定（60）。
+          max_seconds:
+            type: number
+            minimum: 0
         required:
           - limit
           - seconds

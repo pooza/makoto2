@@ -4,7 +4,7 @@ source 'https://rubygems.org'
 #   ⚠⚠ 事故が理由の pin ではない。外すのは「実機と CI の Ruby を 5.x にし、
 #   当日通しリハーサルを 5.x で通した」とき（→ docs/CLAUDE.md の当日通し）。
 ruby '>= 4.0', '< 5.0'
-gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v1.25.0', require: 'ginseng'
+gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v1.25.1', require: 'ginseng'
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v3.1.0',
   require: 'ginseng/fediverse'
 gem 'rufus-scheduler'
@@ -17,7 +17,8 @@ gem 'tzinfo'
 # 監視の口（MonitorServer）を常駐の中で起こすためだけに使う（#84）。
 # ⚠ WebUI ではない。⚠⚠ 管理コンソールは作らないという決定は変えていない。
 gem 'puma'
-# addressable の依存として入るが、`PostBudget.url?` が TLD の判定に直接使うので明示する（#351）。
+# addressable の依存として入るが、`PostBudget.known_tld?` / `url_kind` が TLD の判定に直接使うので明示する（#351 / #443）。
+# ⚠ 版を上げたら `PostBudget::UNKNOWN_TLDS` を測り直す（PSL に TLD が増えると、投稿先より短く数える）。
 gem 'public_suffix'
 gem 'thor'
 # リハーサルで日付だけを騙すために使う（#110）。⚠⚠ **本番の group に置く。**

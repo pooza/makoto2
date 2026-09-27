@@ -367,6 +367,10 @@ http:
   retry:
     limit: 3
     seconds: 1
+    # 429 の待ち（`Retry-After` / `X-RateLimit-Reset`）を受け入れる上限（秒）。これより長ければ待たずに諦める。
+    # 🔴 ginseng-core の既定は 60 秒だが、それだと最悪 30 × 3 ＋ 60 × 2 ＝ 210 秒で、ライブの枠間隔（3 分）を
+    # 超える（v0.7.2 のリリース前レビュー・#438 で 429 の待ちが効きはじめた）。⚠ 30 なら 150 秒。
+    max_seconds: 30
   timeout:
     seconds: 30
 logger:
@@ -462,7 +466,7 @@ package:
     - tkoishi@b-shock.co.jp
   license: MIT
   url: https://github.com/pooza/makoto2
-  version: 0.7.1
+  version: 0.7.2
 message:
   # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
   # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が

@@ -334,15 +334,6 @@ module Makoto
         return record[:jobs]
       end
 
-      # ⚠ **旧い痕跡（#242 より前の常駐）には無いので nil。**
-      def job_names
-        return read&.dig(:job_names)
-      end
-
-      def revision
-        return read&.dig(:revision)
-      end
-
       # 起動時に登録を見送った投稿と理由（#350）。⚠ **旧い痕跡・見送り無しは空。**
       def rejected
         found = read&.dig(:rejected)
