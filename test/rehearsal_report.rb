@@ -162,7 +162,7 @@ module Makoto
     # exec 2 回になり、`anomalous_slots` に落ちて赤になる** — 🔴 **毎リリースの結合
     # テストが、正常な回で落ちることになる**（→ docs のリリース手順 4）。
     def test_a_notify_entry_is_not_an_exec
-      subject = report(SUCCESS, NOTIFY, HEARTBEAT)
+      subject = report(SUCCESS, HTTP_OK, NOTIFY, HEARTBEAT)
 
       assert_equal(1, subject.slots.size)
       assert_equal(1, subject.slots.values.first[:execs])
@@ -174,7 +174,7 @@ module Makoto
     # 🔴 **黙る日の 1 行も `exec` に数えない**（#277）。⚠⚠ **11/3・11/4 を回すリハーサルで、
     # 曲紹介の枠が「exec があるのに投稿されていない」に見えないこと。**
     def test_a_quiet_entry_is_not_an_exec
-      subject = report(SUCCESS, QUIET, HEARTBEAT)
+      subject = report(SUCCESS, HTTP_OK, QUIET, HEARTBEAT)
 
       assert_equal(1, subject.slots.size)
       assert_empty(subject.anomalous_slots)
@@ -183,7 +183,7 @@ module Makoto
 
     # ⚠ **覚えなかった回も投稿の失敗ではない**（#284）。🔴 **履歴を切ってあれば毎回出る。**
     def test_a_notify_miss_is_not_a_failure
-      subject = report(SUCCESS, NOTIFY_MISS, HEARTBEAT)
+      subject = report(SUCCESS, HTTP_OK, NOTIFY_MISS, HEARTBEAT)
 
       assert_equal(0, subject.failed)
       assert_false(subject.red?)
@@ -212,7 +212,7 @@ module Makoto
     end
 
     def test_counts_one_exec_per_line
-      subject = report(SUCCESS, HEARTBEAT)
+      subject = report(SUCCESS, HTTP_OK, HEARTBEAT)
 
       assert_equal(1, subject.slots.size)
       assert_equal(1, subject.posted)
@@ -450,11 +450,49 @@ module Makoto
 
     def test_lines_without_an_error_stay_out_of_the_unclassified
       nothing = '{"track":"history","post":"song","size":3,"message":"nothing fresh left"}'
-      subject = report(nothing, REGISTER, QUIET, HEARTBEAT, SUCCESS)
+      subject = report(nothing, REGISTER, QUIET, HEARTBEAT, SUCCESS, HTTP_OK)
 
       assert_empty(subject.unclassified)
       assert_false(subject.red?)
       assert_not_include(subject.to_s, '受け皿に入らなかった')
+    end
+
+    # 🔴 **投稿は出たのに HTTP の行が無い回は赤**（#462）。⚠⚠ **上流が HTTP の行の欄名を変えると、
+    # 成功の行は `error` を持たないので `count_unclassified` でも拾えず、HTTP の節が空のまま緑だった**（実測）。
+    def test_posts_without_any_http_line_are_red
+      renamed = HTTP_OK.sub('"url"', '"uri"')
+      subject = report(SUCCESS, renamed, HEARTBEAT)
+
+      assert_true(subject.http_unseen?)
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '🔴 投稿は 1 本出たのに HTTP の行が 1 本も無い')
+      # ⚠ **投稿が 0 本なら言わない**（沈黙だけの回は HTTP を叩かない）。
+      assert_false(report(SILENCE, HEARTBEAT).http_unseen?)
+      # ⚠ **落ちた試行だけでも「見えている」**（再送の行は HTTP の行として数えている）。
+      assert_false(report(SUCCESS, RETRY, HEARTBEAT).http_unseen?)
+    end
+
+    # 🔴 **ログが中身を出せなかった行も赤**（#462）。⚠⚠ **`_mask_error` の行は `error` を持たない**ので、
+    # **元が枠の失敗の行でも黙って捨てられていた。**⚠ **名札に元の欄の名前を添える。**
+    def test_a_line_the_logger_could_not_write_is_red
+      masked = '{"_mask_error":true,"class":"Hash","keys":["post","slot","error"]}'
+      scrubbed = '{"_encoding_error":true}'
+      subject = report(SUCCESS, HTTP_OK, HEARTBEAT, masked, scrubbed)
+
+      assert_equal({'logger:_mask_error (post,slot,error)' => 1, 'logger:_encoding_error' => 1},
+        subject.unclassified)
+      assert_true(subject.red?)
+      assert_include(subject.to_s, '集計の受け皿に入らなかった行: 2 行')
+    end
+
+    # ⚠ **中身を残せた `_encoding_error` の行は、元の受け皿に入る**（赤にしない）。
+    def test_a_scrubbed_line_with_its_content_is_counted_as_usual
+      scrubbed = SUCCESS.sub('}', ',"_encoding_error":true}')
+      subject = report(scrubbed, HTTP_OK, HEARTBEAT)
+
+      assert_equal(1, subject.posted)
+      assert_empty(subject.unclassified)
+      assert_false(subject.red?)
     end
 
     def test_heartbeat_and_version
@@ -497,7 +535,7 @@ module Makoto
     # 🔴 **ハートビートが 0 回でも赤**（#416）。⚠ **常駐が起きていないか、別の unit を読んでいる。**
     def test_no_heartbeat_is_red
       assert_true(report(SUCCESS).red?)
-      assert_false(report(SUCCESS, HEARTBEAT).red?)
+      assert_false(report(SUCCESS, HTTP_OK, HEARTBEAT).red?)
       assert_include(report(SUCCESS).to_s, '🔴 ハートビートが 1 回も無い')
     end
 
@@ -691,7 +729,7 @@ module Makoto
     # リハーサルの合否は別。**
     def test_a_heartbeat_error_is_red
       assert_true(report(SUCCESS, HEARTBEAT_ERROR).red?)
-      assert_false(report(SUCCESS, HEARTBEAT_REV).red?)
+      assert_false(report(SUCCESS, HTTP_OK, HEARTBEAT_REV).red?)
     end
   end
 end

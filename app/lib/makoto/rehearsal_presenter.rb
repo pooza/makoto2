@@ -162,7 +162,12 @@ module Makoto
       @report.http_failures.sort.each do |method, count|
         out.push("🔴 #{method} 応答が返らなかった（再送しない失敗 ＝ ReadTimeout など）: #{count} 回")
       end
-      out.push('  （1 本も無い）') if @report.http.empty? && @report.http_failures.empty?
+      if @report.http_unseen?
+        # 🔴 **投稿は出たのに HTTP の行が無い**（#462 → `RehearsalReport#http_unseen?`）。
+        out.push("🔴 投稿は #{@report.posted} 本出たのに HTTP の行が 1 本も無い（行の形が変わった？）")
+      elsif @report.http.empty? && @report.http_failures.empty?
+        out.push('  （1 本も無い）')
+      end
       # ⚠ **「再送」ではなく「落ちた試行」と名乗る**（#439 → `RehearsalReport#count_http`）。
       if @report.failed_attempts.positive?
         out.push("⚠ 落ちた試行 #{@report.failed_attempts} 回（再送したものと、諦めた最後の 1 回を含む）")
@@ -224,7 +229,7 @@ module Makoto
     # （→ `RehearsalReport::LABEL_KEYS`）ので、**新しい形の行でも、どこで落ちたかが出る。**
     def format_unclassified
       return nil if @report.unclassified.empty?
-      out = ['', "集計の受け皿に入らなかった error 行: #{@report.unclassified.values.sum} 行"]
+      out = ['', "集計の受け皿に入らなかった行: #{@report.unclassified.values.sum} 行"]
       out += @report.unclassified.map {|label, count| "🔴 #{label}: #{count} 行"}
       return out.join("\n")
     end

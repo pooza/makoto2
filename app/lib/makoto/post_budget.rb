@@ -32,6 +32,12 @@ module Makoto
     # 🔴 **Mastodon は URL の長さによらず 23 字と数える。**
     URL_LENGTH = 23
 
+    # ⚠ **畳んだ URL の形**（中身は数えるだけなので何でもよい）。
+    FOLDED = ('x' * URL_LENGTH).freeze
+
+    # ⚠ **`ValidateError` の文面に出す URL の長さ**（→ `unfolded_urls`）。
+    LABEL_LENGTH = 40
+
     # ⚠ **これより長い URL を投稿先は URL と認めない**（twitter-text の `MAX_URL_LENGTH`）。
     MAX_URL_LENGTH = 4096
 
@@ -63,19 +69,39 @@ module Makoto
     # 形は長いほうで数える**（→ `url_length`）。⚠ **メンションの `@user@host` を `@user` と数える
     # 置き換えは写していない**（写さなければ長く数えるだけ）。
     def self.length(text)
+      return fold(text.to_s).first.grapheme_clusters.size
+    end
+
+    # ⚠ **23 字に畳まなかった URL**（#462）— 🔴 **投稿先が URL と認めない形**（`.music` の TLD・
+    # 素の IP・長すぎるラベル）と、**非 ASCII のホストで素の長さのほうが長かったもの。**
+    # ⚠ **スキームの付いた語を拾う**（URL と認められなかった語も、書いた人には URL に見えている）。
+    # ⚠ **表示用に `LABEL_LENGTH` 字で切る。**
+    def self.unfolded_urls(text)
       text = text.to_s
+      folded = fold(text).last
+      return text.to_enum(:scan, SCHEME_START).filter_map do
+        start = Regexp.last_match.begin(0)
+        next if folded.include?(start)
+        word = text[start..][/\A\S+/]
+        word.length > LABEL_LENGTH ? "#{word[0, LABEL_LENGTH]}…" : word
+      end
+    end
+
+    # URL を畳んだ本文と、23 字に畳んだ URL の開始位置。
+    def self.fold(text)
       counted = +''
+      folded = Set.new
       last = 0
       text.scan(VALID_URL) do
         matched = Regexp.last_match
         next unless (span = url_span(matched))
         start, finish = span
-        url = text[start...finish]
-        counted << text[last...start] << url_length(url, matched[:domain])
+        value = url_length(text[start...finish], matched[:domain])
+        folded.add(start) if value == FOLDED
+        counted << text[last...start] << value
         last = finish
       end
-      counted << text[last..]
-      return counted.grapheme_clusters.size
+      return counted << text[last..], folded
     end
 
     # 投稿先が URL と数える範囲（文字位置）。⚠ **数えなければ nil。**
@@ -102,9 +128,8 @@ module Makoto
     def self.url_length(url, domain)
       return url if url.length > MAX_URL_LENGTH
       return url if domain.split('.').any? {|label| label.length > MAX_LABEL_LENGTH}
-      folded = 'x' * URL_LENGTH
-      return [folded, url].max_by {|value| value.grapheme_clusters.size} unless domain.ascii_only?
-      return folded
+      return [FOLDED, url].max_by {|value| value.grapheme_clusters.size} unless domain.ascii_only?
+      return FOLDED
     end
 
     # ⚠ **twitter-text の文字の表**（`Twitter::TwitterText::Regex`）。
@@ -181,6 +206,9 @@ module Makoto
     # （数えないが、走査は進む → `url_span`）。
     SCHEMES = ['https?', 'dat', 'dweb', 'ipfs', 'ipns', 'ssb', 'gopher', 'gemini'].freeze
 
+    # ⚠ **スキームの付いた語の頭**（→ `unfolded_urls`）。
+    SCHEME_START = %r{(?:#{SCHEMES.join('|')})://}i
+
     VALID_URL = Regexp.new(
       [
         "(?<before>#{PRECEDING})",
@@ -194,6 +222,8 @@ module Makoto
       ].join,
       Regexp::IGNORECASE,
     )
+
+    private_class_method :fold, :url_span, :url_length, :tld_pattern, :parens_pattern
 
     # 投稿先の申告と設定を突き合わせる（#351）。
     #
@@ -235,10 +265,19 @@ module Makoto
       allowed = budget(type, dated: dated)
       return if length <= allowed
       raise Ginseng::ValidateError,
-        "#{slug}: 本文が長すぎます（#{length} 字 / この type は #{allowed} 字まで・URL は #{URL_LENGTH} 字と数える）"
+        "#{slug}: 本文が長すぎます（#{length} 字 / この type は #{allowed} 字まで・#{url_note(body)}）"
     end
 
     private
+
+    # ⚠ **「URL は 23 字」と言い切らない**（#462）。🔴 **畳まなかった URL があれば名指しする**
+    # （`https://example.music/…` を 82 字と数えていても「23 字と数える」と言っていた）。
+    def url_note(body)
+      note = "URL は投稿先と同じく #{URL_LENGTH} 字と数える"
+      unfolded = self.class.unfolded_urls(body)
+      return note if unfolded.empty?
+      return "#{note}が、素の長さで数えた URL がある: #{unfolded.join(' ')}"
+    end
 
     def reserve(type, dated: false)
       value = reserves.fetch(type, 0)

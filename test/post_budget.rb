@@ -90,10 +90,11 @@ module Makoto
       assert_equal(24, PostBudget.length('https://ja.wikipedia.org/wiki/Foo_(bar).'))
     end
 
-    # 🔴 **投稿先より短く数えない**（#443）。⚠⚠ **期待値は Mastodon の initializer を読み込んだ
+    # 🔴 **投稿先と同じ長さで数える形**（#443）。⚠⚠ **期待値は Mastodon の initializer を読み込んだ
     # twitter-text 3.1.0 の実測**（`StatusLengthValidator` と同じ置換）。⚠ **前半は #443 の表・
-    # 後半は同じ突き合わせ（46,000 通りの生成）で見つかった形。**
-    def test_shapes_the_destination_counts_longer
+    # 後半は同じ突き合わせ（46,000 通りの生成）で見つかった形。**⚠ **#443 の時点で短く数えていた形と、
+    # そこで直したときに長く数えかけた形（`https://a.com-` など）が混ざる**ので、名前は向きを言わない（#462）。
+    def test_url_shapes_counted_as_the_destination_does
       {
         'https://example.com/a(b' => 25,
         'https://example.com/a()' => 25,
@@ -222,6 +223,18 @@ module Makoto
 
       assert_nothing_raised {budget.validate('morning', 'あ' * allowed, 'ok')}
       assert_raise(Ginseng::ValidateError) {budget.validate('morning', 'あ' * (allowed + 1), 'ng')}
+    end
+
+    # ⚠ **23 字に畳まなかった URL を文面で名指しする**（#462）。
+    def test_validate_names_the_urls_counted_as_they_are
+      allowed = budget.budget('morning')
+      body = "#{'あ' * allowed} https://example.music/#{'a' * 60} https://a.com/"
+
+      error = assert_raise(Ginseng::ValidateError) {budget.validate('morning', body, 'ng')}
+      assert_include(error.message, "素の長さで数えた URL がある: https://example.music/#{'a' * 18}…")
+      assert_not_include(error.message, 'https://a.com/')
+      error = assert_raise(Ginseng::ValidateError) {budget.validate('morning', "#{'あ' * allowed} https://a.com/", 'ng')}
+      assert_not_include(error.message, '素の長さ')
     end
 
     # ⚠ **空の本文も弾く**（#352・`makoto message add` はここしか通らない）。

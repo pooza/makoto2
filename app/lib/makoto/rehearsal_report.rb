@@ -53,6 +53,10 @@ module Makoto
     # `exec` 2 回の偽の赤になる**（→ #348 / #284）。
     PHASE_COUNTERS = {'notify' => :count_notify, 'slow' => :count_slow}.freeze
 
+    # 🔴 **ログが中身を出せなかった行の印**（`Ginseng::Logger` の `MASK_ERROR_FIELD` /
+    # `ENCODING_ERROR_FIELD`）→ `count_logger_fallback`。
+    LOGGER_FALLBACK_KEYS = [:_mask_error, :_encoding_error].freeze
+
     # ⚠ **受け皿に入らなかった `error` 行の名札に使う欄**（→ `count_unclassified`）。
     # ⚠ **前から 2 つまで**（`scheduler:tick post:song` のように、どこで落ちたかが分かる粒度）。
     LABEL_KEYS = [
@@ -176,9 +180,18 @@ module Makoto
     end
 
     # 🔴 **見えているはずのものが見えていない**（#416）— 何も見ていない回・登録を見送った投稿・
-    # 受け皿に入らなかった `error` 行。
+    # 受け皿に入らなかった行・投稿は出たのに HTTP の行が無い回。
     def unseen?
-      return blank? || @rejects.any? || @unclassified.any?
+      return blank? || @rejects.any? || @unclassified.any? || http_unseen?
+    end
+
+    # 🔴 **投稿は出たのに HTTP の行が 1 本も無い**（#462）。⚠⚠ **HTTP の行は欄の有無（`method` と
+    # `url`）で見分けている**（→ `consume`）ので、**上流が欄の名前を変えると、成功の行は `error` を
+    # 持たないまま `count_unclassified` で捨てられ、HTTP の節が空のまま緑になる**（実測）。
+    # ⚠ **投稿が出ている以上、HTTP の行が無いのは「起きなかった」ではなく「読めていない」。**
+    def http_unseen?
+      return false unless posted.positive?
+      return @http.empty? && @http_failures.empty? && @failed_attempts.zero?
     end
 
     def http_errors
@@ -276,6 +289,7 @@ module Makoto
       # 文字列**で、**拾うと見出しが要約として読もうとして落ちる。**
       return @travel = entry[:time_travel] if entry[:time_travel].is_a?(Hash)
       return count_reject(entry) if entry[:scheduler] == 'reject'
+      return count_logger_fallback(entry) if LOGGER_FALLBACK_KEYS.any? {|key| entry[key]}
       return count_unclassified(entry)
     end
 
@@ -298,6 +312,18 @@ module Makoto
       return nil unless entry[:error] || entry[:errors]
       label = LABEL_KEYS.filter_map {|key| "#{key}:#{entry[key]}" if entry[key].is_a?(String)}
       return @unclassified[label.first(2).join(' ').presence || '(名札なし)'] += 1
+    end
+
+    # 🔴 **ログが中身を出せなかった行も受け皿へ**（#462）。⚠⚠ **`_mask_error` の行は
+    # `{"_mask_error":true,"class":"Hash","keys":[…]}` だけで、`error` を持たない** — **元が
+    # 枠の失敗の行でも、`count_unclassified` で黙って捨てられていた。**⚠ **`_encoding_error` は
+    # 中身を残せた行なら先の受け皿（`count_slot` など）に入るので、ここへ来るのは残せなかった行。**
+    # ⚠ **名札に元の欄の名前を添える**（`keys` はマスクが元から残す側）。
+    def count_logger_fallback(entry)
+      key = LOGGER_FALLBACK_KEYS.find {|name| entry[name]}
+      keys = Array(entry[:keys]).first(3).join(',')
+      label = ["logger:#{key}", ("(#{keys})" if keys.present?)].compact.join(' ')
+      return @unclassified[label] += 1
     end
 
     # 🔴 **`phase` を持つ行は `exec` ではない**（#284 / #277 / #348）。⚠ **受け皿のある
