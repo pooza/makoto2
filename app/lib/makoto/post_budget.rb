@@ -1,4 +1,4 @@
-require 'uri'
+require 'yaml'
 
 module Makoto
   # 原稿 1 本に使える本文の長さ（#282）。
@@ -23,28 +23,14 @@ module Makoto
   # （転送時にタグの行を足すため）。
   #
   # ⚠ **URL は投稿先と同じく 23 字と数える**（`holiday` は素の長さ 576 字だが実効 328 字）。
+  #
+  # ⚠⚠ **重いのはホストの形の連なり**（`a.` を 3000 回つないだ 6000 字で 1 秒ほど・投稿先の正規表現と同じ
+  # 構造なので同じだけ重い）。🔴 **現実の原稿（3000 字の和文・URL 入り）は数 ms。**
   class PostBudget
     include Package
 
     # 🔴 **Mastodon は URL の長さによらず 23 字と数える。**
     URL_LENGTH = 23
-
-    # ⚠ **投稿先が URL と認めるスキーム**（Mastodon の `valid_url` の上書き）。🔴 **`gemini://` なども
-    # 23 字と数える**ので、**素の長さで数えると短い URL を短く見積もる**（#443）。
-    SCHEMES = ['http', 'https', 'dat', 'dweb', 'ipfs', 'ipns', 'ssb', 'gopher', 'gemini'].freeze
-
-    # ⚠ **`URI.extract` と同じ規則**。🔴 **直前に英数字・`@`・`$`・`#` があれば URL ではない**
-    # （twitter-text の `valid_url_preceding_chars`・#443）— ⚠⚠ **`xhttps://…` を投稿先は素の長さで数える。**
-    URL_PATTERN = Regexp.new(
-      "(?<![A-Za-z0-9@＠$#＃\uFFFE\uFEFF\uFFFF])#{URI::RFC2396_PARSER.make_regexp(SCHEMES).source}",
-      Regexp::EXTENDED,
-    )
-
-    # 🔴 **Public Suffix List にあって twitter-text 3.1.0 の TLD 表に無いもの**（#443）。⚠⚠ **投稿先は
-    # URL と認めず素の長さで数える**（⚠ **`.music` は音楽 bot として現実的**）。
-    # ⚠ **表は gem の `tld_lib.yml` と PSL の差分を取った実測**（2026-09-26・`public_suffix` 7.0.5）。
-    # 🔴 **`public_suffix` を上げたら差分を取り直す**（PSL に TLD が増えると、投稿先より短く数える）。
-    UNKNOWN_TLDS = ['amazon', 'hotel', 'kids', 'merck', 'music', 'spa'].freeze
 
     # ⚠ **これより長い URL を投稿先は URL と認めない**（twitter-text の `MAX_URL_LENGTH`）。
     MAX_URL_LENGTH = 4096
@@ -52,6 +38,9 @@ module Makoto
     # ⚠ **t.co は英数字の slug までしか URL にしない**（twitter-text の `valid_tco_url`）。
     TCO_PATTERN = %r{\Ahttps?://t\.co/([a-z0-9]+)}i
     MAX_TCO_SLUG_LENGTH = 40
+
+    # ⚠ **ラベルがこれより長いと、投稿先の IDN 変換（libidn の `toASCII`）が失敗し、URL と認めない。**
+    MAX_LABEL_LENGTH = 63
 
     # ⚠⚠ **曲の行（曲名・名義・アルバム名・URL）に取っておく長さ。**🔴 **実測の最大は 277 字**
     # （2026-09-08・`bgm`・名義 102 字 → #282）＋ 空行 2 字に余裕を持たせた。
@@ -64,177 +53,147 @@ module Makoto
     # 1 文字（結合文字・ZWJ の絵文字）を 1 字と数える** — ⚠ **`String#length` はコードポイント
     # なので、家族の絵文字 1 つが数字ぶん長く出て、上限の近くで通る原稿を弾いてしまう。**
     #
-    # ⚠⚠ **URL は 1 回の走査で置き換える**（Codex の P2）。🔴 **1 本ずつ `gsub` すると、前方一致
-    # する URL（`/a` と `/a/b`）で短いほうが長いほうの中まで置き換え、長く数えてしまう。**
+    # 🔴 **URL の見つけ方は投稿先の写し**（#461）— ⚠⚠ **Mastodon は twitter-text 3.1.0 の
+    # `extract_urls_with_indices` を、`valid_url` を上書きして使う**（`StatusLengthValidator`）。
+    # **RFC 2396 の正規表現で拾ってから削る形（#443 まで）は、削った後ろを探し直さず、
+    # 非 ASCII のホストを拾えず、短く数える形が 3 系統残っていた**（#461）。
+    # ⚠ **同じ構造の正規表現で同じように走査する**（→ `VALID_URL`）。
     #
-    # ⚠ **実在する TLD を持たないホスト（素の IP・`localhost`・`foo.local`）は URL と数えない**（#351）。
-    # 🔴 **投稿先（twitter-text）は IANA の TLD でしか URL と認めず、素の長さで数える**ので、
-    # **23 字に畳むと短く見積もる**（⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない**）。
-    # ⚠ **TLD の表は Public Suffix List**（`default_rule: nil` ＝ 表に無ければ URL でない・Codex の P2）から、
-    # **twitter-text の表に無いものを除いたもの**（→ `UNKNOWN_TLDS`・#443）。
-    #
-    # 🔴 **URL の末尾の句読点は URL の外で数える**（#424）。⚠⚠ **`URL_PATTERN` は `a.` の `.` まで
-    # 飲み込むが、投稿先はそれを URL から外して 1 字と数える** ＝ **URL 1 本につき 1 字通しすぎる**
-    # （→ `split_trailing`）。
-    #
-    # 🔴 **URL と言い切れないときは長いほうで数える**（#443）。⚠⚠ **TLD は投稿先も知っているのに
-    # ホストとしては認めない形**（`co.uk` のような接尾辞そのもの）は、**投稿先が URL と数えるかを
-    # こちらで決めきれない** — 🔴 **素の長さと 23 字の大きいほうを取る**（弾きすぎる向きに倒す）。
+    # ⚠⚠ **弾きすぎる向きのずれは許すが、通しすぎる向きは許さない。**🔴 **投稿先と同じに決めきれない
+    # 形は長いほうで数える**（→ `url_length`）。⚠ **メンションの `@user@host` を `@user` と数える
+    # 置き換えは写していない**（写さなければ長く数えるだけ）。
     def self.length(text)
-      counted = text.to_s.gsub(URL_PATTERN) do |url|
-        core, trailing = split_trailing(url, Regexp.last_match.post_match[0])
-        next url unless core
-        folded = ('x' * URL_LENGTH) + trailing
-        case url_kind(core)
-        when :url then folded
-        when :maybe then [folded, url].max_by(&:length)
-        else url
-        end
+      text = text.to_s
+      counted = +''
+      last = 0
+      text.scan(VALID_URL) do
+        matched = Regexp.last_match
+        next unless (span = url_span(matched))
+        start, finish = span
+        url = text[start...finish]
+        counted << text[last...start] << url_length(url, matched[:domain])
+        last = finish
       end
+      counted << text[last..]
       return counted.grapheme_clusters.size
     end
 
-    # ⚠ **クエリの末尾に来てよい文字**（Mastodon の `valid_url_query_ending_chars` の ASCII ぶん）。
-    QUERY_ENDING = %r{[a-z0-9_&=#/-]}i
-
-    # ⚠ **path の末尾に来てはいけない文字**（Mastodon の `valid_url_path_ending_chars` の否定）。
-    # ⚠⚠ **閉じ括弧は含めない** — 🔴 **`cut_at_parens` を通った後に残る `)` は認められた 1 組の閉じ**
-    # （`Foo_(bar)` は URL）。
-    PATH_NOT_ENDING = /[(?!*"'<>;:=,.$%\[\]~&|]/
-
-    # URL を「投稿先が URL と数える部分」と「その後ろの文字」に割る（#424 / #443）。
+    # 投稿先が URL と数える範囲（文字位置）。⚠ **数えなければ nil。**
     #
-    # 🔴 **正本は Mastodon の `config/initializers/twitter_regex.rb`**（twitter-text の規則を
-    # 上書きしている）。⚠⚠ **クエリと path で末尾の規則が違う** — **`?b=` / `?b=1&` はクエリなら
-    # URL の一部、path なら外**。
-    #
-    # 🔴 **末尾だけでなく途中でも終わる**（#443）— ⚠⚠ **`URL_PATTERN`（RFC2396）は投稿先より広く飲み込む**:
-    #
-    # - ホスト（と port）の後ろは `/` か `?` でなければ URL はそこで終わる（`#frag`・`%20`）。
-    #   ⚠ **userinfo の `@` は切らずに素の長さ**（→ `cut_at_authority`）
-    # - path の括弧は中身のある 1 組（入れ子 1 段まで）だけ（→ `cut_at_parens`）
-    # - path の末尾を削ったら、その後ろのクエリも URL ではない（クエリは path の直後にしか付かない）
-    #
-    # ⚠ **`following` は照合の直後の 1 字**（`URL_PATTERN` はホストの `+` の手前で止まる → `cut_at_tld`）。
-    #
-    # ⚠ **URL と認められない形は `core` を nil で返す**（→ `length` は素の長さで数える）。🔴 **`url_kind` に
-    # 渡すと、ホストだけを見て 23 字に畳んでしまう**（PR #458 の Codex の P2 ×2 — 長すぎる t.co の slug と、
-    # 唯一の TLD の直後の `+`）。
-    def self.split_trailing(url, following = nil)
-      core = cut_at_tld(url, following)
-      return nil, url unless core
-      core = cut_at_parens(cut_at_authority(core))
-      if (tco = core.match(TCO_PATTERN))
-        return nil, url if tco[1].length > MAX_TCO_SLUG_LENGTH
-        core = tco[0]
+    # 🔴 **スキームの無い照合も走査は進める**（投稿先も同じ）— ⚠⚠ **`a.com.https://b.com` の
+    # `a.com` を飲んだ後から次を探す**ので、**照合そのものは捨てずに位置だけ使う。**
+    def self.url_span(matched)
+      return nil unless matched[:protocol]
+      start, finish = matched.offset(:url)
+      if (tco = matched[:url].match(TCO_PATTERN))
+        return nil if tco[1].length > MAX_TCO_SLUG_LENGTH
+        finish = start + tco[0].length
       end
-      path, query = core.split('?', 2)
-      core = trim_path(path)
-      if core == path && query
-        query = trim_query(query)
-        core = "#{path}?#{query}" unless query.empty?
-      end
-      return core, url[core.length..]
+      return start, finish
     end
 
-    # ⚠ **ホストに来てよい文字と port**（twitter-text の `valid_domain` の ASCII ぶん・`valid_port_number`）。
-    # ⚠⚠ **`_` は入れない**（サブドメインには来てよいが、TLD の直後で切れる）— **切って短く見るのは
-    # 長く数える向き**なので、ここでは区別しない。
-    AUTHORITY = %r{\A([^:]+)://([a-z0-9.-]*)(?::[0-9]+)?}i
-
-    # ⚠ **TLD の直後に来てはいけない文字**（twitter-text の `valid_tld` の先読み）。
-    TLD_NOT_FOLLOWED_BY = ['@', '+'].freeze
-
-    # ホストの最後が知らない TLD なら、手前の知っている TLD まで戻って切る（#443）。
+    # URL 1 本を数えた形。
     #
-    # 🔴 **投稿先はホストの正規表現を後戻りさせる**ので、**`example.com.aaa` は `example.com` までを
-    # URL と数える**（実測）。⚠⚠ **全体を URL でないとして素の長さで数えると、短く見積もる。**
-    # ⚠ **戻れる TLD が無ければ nil**（URL ではない）。
-    def self.cut_at_tld(url, following = nil)
-      matched = url.match(AUTHORITY)
-      return url unless matched
-      labels = matched[2].split('.', -1)
-      following = url[matched.begin(2) + matched[2].length] || following
-      last = labels.size - 1
-      last.downto(1) do |index|
-        next unless known_tld?(labels[index])
-        next if index == last && TLD_NOT_FOLLOWED_BY.include?(following)
-        return index == last ? url : "#{matched[1]}://#{labels[0..index].join('.')}"
-      end
-      return nil
+    # - ⚠ **長すぎる URL・長すぎるラベル**は投稿先が URL と認めない → 素の長さ
+    # - 🔴 **非 ASCII のホストは長いほう**（23 字と素の長さ）— ⚠⚠ **投稿先は libidn の `toASCII`
+    #   （IDNA2003）に通し、失敗すれば URL と認めない**（Unicode 3.2 に無い文字・禁止文字）。
+    #   **こちらで同じ判定を再現できない**ので、**どちらに転んでも短く数えない形を取る**
+    # - それ以外は 23 字
+    def self.url_length(url, domain)
+      return url if url.length > MAX_URL_LENGTH
+      return url if domain.split('.').any? {|label| label.length > MAX_LABEL_LENGTH}
+      folded = 'x' * URL_LENGTH
+      return [folded, url].max_by {|value| value.grapheme_clusters.size} unless domain.ascii_only?
+      return folded
     end
 
-    def self.known_tld?(label)
-      tld = label.to_s.downcase
-      return false if tld.empty? || UNKNOWN_TLDS.include?(tld)
-      return PublicSuffix.valid?("x.#{tld}", default_rule: nil)
+    # ⚠ **twitter-text の文字の表**（`Twitter::TwitterText::Regex`）。
+    UNICODE_SPACES = [
+      '\u0009-\u000D\u0020\u0085\u00A0\u1680\u180E',
+      '\u2000-\u200A\u2028\u2029\u202F\u205F\u3000',
+    ].join.freeze
+    DIRECTIONAL_CHARS = '\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069'.freeze
+    INVALID_CHARS = '\uFFFE\uFEFF\uFFFF'.freeze
+
+    # ⚠ **URL の直前に来てよい文字**（`valid_url_preceding_chars`）。🔴 **1 字を消費する**（後読みではない）。
+    PRECEDING = "(?:[^A-Z0-9@＠$#＃#{INVALID_CHARS}]|[#{DIRECTIONAL_CHARS}]|^)".freeze
+
+    # ⚠ **ホストに来てよい文字**（`DOMAIN_VALID_CHARS`）— ⚠⚠ **ASCII の記号・空白・制御文字以外は全部**
+    # （🔴 **かなも漢字も入る**）。⚠ **`\` だけは記号の表から漏れていて、ホストに入る**（写し）。
+    DOMAIN_CHAR = [
+      '[^\\x00-\\x2F\\x3A-\\x40\\x5B\\x5D-\\x60\\x7B-\\x7F',
+      "#{UNICODE_SPACES}#{DIRECTIONAL_CHARS}#{INVALID_CHARS}]",
+    ].join.freeze
+
+    # ⚠ **TLD の表は twitter-text 3.1.0 のもの**（`config/twitter-text/tld_lib.yml`）。🔴 **Public Suffix
+    # List とは両方向にずれる**（PSL だけ: `.music` など 17・twitter-text だけ: `.za` など 150 余り）ので、
+    # **PSL から引くと、PSL が育つたびに短く数える形が増える**（#443 の `UNKNOWN_TLDS` はその片側だけ）。
+    # ⚠⚠ **並び順も写す**（正規表現の選択肢の順）。
+    TLDS = YAML.load_file(File.join(__dir__, '../../../config/twitter-text/tld_lib.yml')).freeze
+
+    def self.tld_pattern(tlds)
+      return "(?:(?:#{tlds.map {|tld| Regexp.escape(tld)}.join('|')})(?=[^0-9a-z@+-]|$))"
     end
 
-    # ホスト（と port）の直後が `/` か `?` でなければ、そこで切る（#443）。
-    #
-    # ⚠ **直後が `@` なら切らない**（userinfo の形）— 🔴 **投稿先はホストだけを URL にせず、全体を
-    # 素の長さで数える**（実測）。**切らずに渡せば `url_kind` が userinfo として弾く。**
-    def self.cut_at_authority(url)
-      authority = url[AUTHORITY]
-      return url if authority.nil? || ['/', '?', '@'].include?(url[authority.length])
-      return authority
+    DOMAIN = [
+      "(?:(?:#{DOMAIN_CHAR}(?:[_-]|#{DOMAIN_CHAR})*)?#{DOMAIN_CHAR}\\.)*",
+      "(?:(?:#{DOMAIN_CHAR}(?:-|#{DOMAIN_CHAR})*)?#{DOMAIN_CHAR}\\.)",
+      "(?:#{tld_pattern(TLDS['generic'])}|#{tld_pattern(TLDS['country'])}|(?:xn--[0-9a-z]+))",
+    ].join.freeze
+
+    # ⚠ **path の括弧**（twitter-text 本来の `valid_url_balanced_parens`）。🔴 **Mastodon は末尾の文字の
+    # 表だけ、上書きする前のこちらを参照している**（定義の順のため）ので、両方要る。
+    TWITTER_PATH_CHAR = [
+      "[a-z\\p{Cyrillic}0-9!*';:=+,.$/%#\\[\\]\\p{Pd}_~&|@",
+      # ⚠ `LATIN_ACCENTS`
+      '\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u0253\u0254\u0256\u0257\u0259\u025B\u0263',
+      '\u0268\u026F\u0272\u0289\u028B\u02BB\u0300-\u036F\u1E00-\u1EFF]',
+    ].join.freeze
+
+    def self.parens_pattern(char)
+      return "\\((?:#{char}+|(?:#{char}*\\(#{char}+\\)#{char}*))\\)"
     end
 
-    def self.trim_path(path)
-      path = path[0...-1] while path.length.positive? && path[-1].match?(PATH_NOT_ENDING)
-      return path
-    end
+    # ⚠ **Mastodon の上書き**（path は空白・`<>()?` 以外なら何でもよい）。
+    PATH_CHAR = '[^\p{White_Space}<>()?]'.freeze
+    PATH_PARENS = parens_pattern(PATH_CHAR).freeze
+    PATH_ENDING = [
+      "(?:[^\\p{White_Space}()?!*\"'「」<>;:=,.$%\\[\\]~&|]",
+      "|#{parens_pattern(TWITTER_PATH_CHAR)})",
+    ].join.freeze
+    PATH = [
+      "(?:(?:#{PATH_CHAR}*(?:#{PATH_PARENS}#{PATH_CHAR}*)*#{PATH_ENDING})",
+      "|(?:#{PATH_CHAR}+/))",
+    ].join.freeze
 
-    def self.trim_query(query)
-      query = query[0...-1] while query.length.positive? && !query[-1].match?(QUERY_ENDING)
-      return query
-    end
+    # ⚠ **クエリに来てよい文字**（Mastodon の上書き・RFC 3987 の `ucschar` と私用領域を足した）。
+    UCHARS = [
+      '\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF\u{10000}-\u{1FFFD}\u{20000}-\u{2FFFD}',
+      '\u{30000}-\u{3FFFD}\u{40000}-\u{4FFFD}\u{50000}-\u{5FFFD}\u{60000}-\u{6FFFD}',
+      '\u{70000}-\u{7FFFD}\u{80000}-\u{8FFFD}\u{90000}-\u{9FFFD}\u{A0000}-\u{AFFFD}',
+      '\u{B0000}-\u{BFFFD}\u{C0000}-\u{CFFFD}\u{D0000}-\u{DFFFD}\u{E1000}-\u{EFFFD}',
+      '\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}',
+    ].join.freeze
+    QUERY_CHAR = "[a-z0-9!?*'();:&=+$/%#\\[\\]\\-_.,~|@\\^#{UCHARS}]".freeze
+    QUERY_ENDING = "[a-z0-9_&=#/\\-#{UCHARS}]".freeze
 
-    # ⚠ **path に来てよい文字**（Mastodon の `valid_general_url_path_chars`）。
-    PATH_CHARS = '[^\\s<>()?]'.freeze
+    # ⚠ **投稿先が URL と認めるスキーム**（Mastodon の上書き）。🔴 **スキームは無くても照合する**
+    # （数えないが、走査は進む → `url_span`）。
+    SCHEMES = ['https?', 'dat', 'dweb', 'ipfs', 'ipns', 'ssb', 'gopher', 'gemini'].freeze
 
-    # ⚠ **path に認められる括弧の 1 組**（Mastodon の `valid_url_balanced_parens`）。
-    BALANCED_PARENS = /\G\((?:#{PATH_CHARS}+|#{PATH_CHARS}*\(#{PATH_CHARS}+\)#{PATH_CHARS}*)\)/
-
-    # path の途中で、投稿先が認めない括弧の手前まで切る（#443）。⚠ **クエリの括弧は URL の一部**なので見ない。
-    def self.cut_at_parens(url)
-      start = url.index('/', url.index('://').to_i + 3)
-      return url unless start
-      finish = url.index('?', start) || url.length
-      index = start
-      while index < finish
-        case url[index]
-        when '('
-          matched = url.match(BALANCED_PARENS, index)
-          return url[0...index] unless matched && matched.end(0) <= finish
-          index = matched.end(0)
-        when ')' then return url[0...index]
-        else index += 1
-        end
-      end
-      return url
-    end
-
-    # 投稿先がその URL を 23 字と数えるか（#351 / #443）。
-    #
-    # - `:url` — 数える
-    # - `:maybe` — TLD は知っているが、ホストとしては認めない（→ `length` は長いほうで数える）
-    # - `:none` — 数えない（素の長さ）
-    #
-    # ⚠⚠ **`:none` は「投稿先も URL と認めない」と言い切れる形だけ**（素の IP・TLD の無いホスト・
-    # userinfo・`-` で始まるか終わるラベル・長すぎる URL・twitter-text の表に無い TLD）。
-    def self.url_kind(value)
-      return :none if value.length > MAX_URL_LENGTH
-      uri = URI.parse(value)
-      host = uri.host.to_s
-      return :none if uri.userinfo || host.empty?
-      labels = host.split('.')
-      return :none if labels.any? {|label| label.start_with?('-') || label.end_with?('-')}
-      return :none unless known_tld?(labels.last)
-      return PublicSuffix.valid?(host, default_rule: nil) ? :url : :maybe
-    rescue URI::InvalidURIError
-      return :none
-    end
+    VALID_URL = Regexp.new(
+      [
+        "(?<before>#{PRECEDING})",
+        '(?<url>',
+        "(?<protocol>(?:#{SCHEMES.join('|')})://)?",
+        "(?<domain>#{DOMAIN})",
+        '(?::(?<port>[0-9]+))?',
+        "(?<path>/#{PATH}*)?",
+        "(?<query>\\?#{QUERY_CHAR}*#{QUERY_ENDING})?",
+        ')',
+      ].join,
+      Regexp::IGNORECASE,
+    )
 
     # 投稿先の申告と設定を突き合わせる（#351）。
     #
