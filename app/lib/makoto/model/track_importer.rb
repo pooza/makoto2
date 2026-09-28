@@ -101,6 +101,7 @@ module Makoto
       [DAILY, LIVE].each do |file|
         raise Ginseng::NotFoundError, "#{path(file)} not found" unless File.exist?(path(file))
       end
+      load_tables
       @db.transaction do
         import_daily
         mark_live
@@ -108,6 +109,8 @@ module Makoto
       end
       report_unused_aliases
       report_unused_spoken
+      report_unused_entries(:correction, corrections)
+      report_unused_entries(:kind, kinds)
       report_rejected_urls
       report_mentions
       logger.info(track: 'import', dir: @dir, **counts)
@@ -125,6 +128,22 @@ module Makoto
     end
 
     private
+
+    # 🔴 **名指しの表 4 枚は、確定の前に全部読む**（#317）。⚠⚠ **語りの表だけ確定の後に読んでいた**
+    # ので、**壊れていると曲データは入ったうえで `exit 1` になり、`counts` も出なかった**（**レシピは
+    # そこで止まり、後段の `message import` が走らない**）。🔴 **壊れた表は 4 枚とも「何も取り込まずに
+    # 落ちる」に揃えた。**
+    def load_tables
+      aliases.keys
+      spoken.names
+      corrections
+      kinds
+    end
+
+    def spoken
+      @spoken ||= SpokenTracks.new(@dir, aliases: aliases)
+      return @spoken
+    end
 
     def path(file)
       return File.join(@dir, file)
@@ -221,12 +240,26 @@ module Makoto
     # ⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、その曲に歌向けの前置きが
     # 付いていても気づけない**（**書き間違いは「表に書いたのに効いていない」**）。
     def report_unused_spoken
-      spoken = SpokenTracks.new(@dir, aliases: aliases)
       return nil if spoken.empty?
       unused = spoken.unused(@db[:track].select_map(:dedupe_key).to_set)
       return nil if unused.empty?
       logger.warn(track: 'spoken', state: 'unused', name: unused)
       return unused
+    end
+
+    # 🔴 **訂正表と分類の表で、普段用の曲データに無い `id` を残す**（#317）。⚠⚠ **黙って無視していた**
+    # ので、**配信が終わった曲や書き間違えた `id` の行は「表に書いたのに効いていない」まま残った**
+    # （別名表・語りの表の `unused` と同じ合図）。
+    def report_unused_entries(label, entries)
+      unused = entries.keys - daily_ids.to_a
+      return nil if unused.empty?
+      logger.warn(track: label.to_s, state: 'unused', id: unused)
+      return unused
+    end
+
+    def daily_ids
+      @daily_ids ||= rows(DAILY).to_set {|row| row[:trackId]}
+      return @daily_ids
     end
 
     # 訂正表を当てた曲名（→ 上記 `CORRECTIONS`）。
@@ -273,46 +306,18 @@ module Makoto
       return kind
     end
 
-    # ⚠ 分類の表は無くてもよい（あとから足せる）。
-    def kinds
-      @kinds ||= load_kinds.to_h {|entry| [entry[:id], entry]}
-      return @kinds
+    # ⚠ **訂正表と分類の表の読み込みと検査は `TrackFixes`**（#317 で分けた）。
+    def fixes
+      @fixes ||= TrackFixes.new(@dir)
+      return @fixes
     end
 
-    def load_kinds
-      return [] unless File.exist?(path(KINDS))
-      entries = Array(YAML.safe_load_file(path(KINDS),
-        permitted_classes: [Date], symbolize_names: true))
-      return entries.map {|entry| validate_kind(entry)}
-    rescue Psych::Exception => e
-      raise Ginseng::ValidateError, "#{KINDS}: YAML を読めません: #{error_message(e)}"
-    end
-
-    # 🔴 **`to` は抽選の重みがある `kind` だけ。**⚠⚠ **重みの無い `kind` に正すと、
-    # その曲は抽選で永久に出ない**（`TrackLottery` は警告を出すだけ）。
-    def validate_kind(entry)
-      raise Ginseng::ValidateError, "#{KINDS}: 行が Hash ではありません（#{entry.inspect}）" unless
-        entry.is_a?(Hash)
-      entry = entry.merge(from: entry[:from].to_s, to: entry[:to].to_s)
-      return entry if config.keys(TrackLottery::WEIGHT_PREFIX).map(&:to_s).include?(entry[:to])
-      raise Ginseng::ValidateError,
-        "#{KINDS}: id #{entry[:id]} の to '#{entry[:to]}' は" \
-          " #{TrackLottery::WEIGHT_PREFIX} に無い kind です"
-    end
-
-    # ⚠ 訂正表は無くてもよい（あとから足せる）。
     def corrections
-      @corrections ||= load_corrections.to_h {|entry| [entry[:id], entry]}
-      return @corrections
+      return fixes.corrections
     end
 
-    def load_corrections
-      return [] unless File.exist?(path(CORRECTIONS))
-      # ⚠⚠ **`safe_load` を使う**（`noticed: 2026-08-14` は Psych が `Date` にする）。
-      return Array(YAML.safe_load_file(path(CORRECTIONS),
-        permitted_classes: [Date], symbolize_names: true))
-    rescue Psych::Exception => e
-      raise Ginseng::ValidateError, "#{CORRECTIONS}: YAML を読めません: #{error_message(e)}"
+    def kinds
+      return fixes.kinds
     end
 
     # ⚠ **`live` は毎回 false に落としてから立て直す。**ライブ用の定義が変わって

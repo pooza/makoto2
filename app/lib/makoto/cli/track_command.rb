@@ -19,6 +19,10 @@ module Makoto
     rescue Ginseng::NotFoundError => e
       warn "取り込み元が見つかりません: #{error_message(e)}"
       exit 1
+    rescue Ginseng::ValidateError => e
+      # ⚠ **名指しの表は確定の前に読む**（#317 → `TrackImporter#load_tables`）ので、ここでは何も入っていない。
+      warn "表を読めないので、何も取り込んでいません: #{error_message(e)}"
+      exit 1
     end
 
     desc 'stat', '投入済みの曲数を表示する'
