@@ -168,6 +168,17 @@ module Makoto
       assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_spoken.yaml: 壊れている')
     end
 
+    # ⚠ **別名表が壊れていても言う**（PR #475 の Codex の P2 — 語りの表は読めても `keys` で落ちる）。
+    def test_preview_says_the_alias_table_is_unreadable
+      spoken = Object.new
+      spoken.define_singleton_method(:names) {['しまうまグルグル']}
+      spoken.define_singleton_method(:keys) {raise Ginseng::ValidateError, 'track_aliases.yaml: 壊れている'}
+      song.define_singleton_method(:spoken_tracks) {spoken}
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_aliases.yaml: 壊れている')
+    end
+
     # ⚠ **種類別を指定して 0 本なら、前置きは無い**（曲だけになる）。
     def test_sample_with_an_empty_own_bundle
       add_prefixes(4)

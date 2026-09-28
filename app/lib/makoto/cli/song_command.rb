@@ -70,8 +70,12 @@ module Makoto
 
     # 🔴 **語りの表が読めないことを下見の頭で言う**（#314）。⚠⚠ **読めないと全枠が「（bgm・語り）」の
     # ように出るが、理由の `warn` は syslog にしか出ない**（`song slot` だけが理由を出していた）。
+    #
+    # ⚠ **`keys` まで引く**（PR #475 の Codex の P2）。🔴 **`names` は別名表を読まない**ので、**語りの表は
+    # 読めて別名表が壊れているとき、実機（`SongSource#spoken?` は `keys` を通る）は全部を共通に倒すのに、
+    # 下見は何も言わなかった。**
     def dump_spoken_failure
-      song.spoken_tracks.names
+      song.spoken_tracks.keys
       return nil
     rescue => e
       puts "🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: #{error_message(e)}"
