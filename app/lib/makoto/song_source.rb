@@ -246,12 +246,17 @@ module Makoto
     # 変わった枠では別の束の別の位置から同じ共通の前置きが選ばれ、隣り合う枠で続く**
     # （`Rotation` の「最短 n/2 枠」は **1 つの束の中**の話）。🔴 **束が互いに重ならなければ、
     # どの前置きも自分の束の中でしか回らないので保証が保てる。**
-    def prefix_record(time = nil, index = nil, kind: nil)
+    #
+    # ⚠ **`bundle:` は下見のためだけにある**（#314 → `makoto song sample --pool`）。🔴 **その枠が共通を
+    # 引く日でも、種類別の文面を確かめられるように。**⚠ 既定（`nil`）は実機と同じ決め方。
+    def prefix_record(time = nil, index = nil, kind: nil, bundle: nil)
       time ||= Time.now
       index ||= @timetable.index_at(time)
       return nil unless index
       number = serial(time, index)
-      records = pool(@selector.list(time), own_records(kind, time), number)
+      common = @selector.list(time)
+      own = own_records(kind, time)
+      records = {own: own, common: common}[bundle] || pool(common, own, number)
       return nil if records.empty?
       return Rotation.pick(records, number)
     end
