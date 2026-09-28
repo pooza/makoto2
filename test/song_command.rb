@@ -168,6 +168,18 @@ module Makoto
       assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_spoken.yaml: 壊れている')
     end
 
+    # 🔴 **sample も語りの表が読めなければ頭でそう言い、「語りのトラック」と名乗らない**（v0.8.0 のリリース前レビュー）。
+    def test_sample_says_the_spoken_table_is_unreadable
+      add_prefixes(4)
+      song.define_singleton_method(:spoken_tracks) {raise Ginseng::ValidateError, 'track_spoken.yaml: 壊れている'}
+      song.source.define_singleton_method(:spoken?) {|_track| true}
+      output = capture {command(kind: 'bgm').sample}
+
+      assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_spoken.yaml: 壊れている')
+      assert_include(output, '語りの表が読めないので共通')
+      assert_not_include(output, '語りのトラックなので')
+    end
+
     # ⚠ **別名表が壊れていても言う**（PR #475 の Codex の P2 — 語りの表は読めても `keys` で落ちる）。
     def test_preview_says_the_alias_table_is_unreadable
       spoken = Object.new

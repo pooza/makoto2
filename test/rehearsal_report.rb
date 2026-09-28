@@ -465,11 +465,13 @@ module Makoto
 
       assert_true(subject.http_unseen?)
       assert_true(subject.red?)
-      assert_include(subject.to_s, '🔴 投稿は 1 本出たのに HTTP の行が 1 本も無い')
+      assert_include(subject.to_s, '🔴 投稿は 1 本出たのに HTTP の応答の行が 1 本も無い')
       # ⚠ **投稿が 0 本なら言わない**（沈黙だけの回は HTTP を叩かない）。
       assert_false(report(SILENCE, HEARTBEAT).http_unseen?)
-      # ⚠ **落ちた試行だけでも「見えている」**（再送の行は HTTP の行として数えている）。
-      assert_false(report(SUCCESS, RETRY, HEARTBEAT).http_unseen?)
+      # 🔴 **落ちた試行があっても、応答の行が 0 本なら赤**（v0.8.0 のリリース前レビュー）。⚠⚠ **再送の行と成功の行は
+      # 別の口から出る**ので、成功の行の形だけが変わりうる。
+      assert_true(report(SUCCESS, RETRY, renamed, HEARTBEAT).http_unseen?)
+      assert_false(report(SUCCESS, RETRY, HTTP_OK, HEARTBEAT).http_unseen?)
     end
 
     # 🔴 **ログが中身を出せなかった行も赤**（#462）。⚠⚠ **`_mask_error` の行は `error` を持たない**ので、

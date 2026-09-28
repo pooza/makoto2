@@ -24,8 +24,10 @@ module Makoto
   #
   # ⚠ **URL は投稿先と同じく 23 字と数える**（`holiday` は素の長さ 576 字だが実効 328 字）。
   #
-  # ⚠⚠ **重いのはホストの形の連なり**（`a.` を 3000 回つないだ 6000 字で 1 秒ほど・投稿先の正規表現と同じ
-  # 構造なので同じだけ重い）。🔴 **現実の原稿（3000 字の和文・URL 入り）は数 ms。**
+  # ⚠⚠ **空白も改行も挟まない長い連なりに ASCII の `.` があると、長さの二乗で重くなる**（投稿先の正規表現と
+  # 同じ構造なので同じだけ重い）。🔴 **句読点だけで続く和文 3000 字の末尾に URL を足すと 1.7 秒**（v0.8.0 の
+  # リリース前レビューで実測）。⚠ **スキームが 1 つも無い本文は走査しない**（→ `fold`）ので、URL の無い原稿は
+  # 連なりが長くても速い。⚠ **改行で区切られた実際の原稿（makoto-scripts の 2,222 文字列）は合計 0.03 秒。**
   class PostBudget
     include Package
 
@@ -36,7 +38,7 @@ module Makoto
     FOLDED = ('x' * URL_LENGTH).freeze
 
     # ⚠ **`ValidateError` の文面に出す URL の長さ**（→ `unfolded_urls`）。
-    LABEL_LENGTH = 40
+    NOTE_URL_LENGTH = 40
 
     # ⚠ **これより長い URL を投稿先は URL と認めない**（twitter-text の `MAX_URL_LENGTH`）。
     MAX_URL_LENGTH = 4096
@@ -75,7 +77,7 @@ module Makoto
     # ⚠ **23 字に畳まなかった URL**（#462）— 🔴 **投稿先が URL と認めない形**（`.music` の TLD・
     # 素の IP・長すぎるラベル）と、**非 ASCII のホストで素の長さのほうが長かったもの。**
     # ⚠ **スキームの付いた語を拾う**（URL と認められなかった語も、書いた人には URL に見えている）。
-    # ⚠ **表示用に `LABEL_LENGTH` 字で切る。**
+    # ⚠ **表示用に `NOTE_URL_LENGTH` 字で切る。**
     #
     # 🔴 **URL の中に入れ子になったスキームは拾わない**（PR #472 の Codex の P2）— ⚠⚠ **`https://a.com/?url=
     # https://b.com/` は外側ごと 23 字に畳まれている**ので、**中の `https://` を名指しすると嘘になる。**
@@ -88,12 +90,16 @@ module Makoto
         span = spans.find {|range, _| range.cover?(start)}
         next if span && (span.last || span.first.begin != start)
         word = text[start..][/\A\S+/]
-        word.length > LABEL_LENGTH ? "#{word[0, LABEL_LENGTH]}…" : word
+        word.length > NOTE_URL_LENGTH ? "#{word[0, NOTE_URL_LENGTH]}…" : word
       end
     end
 
     # URL を畳んだ本文と、URL と数えた範囲（`[範囲, 23 字に畳んだか]` の列）。
+    #
+    # ⚠ **スキームが 1 つも無ければ走査しない**（v0.8.0 のリリース前レビュー）。🔴 **スキームの無い照合は
+    # `url_span` がすべて捨てる**ので結果は同じ — **`ver.2` を含む長い和文で 1 秒余りかかっていた。**
     def self.fold(text)
+      return text.dup, [] unless text.match?(SCHEME_START)
       counted = +''
       spans = []
       last = 0
@@ -156,7 +162,7 @@ module Makoto
     ].join.freeze
 
     # ⚠ **TLD の表は twitter-text 3.1.0 のもの**（`config/twitter-text/tld_lib.yml`）。🔴 **Public Suffix
-    # List とは両方向にずれる**（PSL だけ: `.music` など 17・twitter-text だけ: `.za` など 150 余り）ので、
+    # List とは両方向にずれる**（PSL だけ: `.music` など・twitter-text だけ: `.za` など。2026-09-28 の実測で 18 / 144）ので、
     # **PSL から引くと、PSL が育つたびに短く数える形が増える**（#443 の `UNKNOWN_TLDS` はその片側だけ）。
     # ⚠⚠ **並び順も写す**（正規表現の選択肢の順）。
     TLDS = YAML.load_file(File.join(__dir__, '../../../config/twitter-text/tld_lib.yml')).freeze

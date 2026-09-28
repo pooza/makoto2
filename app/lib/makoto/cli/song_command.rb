@@ -74,12 +74,14 @@ module Makoto
     # ⚠ **`keys` まで引く**（PR #475 の Codex の P2）。🔴 **`names` は別名表を読まない**ので、**語りの表は
     # 読めて別名表が壊れているとき、実機（`SongSource#spoken?` は `keys` を通る）は全部を共通に倒すのに、
     # 下見は何も言わなかった。**
+    #
+    # ⚠ **読めたかを返す**（`song sample` のラベルが「語りのトラックなので」と名乗ってよいか）。
     def dump_spoken_failure
       song.spoken_tracks.keys
-      return nil
+      return true
     rescue => e
       puts "🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: #{error_message(e)}"
-      return nil
+      return false
     end
 
     def kinds(value)
@@ -98,7 +100,12 @@ module Makoto
     #
     # 🔴 **どの束のどの原稿を使ったかを出す**（#314）。⚠⚠ **今日の 1 本目が共通を引く日は、`--kind=bgm`
     # でも種類別の文面を確かめられなかった** — ⚠ **`--pool=own` で束を指定できる。**
+    #
+    # 🔴 **語りの表が読めなければ頭でそう言う**（v0.8.0 のリリース前レビュー）。⚠⚠ **読めないと全曲が
+    # 共通に倒れる**（`SongSource#spoken?`）のに、**ラベルは「語りのトラックなので」と誤った理由を名乗り、
+    # `--pool=own` も黙って効かなかった**（`preview` だけ #314 で直していた）。
     def dump_samples(names, count, pool)
+      @spoken_readable = dump_spoken_failure
       names.each do |kind|
         puts "=== #{kind} ==="
         song.lottery.candidates.where(kind: kind).order(Sequel.lit('RANDOM()'))
@@ -121,7 +128,8 @@ module Makoto
     def sample_label(record, spoken)
       return '（前置きはありません）' unless record
       bundle = record[:type] == song.type ? '共通' : '種類別'
-      bundle = "#{bundle}・語りのトラックなので共通" if spoken
+      # ⚠ **表が読めずに倒れたときは「語りのトラック」と名乗らない**（理由は頭の 1 行が言う）。
+      bundle = "#{bundle}・#{@spoken_readable == false ? '語りの表が読めないので' : '語りのトラックなので'}共通" if spoken
       return "[#{record[:id]}] #{record[:type]}（#{bundle}）"
     end
 
