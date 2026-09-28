@@ -189,7 +189,7 @@ module Makoto
     # **1 件なら月に 1 日だけ**（🔴 **旧 237 件の 12 月 25 件 / 5 月 1 件がその両端だった**
     # — #225 で底が揃ったので、いまはどの月も月の一部の日に落ちる）。
     #
-    # 🔴 **前の月に同じ原稿を置いた日から `SEASON_GAP` 日以内なら置かない**（#262）— ⚠ **その日は
+    # 🔴 **前の月（々）に同じ原稿を置いた日から `SEASON_GAP` 日以内なら置かない**（#262）— ⚠ **その日は
     # 通年の順送りになる**（`pick`）。⚠⚠ **前の月の日付は「置かなかった判定」をせずに出す**
     # （`placed_on`）ので、**再帰しない**。🔴 **実際に出た日はそれより前にしかならない**ので、
     # **間隔は下限より縮まない**（⚠ 念のため余計に見送ることはある）。
@@ -200,9 +200,23 @@ module Makoto
       record = season_record(date)
       return nil unless record
       return record if @selector.undated_list(date).size < 2
-      placed = placed_on(record, date.prev_month)
-      return nil if placed && (date - placed) < SEASON_GAP
+      return nil if recent_months(date).any? do |month|
+        placed = placed_on(record, month)
+        placed && (date - placed) < SEASON_GAP
+      end
       return record
+    end
+
+    # 🔴 **下限の日数に入りうる前の月を全部**（PR #476 の Codex の P2）。⚠⚠ **前の月だけでは、
+    # `season: [1, 3]` の 1/31 → 3/1（平年は 29 日）を拾えない。**⚠ **月末が下限の日数の内にある月まで遡る。**
+    def recent_months(date)
+      months = []
+      month = date.prev_month
+      while (date - Date.new(month.year, month.month, -1)) < SEASON_GAP
+        months.push(month)
+        month = month.prev_month
+      end
+      return months
     end
 
     # その日の季節の原稿（間隔の判定をする前）。⚠ **違えば nil。**

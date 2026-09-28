@@ -417,6 +417,23 @@ module Makoto
       end
     end
 
+    # 🔴 **飛び飛びの月（`[1, 3]`）でも間隔を守る**（PR #476 の Codex の P2）。⚠⚠ **前の月（2 月）だけを
+    # 見ると、平年の 1/31 → 3/1（29 日）を拾えない。**
+    #
+    # ⚠ **1 月は毎日 1 本（31 本）・3 月は共有の原稿だけ**にして、**1/31 と 3/1 に当たる年を必ず作る**
+    # （1 月の並びは年で組み替わるので、100 年のうちどこかで最後に来る）。
+    def test_a_skipping_season_does_not_return_within_the_gap
+      3.times {|i| add("日替わりの原稿 #{i}")}
+      30.times {|i| @repository.create(type: 'morning', body: "1 月の原稿 #{i}", seasons: [1])}
+      @repository.create(type: 'morning', body: '1 月と 3 月の原稿', seasons: [1, 3])
+      source = morning.source
+      shared = ->(year, month, day) {source.call(jst(month, day, year:)).include?('1 月と 3 月の原稿')}
+      collisions = (2027..2126).select {|year| shared.call(year, 1, 31) && shared.call(year, 3, 1)}
+
+      assert_empty(collisions)
+      assert_true((2027..2126).any? {|year| shared.call(year, 1, 31)})
+    end
+
     # 10 月の最後の日を季節の日にし（16 件 > 31 日の半分）、その 1 件だけ 11 月にも
     # 属させる。⚠ 並びは id 順なので、10 月では最後・11 月では最初になる
     # （⚠⚠ **逃がしが無いと 10/31 と 11/1 が同じ原稿になる**）。
