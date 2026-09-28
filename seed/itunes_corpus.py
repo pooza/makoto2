@@ -176,9 +176,20 @@ def to_row(track):
   return row
 
 
-def released(row, today):
-  """発売済みか（#316）。⚠ 日付の無い行は発売済みとして扱う（既存の行と同じ）。"""
-  return (row.get('releaseDate') or '')[:10] <= today
+def released(row, now):
+  """発売済みか（#316）。⚠ 日付の無い行・読めない行は発売済みとして扱う（既存の行と同じ）。
+
+  🔴 日付ではなく時刻で比べる（PR #474 の Codex の P2）。⚠⚠ iTunes の `releaseDate` は UTC の時刻
+  （日本の発売日の 0 時 JST ＝ 前日 15:00Z）なので、ホストの TZ の「今日」と日付だけで比べると、
+  UTC のホストでは 0〜9 時 JST に発売当日の盤を「発売前」として見送っていた。
+  """
+  value = row.get('releaseDate')
+  if not value:
+    return True
+  try:
+    return datetime.datetime.fromisoformat(value.replace('Z', '+00:00')) <= now
+  except ValueError:
+    return True
 
 
 def minutes(millis):
@@ -281,22 +292,27 @@ def main():
     # ⚠ データは書かない（正しい）が、報告は書き直す（#316）— 前回の報告が残ると取り違える。
     write(args.report, '\n'.join(header(progress, args.dry_run, failure=str(e) or type(e).__name__)) + '\n')
     raise
-  today = progress.started.date().isoformat()
   rows = [to_row(t) for tid, t in found.items() if tid not in known]
-  new_rows = [row for row in rows if released(row, today)]
-  upcoming = [row for row in rows if not released(row, today)]
+  new_rows = [row for row in rows if released(row, progress.started)]
+  upcoming = [row for row in rows if not released(row, progress.started)]
   missing = [row for row in daily if row['trackId'] not in found]
 
+  # 🔴 書き出しが済んでから「反映」の報告を書く（PR #474 の Codex の P2）。⚠⚠ 先に書くと、書き出しが
+  #   落ちたとき（`--out` の置き場所が無い・ディスクが満杯・中断）に「反映」と読める報告だけが残る。
+  if not args.dry_run and new_rows:
+    merged = sorted(daily + new_rows, key=lambda t: t.get('releaseDate') or '')
+    try:
+      with open(args.out, 'w', encoding='utf-8') as f:
+        # ⚠ 末尾に改行を足さない（既存のファイルが持っていないので、差分が全行に広がる）。
+        json.dump(merged, f, ensure_ascii=False, indent=2)
+    except (OSError, KeyboardInterrupt) as e:
+      failure = f'{args.out} へ書き出せなかった: {e!r}'
+      write(args.report, '\n'.join(header(progress, args.dry_run, failure=failure)) + '\n')
+      raise
+    print(f'→ {args.out}（{len(daily)} → {len(merged)} 行）', flush=True)
   write(args.report, report(progress, args.dry_run, new_rows, upcoming, missing, daily, live))
   print(f'新しい行 {len(new_rows)} / 発売前 {len(upcoming)} / 見つからなかった既存 {len(missing)} → {args.report}',
     flush=True)
-  if args.dry_run or not new_rows:
-    return
-  merged = sorted(daily + new_rows, key=lambda t: t.get('releaseDate') or '')
-  with open(args.out, 'w', encoding='utf-8') as f:
-    # ⚠ 末尾に改行を足さない（既存のファイルが持っていないので、差分が全行に広がる）。
-    json.dump(merged, f, ensure_ascii=False, indent=2)
-  print(f'→ {args.out}（{len(daily)} → {len(merged)} 行）', flush=True)
 
 
 if __name__ == '__main__':
