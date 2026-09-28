@@ -69,6 +69,12 @@ module Makoto
   class MorningSource
     include Package
 
+    # 🔴 **複数の月を持つ季節の原稿が、月をまたいで近づかない下限（日）**（#262）。
+    # ⚠⚠ **`season: [4, 5, 6]` は月ごとに 1 回ずつ当たる**ので、**5 月の割り当てが月末・6 月が月頭に
+    # 落ちると最短 5 日で戻っていた**（`bydo` の実測・2026-09-28: 1 年で 96 回戻り、30 日以内が 39 回）。
+    # ⚠ **原稿は 1 本も触らずに、並べ方で直す**（オーナー判断）。
+    SEASON_GAP = 30
+
     # @param selector [MessageSelector] 原稿を引く口
     # @param greeting [String] 定型挨拶。⚠ 空なら付けない
     # @param greeted_types [Array<String>] 定型挨拶を付ける type（＝日替わりの type）
@@ -182,14 +188,46 @@ module Makoto
     # ⚠⚠ **月の中に等間隔で置く。**⚠ **件数が日数より多ければ毎日**、
     # **1 件なら月に 1 日だけ**（🔴 **旧 237 件の 12 月 25 件 / 5 月 1 件がその両端だった**
     # — #225 で底が揃ったので、いまはどの月も月の一部の日に落ちる）。
+    #
+    # 🔴 **前の月に同じ原稿を置いた日から `SEASON_GAP` 日以内なら置かない**（#262）— ⚠ **その日は
+    # 通年の順送りになる**（`pick`）。⚠⚠ **前の月の日付は「置かなかった判定」をせずに出す**
+    # （`placed_on`）ので、**再帰しない**。🔴 **実際に出た日はそれより前にしかならない**ので、
+    # **間隔は下限より縮まない**（⚠ 念のため余計に見送ることはある）。
+    #
+    # ⚠ **通年が 2 件未満なら見送らない**（`escape` と同じ歯止め）— ⚠⚠ **見送った先の通年が前後の日と
+    # 同じになる**（連日の重複を作る）。
     def seasonal(date)
+      record = season_record(date)
+      return nil unless record
+      return record if @selector.undated_list(date).size < 2
+      placed = placed_on(record, date.prev_month)
+      return nil if placed && (date - placed) < SEASON_GAP
+      return record
+    end
+
+    # その日の季節の原稿（間隔の判定をする前）。⚠ **違えば nil。**
+    def season_record(date)
       records = @selector.season_list(date)
       return nil if records.empty?
       index = slot_of(date, records.size)
       return nil unless index
-      # 🔴 **年で組み替える**（#223）。⚠⚠ **年を混ぜないと、毎年まったく同じ日に
-      # 同じ原稿が出る**（実測 183 / 183 日一致）。
-      return Rotation.shuffle(records, "#{date.year}-#{date.month}")[index]
+      return season_order(records, date)[index]
+    end
+
+    # 🔴 **年で組み替える**（#223）。⚠⚠ **年を混ぜないと、毎年まったく同じ日に
+    # 同じ原稿が出る**（実測 183 / 183 日一致）。
+    def season_order(records, date)
+      return Rotation.shuffle(records, "#{date.year}-#{date.month}")
+    end
+
+    # その月のうち、その原稿を置く日（間隔の判定をする前）。⚠ **その月に居なければ nil。**
+    def placed_on(record, date)
+      records = @selector.season_list(date)
+      index = season_order(records, date).index {|entry| entry[:id] == record[:id]}
+      return nil unless index
+      last = Date.new(date.year, date.month, -1)
+      days = Date.new(date.year, date.month, 1)..last
+      return days.find {|day| slot_of(day, records.size) == index}
     end
 
     # その日が何番目の季節の原稿の日か。⚠ **番号が変わる日だけがその原稿の日。**

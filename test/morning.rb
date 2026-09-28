@@ -402,6 +402,21 @@ module Makoto
       assert_equal([], bodies.each_cons(2).select {|a, b| a == b})
     end
 
+    # 🔴 **複数の月を持つ季節の原稿は、月をまたいで `SEASON_GAP` 日以内に戻らない**（#262）。
+    # ⚠⚠ **連日の逃がし（`escape`）だけだと、10/31 の次は 11/2 以降の月頭に戻りえた。**
+    #
+    # ⚠ **年ごとに並びが組み替わる**（#223）ので、**何年かぶん見る**（旧実装で近づく年を含む）。
+    def test_a_shared_season_does_not_return_within_the_gap
+      seed_a_shared_season
+      source = morning.source
+      (2060..2079).each do |year|
+        days = (Date.new(year, 10, 1)..Date.new(year, 11, 30))
+        hits = days.select {|day| source.call(jst(day.month, day.day, year:)).include?('10 月と 11 月の原稿')}
+
+        hits.each_cons(2) {|a, b| assert_operator((b - a).to_i, :>=, MorningSource::SEASON_GAP, year)}
+      end
+    end
+
     # 10 月の最後の日を季節の日にし（16 件 > 31 日の半分）、その 1 件だけ 11 月にも
     # 属させる。⚠ 並びは id 順なので、10 月では最後・11 月では最初になる
     # （⚠⚠ **逃がしが無いと 10/31 と 11/1 が同じ原稿になる**）。
