@@ -237,6 +237,13 @@ module Makoto
       assert_not_include(error.message, '素の長さ')
     end
 
+    # 🔴 **入れ子のスキームは名指ししない**（PR #472 の Codex の P2）。
+    def test_unfolded_urls_skip_schemes_nested_in_a_url
+      assert_empty(PostBudget.unfolded_urls('https://a.com/?url=https://b.com/foo'))
+      assert_equal(['https://a.music/?u=https://b.com'], PostBudget.unfolded_urls('https://a.music/?u=https://b.com'))
+      assert_equal(['http://192.168.1.1/'], PostBudget.unfolded_urls('https://a.com/ http://192.168.1.1/'))
+    end
+
     # ⚠ **空の本文も弾く**（#352・`makoto message add` はここしか通らない）。
     def test_validate_rejects_an_empty_body
       assert_raise(Ginseng::ValidateError) {budget.validate('morning', " \n", 'empty')}

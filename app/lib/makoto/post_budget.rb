@@ -76,32 +76,37 @@ module Makoto
     # 素の IP・長すぎるラベル）と、**非 ASCII のホストで素の長さのほうが長かったもの。**
     # ⚠ **スキームの付いた語を拾う**（URL と認められなかった語も、書いた人には URL に見えている）。
     # ⚠ **表示用に `LABEL_LENGTH` 字で切る。**
+    #
+    # 🔴 **URL の中に入れ子になったスキームは拾わない**（PR #472 の Codex の P2）— ⚠⚠ **`https://a.com/?url=
+    # https://b.com/` は外側ごと 23 字に畳まれている**ので、**中の `https://` を名指しすると嘘になる。**
+    # ⚠ **素の長さで数えた URL の中も同じ**（外側を 1 本として名指しすれば足りる）。
     def self.unfolded_urls(text)
       text = text.to_s
-      folded = fold(text).last
+      spans = fold(text).last
       return text.to_enum(:scan, SCHEME_START).filter_map do
         start = Regexp.last_match.begin(0)
-        next if folded.include?(start)
+        span = spans.find {|range, _| range.cover?(start)}
+        next if span && (span.last || span.first.begin != start)
         word = text[start..][/\A\S+/]
         word.length > LABEL_LENGTH ? "#{word[0, LABEL_LENGTH]}…" : word
       end
     end
 
-    # URL を畳んだ本文と、23 字に畳んだ URL の開始位置。
+    # URL を畳んだ本文と、URL と数えた範囲（`[範囲, 23 字に畳んだか]` の列）。
     def self.fold(text)
       counted = +''
-      folded = Set.new
+      spans = []
       last = 0
       text.scan(VALID_URL) do
         matched = Regexp.last_match
         next unless (span = url_span(matched))
         start, finish = span
         value = url_length(text[start...finish], matched[:domain])
-        folded.add(start) if value == FOLDED
+        spans.push([start...finish, value == FOLDED])
         counted << text[last...start] << value
         last = finish
       end
-      return counted << text[last..], folded
+      return counted << text[last..], spans
     end
 
     # 投稿先が URL と数える範囲（文字位置）。⚠ **数えなければ nil。**
