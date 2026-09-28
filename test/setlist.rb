@@ -381,6 +381,29 @@ module Makoto
       assert_empty(setlist(20).entries.select(&:cover?))
     end
 
+    # 🔴 **前半・後半でコーナーの曲数を変えられる**（#287）。⚠ **整数なら両方同じ。**
+    def test_cover_sizes_can_differ_by_half
+      seed(songs: 8, covers: 6)
+      config['/live/setlist/cover_size'] = [1, 2]
+      blocks = setlist(20).entries.chunk_while {|a, b| a.cover? && b.cover?}.select {|block| block.first.cover?}
+
+      assert_equal([1, 2], blocks.map(&:size))
+    end
+
+    # 🔴 **コーナーを 1 曲増やしても、前の曲は変わらない**（#287）。⚠⚠ **抽選は同じ種から順に引く**ので、
+    # **足した分は後ろに付くだけ**（11/4 の 8 曲を動かさずに 9 曲目を足せる根拠）。
+    def test_a_larger_corner_keeps_the_earlier_covers
+      seed(songs: 8, covers: 6)
+      config['/live/setlist/cover_solo_weight'] = 2
+      config['/live/setlist/cover_size'] = [2, 2]
+      before = setlist(20).covers.map {|track| track[:name]}
+      config['/live/setlist/cover_size'] = [2, 3]
+      after = setlist(20).covers.map {|track| track[:name]}
+
+      assert_equal(5, after.size)
+      assert_equal(before, after.first(4))
+    end
+
     # ⚠ 枠の外を引いたら nil（投稿しない）。
     def test_at_returns_nil_outside_the_program
       seed(songs: 8, covers: 0)

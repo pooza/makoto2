@@ -553,6 +553,18 @@ module Makoto
       assert_equal('♪ カバーの曲', lines[2])
     end
 
+    # 🔴 **シリーズ共有の曲には「（みんなの歌）」**（#286）。⚠⚠ **版の但し書きが付いていても当てる。**
+    def test_a_shared_song_gets_its_own_prefix
+      config['/live/setlist/shared_songs'] = ['シェアして！プリキュア']
+      shared = Setlist::Entry.new(kind: :cover,
+        track: track_row('石井あみ', name: 'シェアして！プリキュア Ami Ishii Ver.'))
+      other = Setlist::Entry.new(kind: :cover, track: track_row('池田 彩', name: 'カバーの曲'))
+      program = live.program
+
+      assert_equal(config['/live/setlist/shared_prefix'], program.track_text(shared).lines.first.chomp)
+      assert_equal(config['/live/setlist/cover_prefix'], program.track_text(other).lines.first.chomp)
+    end
+
     # ⚠⚠ **下見は投稿と同じ口を通す**（#62）。⚠ **「ライブでどう見えるか」の正本を
     # 下見の側に写さない。**
     def test_the_preview_uses_the_same_presenter
