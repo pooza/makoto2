@@ -187,10 +187,13 @@ def released(row, now):
   実測）で、日付の部分が日本の発売日と同じ。🔴 時刻で比べると（PR #474 で入れた形）、発売当日の
   0〜17 時 JST に当日の盤を「発売前」として見送っていた。⚠ ホストの TZ にもよらない（UTC のホストでも同じ）。
   """
-  value = (row.get('releaseDate') or '')[:10]
-  if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+  # ⚠ 暦として読めない値（`2026-99-99`）も発売済みとして扱う（PR #482 の Codex の P2 — 文字列の比較だと
+  #   未来と読んで永久に見送っていた）。
+  try:
+    date = datetime.date.fromisoformat((row.get('releaseDate') or '')[:10])
+  except ValueError:
     return True
-  return value <= now.astimezone(JST).date().isoformat()
+  return date <= now.astimezone(JST).date()
 
 
 def minutes(millis):
