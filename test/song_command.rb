@@ -140,6 +140,63 @@ module Makoto
 
       assert_include(output, '前置きの原稿: 共通 0 本（song・⚠ 種類別の無い kind は曲だけ）')
       assert_include(output, '  bgm: song_bgm 2 本')
+      # 🔴 **共通が 0 本なら、種類別の束は毎枠引かれ、種類別の無い束は曲だけ**（#314）。
+      assert_include(output, '  bgm: song_bgm 2 本（毎枠この束・')
+      assert_include(output, '  tv_size / vocal: song_vocal 0 本（⚠ 曲だけ）')
+      assert_not_include(output, '引き分け')
+      assert_not_include(output, '共通だけ')
+    end
+
+    # 🔴 **sample はどの束のどの原稿を使ったかを出す**（#314）。⚠⚠ **`--pool=own` で種類別を
+    # 確かめられる**（今日の 1 本目が共通を引く日でも）。
+    def test_sample_names_the_bundle
+      add_prefixes(4)
+      add_prefixes(1, type: 'song_bgm')
+      own = capture {command(kind: 'bgm', pool: 'own').sample}
+      common = capture {command(kind: 'bgm', pool: 'common').sample}
+
+      assert_include(own, 'song_bgm（種類別）')
+      assert_include(own, '前置き 0')
+      assert_include(common, 'song（共通）')
+    end
+
+    # 🔴 **語りの表が読めなければ、下見の頭でそう言う**（#314）。⚠⚠ **理由は syslog にしか出ていなかった。**
+    def test_preview_says_the_spoken_table_is_unreadable
+      song.define_singleton_method(:spoken_tracks) {raise Ginseng::ValidateError, 'track_spoken.yaml: 壊れている'}
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_spoken.yaml: 壊れている')
+    end
+
+    # 🔴 **sample も語りの表が読めなければ頭でそう言い、「語りのトラック」と名乗らない**（v0.8.0 のリリース前レビュー）。
+    def test_sample_says_the_spoken_table_is_unreadable
+      add_prefixes(4)
+      song.define_singleton_method(:spoken_tracks) {raise Ginseng::ValidateError, 'track_spoken.yaml: 壊れている'}
+      song.source.define_singleton_method(:spoken?) {|_track| true}
+      output = capture {command(kind: 'bgm').sample}
+
+      assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_spoken.yaml: 壊れている')
+      assert_include(output, '語りの表が読めないので共通')
+      assert_not_include(output, '語りのトラックなので')
+    end
+
+    # ⚠ **別名表が壊れていても言う**（PR #475 の Codex の P2 — 語りの表は読めても `keys` で落ちる）。
+    def test_preview_says_the_alias_table_is_unreadable
+      spoken = Object.new
+      spoken.define_singleton_method(:names) {['しまうまグルグル']}
+      spoken.define_singleton_method(:keys) {raise Ginseng::ValidateError, 'track_aliases.yaml: 壊れている'}
+      song.define_singleton_method(:spoken_tracks) {spoken}
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_aliases.yaml: 壊れている')
+    end
+
+    # ⚠ **種類別を指定して 0 本なら、前置きは無い**（曲だけになる）。
+    def test_sample_with_an_empty_own_bundle
+      add_prefixes(4)
+      output = capture {command(kind: 'bgm', pool: 'own').sample}
+
+      assert_include(output, '（前置きはありません）')
     end
 
     # ⚠ **下見はどの `kind` の曲に付いたかを出す**（#293・前置きの束が `kind` で決まるため）。

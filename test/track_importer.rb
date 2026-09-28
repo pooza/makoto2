@@ -223,6 +223,47 @@ module Makoto
       end
     end
 
+    # 🔴 **壊れた表は 4 枚とも「何も取り込まずに落ちる」**（#317）。⚠⚠ **語りの表だけ確定の後に
+    # 読んでいたので、曲データは入ったうえで落ちていた。**
+    def test_a_broken_spoken_table_imports_nothing
+      with_aliases([]) do |dir|
+        File.write(File.join(dir, SpokenTracks::FILE), [{'name' => ''}].to_yaml)
+        db = empty_db
+
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db).exec}
+        assert_equal(0, db[:track].count)
+      end
+    end
+
+    # 🔴 **`id` を引用符で囲んだ行は弾く**（#317）。⚠⚠ **文字列になり、どの曲にも当たらないまま
+    # 気づけなかった。**
+    def test_a_quoted_id_is_an_error
+      with_corrections([{'id' => '1003', 'from' => 'a', 'to' => 'b'}]) do |dir|
+        db = empty_db
+
+        error = assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db).exec}
+        assert_include(error.message, '引用符で囲まない')
+        assert_equal(0, db[:track].count)
+      end
+      with_kinds([kind_entry('1003', 'vocal', 'instrumental')]) do |dir|
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: empty_db).exec}
+      end
+    end
+
+    # 🔴 **曲データに無い `id` の行を残す**（#317）。⚠ **別名表・語りの表の `unused` と同じ合図。**
+    def test_unused_correction_and_kind_entries_are_reported
+      with_corrections([{'id' => 9999, 'from' => 'a', 'to' => 'b'}]) do |dir|
+        warnings = import_with_warnings(dir, empty_db, 'correction')
+
+        assert_equal([{track: 'correction', state: 'unused', id: [9999]}], warnings)
+      end
+      with_kinds([kind_entry(9999, 'vocal', 'instrumental'), kind_entry(1003, 'vocal', 'instrumental')]) do |dir|
+        warnings = import_with_warnings(dir, empty_db, 'kind')
+
+        assert_equal([{track: 'kind', state: 'unused', id: [9999]}], warnings)
+      end
+    end
+
     # 🔴 **配っている表の全行が、いまの普段用の曲データにそのまま当たること**
     # （⚠ **当たらない行は「表に書いたのに効いていない」**）。
     def test_the_shipped_kind_table_applies

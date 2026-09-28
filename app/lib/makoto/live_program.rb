@@ -23,6 +23,25 @@ module Makoto
       return optional_config('/live/setlist/cover_prefix')
     end
 
+    # 🔴 **シリーズ共有の曲に添える断り**（#286）。⚠ **設定が無ければカバーの断りのまま。**
+    def shared_prefix
+      return optional_config('/live/setlist/shared_prefix').presence || cover_prefix
+    end
+
+    # 🔴 **誰の持ち歌でもないシリーズ共有の曲か**（#286）。⚠⚠ **名義からは導けない**ので表で持つ。
+    # ⚠ **版の但し書き（`Ami Ishii Ver.`）は `TrackName.base` では落ちない**ので、取り込みと同じ規則で
+    # 正規化してから前方一致で当てる。
+    def shared?(track)
+      key = TrackImporter.dedupe_key(TrackName.base(track[:name]))
+      return shared_keys.any? {|shared| key.start_with?(shared)}
+    end
+
+    def shared_keys
+      @shared_keys ||= Array(optional_config('/live/setlist/shared_songs'))
+        .map {|name| TrackImporter.dedupe_key(name)}.reject(&:empty?)
+      return @shared_keys
+    end
+
     # 枠の頭の時刻 → 投稿の本文。⚠ **枠の外・ライブ当日でない・並びの外・原稿が
     # 無ければ nil**（`PostingJob` が「投稿しない」と解釈する）。
     def call(time = nil)
@@ -65,11 +84,16 @@ module Makoto
     def track_presenter(entry)
       return TrackPresenter.new(
         entry.track,
-        prefix: (cover_prefix if entry.cover?),
+        prefix: (entry_prefix(entry) if entry.cover?),
         # ⚠ 括弧書きを落とすのはライブだけ（#119）。日常の曲紹介（#16）では落とさない。
         plain_name: true,
         artist: show_artist?(entry),
       )
+    end
+
+    # カバーの断り（`（お借りした歌）` / シリーズ共有の曲なら `（みんなの歌）`・#286）。
+    def entry_prefix(entry)
+      return shared?(entry.track) ? shared_prefix : cover_prefix
     end
 
     # 名義を出すか（#121 / #155）。

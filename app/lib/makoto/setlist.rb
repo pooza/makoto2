@@ -316,7 +316,8 @@ module Makoto
     def compose(opening, closing, first, second, fillers)
       # ⚠ 枠が足りなければ本編の曲を後ろから落とす。**アンカーは守る。**
       return trim(opening, closing, first, second) if fillers.negative?
-      corners = covers.each_slice([@cover_selector.size, 1].max).first(2)
+      first_size, second_size = @cover_selector.sizes
+      corners = [covers.first(first_size), covers.drop(first_size).first(second_size)]
       first_extra = fillers / 2
       # ⚠⚠ **後半の MC は「前半に実際に置いた本数」から続ける。**埋め草の数
       # （`first_extra`）から始めると、⚠ **カバーの本数だけ番号が飛ぶ。**飛ぶと

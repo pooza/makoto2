@@ -90,10 +90,11 @@ module Makoto
       assert_equal(24, PostBudget.length('https://ja.wikipedia.org/wiki/Foo_(bar).'))
     end
 
-    # 🔴 **投稿先より短く数えない**（#443）。⚠⚠ **期待値は Mastodon の initializer を読み込んだ
+    # 🔴 **投稿先と同じ長さで数える形**（#443）。⚠⚠ **期待値は Mastodon の initializer を読み込んだ
     # twitter-text 3.1.0 の実測**（`StatusLengthValidator` と同じ置換）。⚠ **前半は #443 の表・
-    # 後半は同じ突き合わせ（46,000 通りの生成）で見つかった形。**
-    def test_shapes_the_destination_counts_longer
+    # 後半は同じ突き合わせ（46,000 通りの生成）で見つかった形。**⚠ **#443 の時点で短く数えていた形と、
+    # そこで直したときに長く数えかけた形（`https://a.com-` など）が混ざる**ので、名前は向きを言わない（#462）。
+    def test_url_shapes_counted_as_the_destination_does
       {
         'https://example.com/a(b' => 25,
         'https://example.com/a()' => 25,
@@ -122,6 +123,49 @@ module Makoto
         assert_equal(length, PostBudget.length(text), text)
       end
       assert_equal(23, PostBudget.length('https://example.com/a(b(c)d)e'))
+    end
+
+    # 🔴 **投稿先より短く数えない 3 系統**（#461）。⚠⚠ **期待値は同じ oracle**（Mastodon の initializer ＋
+    # twitter-text 3.1.0）の実測。
+    def test_shapes_found_after_the_release_review
+      {
+        # ⚠ **URL を切った後・認めなかった後から探し直す**（`gsub` は飲んだ後ろを探さなかった）。
+        'https://a.com.https://b.com' => 47,
+        'https://https://b.com' => 31,
+        'http://a.jp/x(http://b.jp/y(http://c.jp' => 71,
+        # ⚠ **非 ASCII のホスト**（IDN・Unicode の TLD）。
+        'https://例え.jp' => 23,
+        'https://プリキュア.com' => 23,
+        'https://例え.コム' => 23,
+        # ⚠ **port の後の `@`**。
+        'https://a.com:80@b.com' => 29,
+      }.each do |text, length|
+        assert_equal(length, PostBudget.length(text), text)
+      end
+      assert_equal((10 * 23) + 9, PostBudget.length(Array.new(10, 'https://a.jp').join('.')))
+    end
+
+    # 🔴 **TLD は twitter-text の表で判定する**（#461）。⚠⚠ **Public Suffix List とは両方向にずれる** —
+    # **`.za` は PSL に単独の規則が無いが投稿先は URL**、**`.music` は PSL にあるが投稿先は素の長さ。**
+    def test_tlds_follow_twitter_text
+      assert_equal(23, PostBudget.length('https://a.za'))
+      assert_equal(23, PostBudget.length("https://a.za/#{'x' * 40}"))
+      assert_equal(15, PostBudget.length('https://a.music'))
+    end
+
+    # ⚠⚠ **非 ASCII のホストは、23 字と素の長さの長いほう**（#461）。🔴 **投稿先は libidn に通して
+    # 失敗すれば URL と認めない**が、その判定はこちらで再現できないので、短く数えない側に倒す。
+    def test_a_non_ascii_host_counts_the_longer
+      url = "https://例え.jp/#{'x' * 40}"
+
+      assert_equal(url.length, PostBudget.length(url))
+    end
+
+    # ⚠ **ラベルが 63 字を超えるホストは URL ではない**（投稿先の IDN 変換が失敗する）。
+    def test_a_too_long_label_is_not_a_url
+      url = "https://#{'a' * 64}.com"
+
+      assert_equal(url.length, PostBudget.length(url))
     end
 
     # ⚠⚠ **日付つきの朝挨拶は定型挨拶の分を引かない**（Codex の P2）。
@@ -179,6 +223,25 @@ module Makoto
 
       assert_nothing_raised {budget.validate('morning', 'あ' * allowed, 'ok')}
       assert_raise(Ginseng::ValidateError) {budget.validate('morning', 'あ' * (allowed + 1), 'ng')}
+    end
+
+    # ⚠ **23 字に畳まなかった URL を文面で名指しする**（#462）。
+    def test_validate_names_the_urls_counted_as_they_are
+      allowed = budget.budget('morning')
+      body = "#{'あ' * allowed} https://example.music/#{'a' * 60} https://a.com/"
+
+      error = assert_raise(Ginseng::ValidateError) {budget.validate('morning', body, 'ng')}
+      assert_include(error.message, "素の長さで数えた URL がある: https://example.music/#{'a' * 18}…")
+      assert_not_include(error.message, 'https://a.com/')
+      error = assert_raise(Ginseng::ValidateError) {budget.validate('morning', "#{'あ' * allowed} https://a.com/", 'ng')}
+      assert_not_include(error.message, '素の長さ')
+    end
+
+    # 🔴 **入れ子のスキームは名指ししない**（PR #472 の Codex の P2）。
+    def test_unfolded_urls_skip_schemes_nested_in_a_url
+      assert_empty(PostBudget.unfolded_urls('https://a.com/?url=https://b.com/foo'))
+      assert_equal(['https://a.music/?u=https://b.com'], PostBudget.unfolded_urls('https://a.music/?u=https://b.com'))
+      assert_equal(['http://192.168.1.1/'], PostBudget.unfolded_urls('https://a.com/ http://192.168.1.1/'))
     end
 
     # ⚠ **空の本文も弾く**（#352・`makoto message add` はここしか通らない）。

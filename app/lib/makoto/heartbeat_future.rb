@@ -37,8 +37,12 @@ module Makoto
     #
     # 🔴 **割り切り: その枠がリハーサルの前から実時間で落ち続けていた本数も一緒に消える**（#446）。
     # ⚠⚠ **`failures` は本数しか持たず、どの失敗が見かけの時刻のものかを分けられない。**⚠ **残すと
-    # 撤収後も赤が最長 6 週間居座る**（#421）ので、**消すほうを選んだ。**⚠ **本当に落ち続けている枠なら
-    # 次の実時間の失敗で数え直される。**影響は日付を騙す `bydo` だけ（`rubicon` は騙さない）。
+    # 撤収後も赤が「見かけの `failed_at` ＋ `/heartbeat/failure_stale`」まで居座る**（#421・⚠ **期間は
+    # 定数ではなく、どの日付を騙したかで決まる** — 11/4 を騙せば実時間でその 1 週間後まで）ので、
+    # **消すほうを選んだ。**⚠ **本当に落ち続けている枠なら、実時間の失敗で数え直される** — 🔴 **ただし
+    # 0 から数え直すので、`/heartbeat/failure_limit` 本落ちるまで赤に戻らない。**⚠ **リハーサル中の
+    # 成功（`record_success`）も同じ本数を 0 に戻す**ので、この割り切りが無くても本数はそこで消えている
+    # （#462）。影響は日付を騙す `bydo` だけ（`rubicon` は騙さない）。
     def forget_future_failures(record, time)
       return forget_future_posts(record, time, :failed_at) do |value|
         value.except(:failed_at).merge(failures: 0, slots: [])

@@ -307,11 +307,13 @@ bin/makoto track stat     # 行数と曲数を並べて確認する
 ### 手順（月に 1 回）
 
 ```sh
-# 1. 収集（⚠ iTunes を 900 回ほど叩くので 30 分以上かかる）
+# 1. 収集（⚠ iTunes を 900 回ほど叩くので 45 分ほどかかる・1 分あたり 20 回に寄せている → #316）
 python3 seed/itunes_corpus.py              # seed/makoto_tracks_daily.json に新しい行を足し、track_report.md を出す
 python3 seed/itunes_corpus.py --dry-run    # 報告だけ（seed/ は書き換えない）
 
-# 2. 報告（track_report.md）を読む — 新しい行の kind・語りのトラックの候補・見つからなかった既存の行
+# 2. 報告（track_report.md）を読む — 🔴 まず冒頭の「どこまで集めたか」（見出しに日時と「途中で止まった」が出る・
+#    🔴 シリーズ名の検索語が 200 件で打ち切られていないか → #316）、次に新しい行の kind・発売前で見送った行・
+#    語りのトラックの候補・見つからなかった既存の行
 # 3. PR（報告を本文に貼る）→ マージ
 # 4. 実機でレシピを当てる（track import が走る）→ 🔴 restart まで（seed/ は docs/ / tools/ の外。⚠ #275 で履歴の別名表は読み直すが、ライブの Setlist は起動時の表のまま）
 ```

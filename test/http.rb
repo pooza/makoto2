@@ -128,11 +128,27 @@ module Makoto
       end
     end
 
+    # ⚠ **小数秒つきの形も読む**（#462）。🔴 **Mastodon は `iso8601(6)` で出す**（`Api::RateLimitHeaders`）
+    # ので、**実機の形はこちら**。⚠ **切り上げて待つ**（2.5 秒 → 3 秒）。
+    def test_a_ratelimit_reset_with_fractional_seconds
+      stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T12:00:02.500000Z'})
+      http = HTTP.new
+      Timecop.freeze(Time.utc(2026, 11, 4, 12, 0, 0)) do
+        with_captured_sleep(http) do |slept|
+          assert_raise(Ginseng::GatewayError) {http.get(URL)}
+
+          assert_equal([3, 3], slept)
+        end
+      end
+    end
+
     # 🔴 **投稿数の制限（300 本 / 3 時間）の窓は待たずに 1 回で諦める**（#438）。⚠⚠ **追随する前は
     # 1 秒おきに計 3 回叩いていた**（→ docs/CLAUDE.md の #425 の段落）。
     #
     # ⚠⚠ **成り立つのは直に投稿するときだけ**（v0.7.2 のリリース前レビュー）— 🔴 **モロヘイヤ経由では
-    # ヘッダが中継されない**（未検証）、**日付を騙している間は待ちが 0 秒に丸まる**（見かけの時刻との差）。
+    # ヘッダが中継されない**（未検証 → pooza/mulukhiya-toot-proxy#4775・makoto2 側では持たない）、
+    # **日付を騙している間は待ちが 0 秒に丸まる**（見かけの時刻との差・⚠ **リハーサルだけなので上流へは
+    # 依頼しない** → #462）。
     def test_a_long_ratelimit_reset_gives_up
       stub_request(:get, URL).to_return(status: 429, headers: {'X-RateLimit-Reset' => '2026-11-04T15:00:00Z'})
       http = HTTP.new
