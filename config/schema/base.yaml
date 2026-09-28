@@ -90,11 +90,27 @@ properties:
           closing:
             type: string
           # ゲストコーナー 1 つあたりの曲数。⚠ 0 ならカバーを置かない。
+          # ⚠ 前半・後半で変えるなら 2 つの配列（#287）。
           cover_size:
-            type: integer
-            minimum: 0
+            oneOf:
+              - type: integer
+                minimum: 0
+              - type: array
+                items:
+                  type: integer
+                  minimum: 0
+                minItems: 2
+                maxItems: 2
           cover_prefix:
             type: string
+          # ⚠ シリーズ共有の曲に添える断り（#286）。
+          shared_prefix:
+            type: string
+          # ⚠ シリーズ共有の曲の名前（#286）。版の但し書きの前の部分で書く。
+          shared_songs:
+            type: array
+            items:
+              type: string
           # ⚠ 単独名義を優先する重み（#65）。1 以下なら一様抽選。
           cover_solo_weight:
             type: integer

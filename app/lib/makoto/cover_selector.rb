@@ -38,13 +38,17 @@ module Makoto
       @cure_api = cure_api || CureApiService.new
     end
 
-    # ゲストコーナー 1 つあたりの曲数。⚠ **前半・後半に 1 つずつ置くので 2 倍が総数。**
-    def size
-      return config["#{PREFIX}/cover_size"].to_i
+    # ゲストコーナーごとの曲数（前半・後半）。⚠ **整数なら両方同じ。**
+    #
+    # 🔴 **前半・後半で変えられる**（#287）— ⚠ **本編から朗読劇を外して空いた枠を、後半のコーナーで埋めた。**
+    def sizes
+      value = config["#{PREFIX}/cover_size"]
+      return Array.new(2, value.to_i) unless value.is_a?(Array)
+      return value.first(2).map(&:to_i)
     end
 
     def exec
-      total = size * 2
+      total = sizes.sum
       return [] unless total.positive?
       unless @cure_api.available?
         warn('cure-api is unavailable')
