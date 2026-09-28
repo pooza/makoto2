@@ -189,9 +189,14 @@ module Makoto
     # `url`）で見分けている**（→ `consume`）ので、**上流が欄の名前を変えると、成功の行は `error` を
     # 持たないまま `count_unclassified` で捨てられ、HTTP の節が空のまま緑になる**（実測）。
     # ⚠ **投稿が出ている以上、HTTP の行が無いのは「起きなかった」ではなく「読めていない」。**
+    #
+    # 🔴 **落ちた試行や応答の無い失敗があっても、応答の行が 0 本なら赤**（v0.8.0 のリリース前レビュー）。
+    # ⚠⚠ **再送の行は `RetryMethods#log_retry_error`、成功の行は `HTTP#log` と別の口から出る**ので、
+    # **成功の行の形だけが変わることはありうる** — ⚠ **本番規模の通しでは落ちた試行が 1 回ぐらいは出る**ので、
+    # それを条件に入れると網が外れる回のほうが普通になっていた。
     def http_unseen?
       return false unless posted.positive?
-      return @http.empty? && @http_failures.empty? && @failed_attempts.zero?
+      return @http.empty?
     end
 
     def http_errors

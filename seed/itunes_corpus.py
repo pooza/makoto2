@@ -47,6 +47,9 @@ SLEEP = 3.0
 # ⚠ 検索 1 回で返る上限。🔴 ちょうどこの件数なら打ち切られている（201 位以降が沈む）。
 SEARCH_LIMIT = 200
 
+# ⚠ 発売日を比べる「いま」の暦（→ `released`）。日本のストア（`country=jp`）なので JST。
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
 SEED = os.path.dirname(os.path.abspath(__file__))
 DAILY = os.path.join(SEED, 'makoto_tracks_daily.json')
 LIVE = os.path.join(SEED, 'makoto_tracks_live.json')
@@ -179,17 +182,18 @@ def to_row(track):
 def released(row, now):
   """発売済みか（#316）。⚠ 日付の無い行・読めない行は発売済みとして扱う（既存の行と同じ）。
 
-  🔴 日付ではなく時刻で比べる（PR #474 の Codex の P2）。⚠⚠ iTunes の `releaseDate` は UTC の時刻
-  （日本の発売日の 0 時 JST ＝ 前日 15:00Z）なので、ホストの TZ の「今日」と日付だけで比べると、
-  UTC のホストでは 0〜9 時 JST に発売当日の盤を「発売前」として見送っていた。
+  🔴 `releaseDate` の日付の部分を、いまを JST に直した日付と比べる（v0.8.0 のリリース前レビュー）。
+  ⚠⚠ iTunes の `releaseDate` は発売日の太平洋時間 0 時（`2026-01-28T08:00:00Z` ＝ JST の発売当日 17 時・
+  実測）で、日付の部分が日本の発売日と同じ。🔴 時刻で比べると（PR #474 で入れた形）、発売当日の
+  0〜17 時 JST に当日の盤を「発売前」として見送っていた。⚠ ホストの TZ にもよらない（UTC のホストでも同じ）。
   """
-  value = row.get('releaseDate')
-  if not value:
-    return True
+  # ⚠ 暦として読めない値（`2026-99-99`）も発売済みとして扱う（PR #482 の Codex の P2 — 文字列の比較だと
+  #   未来と読んで永久に見送っていた）。
   try:
-    return datetime.datetime.fromisoformat(value.replace('Z', '+00:00')) <= now
+    date = datetime.date.fromisoformat((row.get('releaseDate') or '')[:10])
   except ValueError:
     return True
+  return date <= now.astimezone(JST).date()
 
 
 def minutes(millis):
@@ -288,8 +292,10 @@ def main():
   progress = Progress()
   try:
     found = collect(progress)
-  except (SystemExit, KeyboardInterrupt) as e:
+  except BaseException as e:
     # ⚠ データは書かない（正しい）が、報告は書き直す（#316）— 前回の報告が残ると取り違える。
+    # 🔴 **どの例外でも**（v0.8.0 のリリース前レビュー）。⚠⚠ cure-api が配列でない JSON を返すと
+    #   `AttributeError` で抜け、前回の報告が残っていた。
     write(args.report, '\n'.join(header(progress, args.dry_run, failure=str(e) or type(e).__name__)) + '\n')
     raise
   rows = [to_row(t) for tid, t in found.items() if tid not in known]
@@ -301,12 +307,18 @@ def main():
   #   落ちたとき（`--out` の置き場所が無い・ディスクが満杯・中断）に「反映」と読める報告だけが残る。
   if not args.dry_run and new_rows:
     merged = sorted(daily + new_rows, key=lambda t: t.get('releaseDate') or '')
+    # 🔴 一時ファイルに書いてから差し替える（v0.8.0 のリリース前レビュー）。⚠⚠ 直に書くと、途中で落ちた
+    #   ときに seed/ が切り詰めた半端な中身で残っていた（git から戻せるが、報告はそれを言わなかった）。
+    temp = f'{args.out}.tmp'
     try:
-      with open(args.out, 'w', encoding='utf-8') as f:
+      with open(temp, 'w', encoding='utf-8') as f:
         # ⚠ 末尾に改行を足さない（既存のファイルが持っていないので、差分が全行に広がる）。
         json.dump(merged, f, ensure_ascii=False, indent=2)
-    except (OSError, KeyboardInterrupt) as e:
-      failure = f'{args.out} へ書き出せなかった: {e!r}'
+      os.replace(temp, args.out)
+    except BaseException as e:
+      if os.path.exists(temp):
+        os.remove(temp)
+      failure = f'{args.out} へ書き出せなかった（元のファイルはそのまま）: {e!r}'
       write(args.report, '\n'.join(header(progress, args.dry_run, failure=failure)) + '\n')
       raise
     print(f'→ {args.out}（{len(daily)} → {len(merged)} 行）', flush=True)

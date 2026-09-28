@@ -164,7 +164,7 @@ module Makoto
       end
       if @report.http_unseen?
         # 🔴 **投稿は出たのに HTTP の行が無い**（#462 → `RehearsalReport#http_unseen?`）。
-        out.push("🔴 投稿は #{@report.posted} 本出たのに HTTP の行が 1 本も無い（行の形が変わった？）")
+        out.push("🔴 投稿は #{@report.posted} 本出たのに HTTP の応答の行が 1 本も無い（行の形が変わった？）")
       elsif @report.http.empty? && @report.http_failures.empty?
         out.push('  （1 本も無い）')
       end
