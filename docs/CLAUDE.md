@@ -2202,6 +2202,7 @@ ssh rubicon 'journalctl -u makoto2 --since -1h --no-pager -o cat' \
 - 🔴 **モロヘイヤ経由では 429 のヘッダが中継されない**（コードを読んだ結果・未実測）→ [mulukhiya-toot-proxy#4775](https://github.com/pooza/mulukhiya-toot-proxy/issues/4775)。⚠⚠ **原因は「ネイティブ API で投稿していること」ではなく「間にモロヘイヤが入っていること」**なので、**webhook（#30）へ移っても残りうる。**⚠ **モロヘイヤ自身の ginseng-core も v1.23.7 で `X-RateLimit-Reset` を読まない**（**v1.25.1 で入った・v1.25.0 には無い**）→ [#4747](https://github.com/pooza/mulukhiya-toot-proxy/issues/4747) へコメント。**makoto2 側では何も持たない**
 - ⚠ **429 の待ち中に再起動すると、その枠が `tolerance` を越えて落ちる窓は最大 1 分に広がった**（#438 で待ちが `/http/retry/max_seconds` = 30 秒まで伸びうるため・記録だけ）
 - ✅ `X-RateLimit-Reset` の小数秒の形（Mastodon は `iso8601(6)` で出す）をテストに 1 本足した
+- ⚠ **429 で諦めた回の手掛かり（待ちの秒数・「待ちが長すぎて諦めた」）がログに残らない**のは上流の `repeat` の話なので [ginseng-core#662](https://github.com/pooza/ginseng-core/issues/662) へ出した。🔴 **ブロッカーにしない**（オーナー判断）— 決着は同期手順 8 で追う
 
 **その他（緑）** — `HeartbeatFuture#forget_future_failures` のコメントを実装に合わせた（🔴 **赤が居座る期間は定数ではなく「見かけの `failed_at` ＋ `failure_stale`」**・**数え直しは 0 からなので `failure_limit` 本まで赤に戻らない**・**リハーサル中の成功でも本数は 0 に戻る**）
 
