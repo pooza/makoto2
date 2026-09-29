@@ -3619,6 +3619,8 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `app/lib/makoto/morning.rb` / `morning_source.rb` | 朝挨拶（#17）の枠と本文。⚠ **定型挨拶はコード側が付ける**（→ 上記「朝挨拶は…」） |
 | `app/lib/makoto/song.rb` / `song_source.rb` | 日常の曲紹介（#16）の枠と本文。⚠⚠ **曲は抽選・前置きは順送り**（→ 上記「曲紹介は…」） |
 | `app/lib/makoto/rotation.rb` | 用意した原稿を通し番号で順に送る規則（#223）。🔴 **朝挨拶と曲紹介が同じものを使う**（⚠⚠ **同じ規則を 2 箇所に書かない** → #183） |
+| `app/lib/makoto/model/track_fixes.rb` | 曲名の訂正表（#58）と `kind` の分類を正す表（#304）の読み込みと検査。⚠ **`TrackImporter` から分けた**（#317・クラスの長さ）。⚠ **当て方は `TrackImporter` のまま** |
+| `app/lib/makoto/song_slot_presenter.rb` | `makoto song slot` の表示。⚠ **`SongCommand` から分けた**（#314・クラスの長さ） |
 | `app/lib/makoto/track_lottery.rb` | `kind` で重み付けした曲の抽選（#11）。⚠ **普段用は BGM が 53%** なので一様には引かない（→ [track-corpus.md](track-corpus.md)） |
 | `app/lib/makoto/model/track_aliases.rb` | 同じ曲だが表記が違うものの表（#123）。🔴 **訂正表と別物** — **あちらは片方が誤記なので曲名を直し、こちらはどちらも正しいので鍵だけを揃える**（⚠⚠ **投稿に出る曲名は変えない**）。⚠ **読み仮名を持っていないので規則では解けず、数え上げた組を名指しで寄せる** |
 | `app/lib/makoto/model/spoken_tracks.rb` | 歌ではなく語りのトラックの表（#298）。🔴 **表が言うのは事実だけ**で、曲紹介は共通の前置きだけを付ける。⚠⚠ **枠ごとに読み直す**（#275 の轍を踏まない） |
@@ -3647,6 +3649,7 @@ GitHub Actions で **`rubocop` / `rake config:lint` / `rake test`** を回す（
 | `test/` | テスト。`rake test` が全部読む |
 | `tmp/` | pid（`pids/`）・SQLite（`db/`）・キャッシュ（`cache/`）・常駐の痕跡（`run/`）。中身はコミットしない |
 
+- 🔴 **設定と名指しの表（別名表・`/live/setlist/shared_songs`）の読み直しは再起動**（#483）。⚠ **常駐は起動したときの値をクラスやインスタンスにメモする**（`TrackImporter.default_aliases` / `LiveProgram#shared_keys`）ので、**書き換えただけでは効かない**（⚠ **枠ごとに読み直す `TrackHistory` / `SpokenTracks` は別**）
 - **ログは syslog に出る**（ident は `makoto2`。`journalctl -t makoto2`）。ginseng の Logger が JSON 1 行で吐く
 - 🔴 **「平常日のログ」と「壊れた日のログ」が同じにならないようにする**（2026-08-16・#80 の黄 9）。⚠ **ライブの 4 枠は毎日空回りする設計**なので `no text` が毎日出ており、⚠⚠ **11/4 に 160 枠が全滅しても平常日と 1 文字も変わらなかった**（実測 1 日 171 行）
   - ⚠ **枠が黙ったこと自体は `debug` に落とす**（`/logger/level` = `info` なので既定では出ない）。**空回りは異常ではない**（→ 上記「原稿の上書き」）

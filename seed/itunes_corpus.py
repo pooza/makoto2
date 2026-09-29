@@ -79,6 +79,12 @@ SPOKEN_MILLIS = 8 * 60 * 1000
 #   （`OSError`）は素の例外のまま抜けていた。⚠ `TimeoutError` と `URLError` も `OSError` の仲間。
 RETRYABLE = (OSError, http.client.HTTPException, json.JSONDecodeError)
 
+# ⚠ iTunes の制限（403 / 429）。解けるまで数十秒かかるので、5 秒おきに 3 回では同じ制限に当たって諦める（#483）。
+#   ⚠ `Retry-After` があればそちらに従う（長すぎる値は `THROTTLE_MAX_WAIT` で切る）。
+THROTTLED = (403, 429)
+THROTTLE_WAIT = 60
+THROTTLE_MAX_WAIT = 300
+
 
 class Progress:
   """どこまで集めたか（#316）。⚠ 途中で止まっても、ここまでの分を報告に書く。"""
@@ -106,10 +112,30 @@ def fetch(url):
         body = json.loads(res.read().decode('utf-8'))
       time.sleep(SLEEP)
       return body
+    # ⚠ `HTTPError` は `OSError` の子なので、`RETRYABLE` より先に受ける。
+    except urllib.error.HTTPError as e:
+      if e.code in THROTTLED:
+        wait = retry_after(e)
+      elif 400 <= e.code < 500:
+        # ⚠ それ以外の 4xx は何度叩いても同じ答え。待たずに止める。
+        raise SystemExit(f'取得できませんでした（{e.code}・再試行しない）: {url}')
+      else:
+        wait = 5
+      print(f'  ! retry {attempt + 1}: {e!r}（{wait} 秒待つ）', flush=True)
+      time.sleep(wait)
     except RETRYABLE as e:
       print(f'  ! retry {attempt + 1}: {e!r}', flush=True)
       time.sleep(5)
   raise SystemExit(f'取得できませんでした: {url}')
+
+
+def retry_after(error):
+  """制限が解けるまでの待ち（秒）。⚠ `Retry-After` が無いか読めなければ `THROTTLE_WAIT`。"""
+  try:
+    seconds = int(error.headers.get('Retry-After', ''))
+  except (TypeError, ValueError):
+    return THROTTLE_WAIT
+  return min(max(seconds, 1), THROTTLE_MAX_WAIT)
 
 
 def get(path, **params):

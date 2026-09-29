@@ -90,7 +90,7 @@ properties:
           closing:
             type: string
           # ゲストコーナー 1 つあたりの曲数。⚠ 0 ならカバーを置かない。
-          # ⚠ 前半・後半で変えるなら 2 つの配列（#287）。
+          # ⚠ 前半・後半で変えるなら 2 要素の配列（#287）。
           cover_size:
             oneOf:
               - type: integer
