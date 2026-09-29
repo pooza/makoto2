@@ -77,10 +77,19 @@ module Makoto
     # が入っても、ここは畳まない** — ⚠⚠ **上流の `MastodonService` は
     # `verify_credentials` を持たず、この呼び出し口は makoto2 のもの**（#282 で
     # 塞いだ投稿の口とは分界が違う）。
+    #
+    # 🔴 **`follow_redirects: true` は明示しておく**（#486）。⚠⚠ **fediverse のガード
+    # （`RedirectGuard`）は資格情報を見ると `follow_redirects: false` を足す**が、
+    # **`ginseng-core` 1.25.1 の `host_validator` の経路はこのキーを無視していた**ので
+    # 同一ホストの 301 を追えていた。🔴 **2.0.0 はこのキーを尊重する**ので、書かないと
+    # 同一ホストの 301 まで `GatewayError` になる。⚠ **ガードは `options.key?(:follow_redirects)`
+    # なら手を付けない（明示が勝つ）**うえ、⚠ **別ホストへは `host_validator` が
+    # 資格情報を渡さない**ので、上の意図（同一ホストは追う・別ホストは読めるエラー）は変わらない。
     def account
       response = http.get('/api/v1/accounts/verify_credentials', {
         headers: direct_headers,
         host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
       })
       return response.parsed_response
     rescue Ginseng::GatewayError => e
