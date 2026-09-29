@@ -22,7 +22,8 @@ module Makoto
   # 🔴 **モロヘイヤを経由するときは、さらに `/mastodon/proxy_reserve` を全部の type から引く**
   # （転送時にタグの行を足すため）。
   #
-  # ⚠ **URL は投稿先と同じく 23 字と数える**（`holiday` は素の長さ 576 字だが実効 328 字）。
+  # ⚠ **URL は投稿先と同じ規則で数える**（`holiday` は素の長さ 576 字だが実効 328 字）。🔴 **原則は 23 字**だが、
+  # **投稿先が URL と認めない形（`.music` の TLD など）は素の長さ・非 ASCII のホストは長いほう**（→ `url_length`・#483）。
   #
   # ⚠⚠ **空白も改行も挟まない長い連なりに ASCII の `.` があると、長さの二乗で重くなる**（投稿先の正規表現と
   # 同じ構造なので同じだけ重い）。🔴 **句読点だけで続く和文 3000 字の末尾に URL を足すと 1.7 秒**（v0.8.0 の
@@ -165,7 +166,7 @@ module Makoto
     # List とは両方向にずれる**（PSL だけ: `.music` など・twitter-text だけ: `.za` など。2026-09-28 の実測で 18 / 144）ので、
     # **PSL から引くと、PSL が育つたびに短く数える形が増える**（#443 の `UNKNOWN_TLDS` はその片側だけ）。
     # ⚠⚠ **並び順も写す**（正規表現の選択肢の順）。
-    TLDS = YAML.load_file(File.join(__dir__, '../../../config/twitter-text/tld_lib.yml')).freeze
+    TLDS = YAML.load_file(File.join(Environment.dir, 'config/twitter-text/tld_lib.yml')).freeze
 
     def self.tld_pattern(tlds)
       return "(?:(?:#{tlds.map {|tld| Regexp.escape(tld)}.join('|')})(?=[^0-9a-z@+-]|$))"

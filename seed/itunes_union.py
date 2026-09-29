@@ -20,7 +20,7 @@ def get(path, **params):
   req = urllib.request.Request(url, headers=UA)
   with urllib.request.urlopen(req, timeout=30) as res:
     body = json.loads(res.read().decode('utf-8'))
-  time.sleep(1.2)  # 公称の目安 20req/min を守る
+  time.sleep(3.0)  # 目安の 1 分あたり 20 回に寄せる（→ itunes_corpus.py の SLEEP・#483）
   return body.get('results', [])
 
 

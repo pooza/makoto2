@@ -107,14 +107,23 @@ module Makoto
         mark_live
         sanitize_urls
       end
-      report_unused_aliases
-      report_unused_spoken
-      report_unused_entries(:correction, corrections)
-      report_unused_entries(:kind, kinds)
+      @unused = {
+        alias: report_unused_aliases,
+        spoken: report_unused_spoken,
+        correction: report_unused_entries(:correction, corrections),
+        kind: report_unused_entries(:kind, kinds),
+      }.compact
       report_rejected_urls
       report_mentions
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
+    end
+
+    # 🔴 **表に書いたのに 1 行も当たらないもの**（表の名前 → 鍵の列）。⚠ **`exec` の後でだけ埋まる。**
+    # ⚠⚠ **syslog にしか出していなかった**ので、**`makoto track import` を手で叩いた人には counts しか
+    # 見えなかった**（#483）→ `TrackCommand#import` が画面にも出す。
+    def unused
+      return @unused || {}
     end
 
     def counts
@@ -138,6 +147,7 @@ module Makoto
       spoken.names
       corrections
       kinds
+      return nil
     end
 
     def spoken

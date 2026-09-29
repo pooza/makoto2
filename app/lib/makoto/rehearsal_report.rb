@@ -57,7 +57,8 @@ module Makoto
     # `ENCODING_ERROR_FIELD`）→ `count_logger_fallback`。
     LOGGER_FALLBACK_KEYS = [:_mask_error, :_encoding_error].freeze
 
-    # ⚠ **受け皿に入らなかった `error` 行の名札に使う欄**（→ `count_unclassified`）。
+    # ⚠ **受け皿に入らなかった `error` 行の名札に使う欄**（→ `count_unclassified`）。⚠ **同じ `@unclassified` に
+    # 入る「ログが中身を出せなかった行」の名札は別に組む**（→ `count_logger_fallback`）。
     # ⚠ **前から 2 つまで**（`scheduler:tick post:song` のように、どこで落ちたかが分かる粒度）。
     LABEL_KEYS = [
       :daemon, :scheduler, :track, :mastodon, :sentry, :time_travel, :post, :config
@@ -164,7 +165,8 @@ module Makoto
     #
     # 🔴 **見ていない回も赤**（#416・`0.7` のリリース前レビュー）。⚠⚠ **枠が 0 かハートビートが 0
     # なら、入力を間違えたか常駐が起きていない** — ⚠ **「何も落ちていない」ではなく「何も見ていない」。**
-    # 🔴 **登録を見送った投稿（#350）と、受け皿に入らなかった `error` 行も赤**（→ `count_unclassified`）。
+    # 🔴 **登録を見送った投稿（#350）と、受け皿に入らなかった行も赤**（→ `count_unclassified` / `count_logger_fallback`）。
+    # 🔴 **投稿は出たのに HTTP の行が 1 本も無い回も赤**（#462 → `http_unseen?`）。
     def red?
       return true if unseen?
       return true if anomalous_slots.any? || duplicated_slots.any?
@@ -322,7 +324,8 @@ module Makoto
     # 🔴 **ログが中身を出せなかった行も受け皿へ**（#462）。⚠⚠ **`_mask_error` の行は
     # `{"_mask_error":true,"class":"Hash","keys":[…]}` だけで、`error` を持たない** — **元が
     # 枠の失敗の行でも、`count_unclassified` で黙って捨てられていた。**⚠ **`_encoding_error` は
-    # 中身を残せた行なら先の受け皿（`count_slot` など）に入るので、ここへ来るのは残せなかった行。**
+    # 中身を残せた行なら先の受け皿（`count_slot` など）に入る**が、🔴 **ここへ来るのは残せなかった行だけではない**
+    # — ⚠⚠ **中身を残せても受け皿の無い形の行も来て、赤になる**（#483）。
     # ⚠ **名札に元の欄の名前を添える**（`keys` はマスクが元から残す側）。
     def count_logger_fallback(entry)
       key = LOGGER_FALLBACK_KEYS.find {|name| entry[name]}

@@ -25,8 +25,10 @@
 
 import argparse
 import datetime
+import email.utils
 import http.client
 import json
+import math
 import os
 import re
 import time
@@ -79,6 +81,13 @@ SPOKEN_MILLIS = 8 * 60 * 1000
 #   （`OSError`）は素の例外のまま抜けていた。⚠ `TimeoutError` と `URLError` も `OSError` の仲間。
 RETRYABLE = (OSError, http.client.HTTPException, json.JSONDecodeError)
 
+# ⚠ iTunes の制限（403 / 429）。解けるまで数十秒かかるので、5 秒おきに 3 回では同じ制限に当たって諦める（#483）。
+#   ⚠ `Retry-After` があればそちらに従う（長すぎる値は `THROTTLE_MAX_WAIT` で切る）。
+THROTTLED = (403, 429)
+THROTTLE_WAIT = 60
+THROTTLE_MAX_WAIT = 300
+ATTEMPTS = 3
+
 
 class Progress:
   """どこまで集めたか（#316）。⚠ 途中で止まっても、ここまでの分を報告に書く。"""
@@ -100,16 +109,50 @@ class Progress:
 
 def fetch(url):
   """GET して JSON を返す。⚠ 3 回とも落ちたら止める（黙って空を返すと、新曲が静かに抜ける）。"""
-  for attempt in range(3):
+  for attempt in range(ATTEMPTS):
+    last = attempt == ATTEMPTS - 1
     try:
       with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as res:
         body = json.loads(res.read().decode('utf-8'))
       time.sleep(SLEEP)
       return body
+    # ⚠ `HTTPError` は `OSError` の子なので、`RETRYABLE` より先に受ける。
+    except urllib.error.HTTPError as e:
+      if e.code in THROTTLED:
+        wait = retry_after(e)
+      elif 400 <= e.code < 500:
+        # ⚠ それ以外の 4xx は何度叩いても同じ答え。待たずに止める。
+        raise SystemExit(f'取得できませんでした（{e.code}・再試行しない）: {url}')
+      else:
+        wait = 5
+      print(f'  ! retry {attempt + 1}: {e!r}' + ('' if last else f'（{wait} 秒待つ）'), flush=True)
     except RETRYABLE as e:
+      wait = 5
       print(f'  ! retry {attempt + 1}: {e!r}', flush=True)
-      time.sleep(5)
+    # ⚠ 最後の試行の後は待たない。次が無いのに最大 THROTTLE_MAX_WAIT 止まってから落ちる（PR #490 の Codex の P2）。
+    if not last:
+      time.sleep(wait)
   raise SystemExit(f'取得できませんでした: {url}')
+
+
+def retry_after(error):
+  """制限が解けるまでの待ち（秒）。⚠ `Retry-After` が無いか読めなければ `THROTTLE_WAIT`。
+
+  ⚠ 秒数と HTTP-date の両方の形がある（RFC 9110）。日付の形を読めずに 60 秒へ倒すと、
+  制限がそれより長いときに 3 回とも当たって諦める（PR #490 の Codex の P2）。
+  """
+  value = (error.headers.get('Retry-After') or '').strip()
+  try:
+    seconds = int(value)
+  except ValueError:
+    try:
+      until = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+      return THROTTLE_WAIT
+    if until.tzinfo is None:
+      until = until.replace(tzinfo=datetime.timezone.utc)
+    seconds = math.ceil((until - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
+  return min(max(seconds, 1), THROTTLE_MAX_WAIT)
 
 
 def get(path, **params):

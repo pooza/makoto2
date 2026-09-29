@@ -122,6 +122,7 @@ module Makoto
       text = song.source.presenter(track, record && record[:body]).to_s
       puts text.each_line.map {|line| "  #{line}"}.join
       puts
+      return nil
     end
 
     # ⚠ **どの束から引いたか。**🔴 **種類別を指定して 0 本なら、そう書く**（曲だけになる）。
