@@ -228,6 +228,9 @@ module Makoto
     # 「黙る日」と「前置きが引けない日」を別々に見せる**（→ `SongCommand`）。
     #
     # ⚠ **`kind` を渡さなければ共通だけ**（#293 より前の形）。
+    #
+    # ⚠⚠ **本番からは呼ばれない**（#483）— 実機は `prefix_record`（`call` / 下見）。**テストが本文だけを
+    # 並べて比べるための口**として残している。
     def prefix(time = nil, kind: nil)
       time ||= Time.now
       index = @timetable.index_at(time)

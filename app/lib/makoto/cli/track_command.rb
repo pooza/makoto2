@@ -11,8 +11,11 @@ module Makoto
     option :dir, type: :string, desc: '取り込み元のディレクトリ（既定は /track/dir）'
     desc 'import', 'seed/ の収集物（JSON）を投入する。何度実行してもよい'
     def import
-      counts = TrackImporter.new(options[:dir]).exec
-      counts.each {|key, value| puts "#{key}: #{value}"}
+      importer = TrackImporter.new(options[:dir])
+      importer.exec.each {|key, value| puts "#{key}: #{value}"}
+      importer.unused.each do |table, keys|
+        warn "⚠ #{table}: 表に書いたのに 1 行も当たらない #{keys.size} 件: #{keys.join(' / ')}"
+      end
     rescue Sequel::DatabaseError => e
       warn "投入できませんでした。先に `rake migration:run` を実行してください: #{error_message(e)}"
       exit 1
@@ -22,6 +25,11 @@ module Makoto
     rescue Ginseng::ValidateError => e
       # ⚠ **名指しの表は確定の前に読む**（#317 → `TrackImporter#load_tables`）ので、ここでは何も入っていない。
       warn "表を読めないので、何も取り込んでいません: #{error_message(e)}"
+      exit 1
+    rescue SystemCallError => e
+      # ⚠ **表がディレクトリ・権限が無いなど**（#483）。🔴 **素の backtrace にしない。**⚠ 表は確定の前に読み、
+      # 取り込み元の JSON はトランザクションの中で読むので、どちらで落ちても何も入っていない。
+      warn "読めないファイルがあるので、何も取り込んでいません: #{error_message(e)}"
       exit 1
     end
 
