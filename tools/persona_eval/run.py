@@ -6,8 +6,8 @@
 
     python tools/persona_eval/run.py estimate          # 見積もり（count_tokens だけ・課金なし）
     python tools/persona_eval/run.py respond           # 応答を Batch で投げる（課金あり）
-    python tools/persona_eval/run.py collect RUN       # Batch の結果を取り込む（応答 → 判定の順）
-    python tools/persona_eval/run.py judge RUN         # 判定を Batch で投げる（課金あり）
+    python tools/persona_eval/run.py collect RUN       # Batch の結果を取り込む（応答 → 判定役ごと・1 回に 1 つ）
+    python tools/persona_eval/run.py judge RUN         # 判定を Batch で投げる（課金あり・既定で判定役 2 つ）
     python tools/persona_eval/run.py report RUN        # 報告（report.md）を書く
 
 🔴 **課金があるのは respond と judge だけ。**どちらも投げる前に estimate の数字を
@@ -54,7 +54,12 @@ CORPUS = {
   'none': 0,
 }
 
-JUDGE_MODEL = 'claude-opus-5-5'
+# 判定役。🔴 応答と同じ系統のモデルだけに採点させると、身内びいきを見分けられない
+# （2026-10-20・1 回目の判定役が Opus だけだった）。既定で 2 つ並べる。
+JUDGES = {
+  'opus': 'claude-opus-5-5',
+  'sonnet': 'claude-sonnet-5-5',
+}
 
 # 単価（USD / 100 万トークン・2026-10 時点）。⚠ Batch はこの半額。
 # ⚠ キャッシュの書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
@@ -126,11 +131,12 @@ def main():
     p.add_argument('--models', default=','.join(MODELS), help='使うモデル（カンマ区切り）')
     p.add_argument('--corpus', default=','.join(CORPUS), help='同梱する台詞の条件（カンマ区切り）')
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
+  sub.choices['estimate'].add_argument('--judges', default=','.join(JUDGES), help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
     p.add_argument('run', help='var/persona_eval/runs/ の下の実行の名前')
-  p = sub.choices['collect']
-  p.add_argument('--wait', action='store_true', help='Batch が終わるまで待つ')
+  sub.choices['collect'].add_argument('--wait', action='store_true', help='Batch が終わるまで待つ')
+  sub.choices['judge'].add_argument('--judges', default=','.join(JUDGES), help='判定役（カンマ区切り）')
   args = parser.parse_args()
   {
     'estimate': cmd_estimate,
@@ -184,32 +190,41 @@ def system_blocks(persona, corpus):
   return blocks
 
 
+def messages_of(case):
+  # 🔴 `history` は前のやりとり（繰り返し訊かれる場面など）。`prompt` はその次の 1 通。
+  return list(case.get('history', [])) + [{'role': 'user', 'content': case['prompt']}]
+
+
 def respond_params(model, system, case):
   return {
     'model': model,
     'max_tokens': MAX_TOKENS,
     'system': system,
     'output_config': {'effort': RESPOND_EFFORT},
-    'messages': [{'role': 'user', 'content': case['prompt']}],
+    'messages': messages_of(case),
   }
 
 
-def judge_params(persona, case, text):
-  user = '\n'.join([
+def judge_params(judge_model, persona, case, text):
+  sections = []
+  if case.get('history'):
+    lines = [f"- {'ファン' if m['role'] == 'user' else 'MAKOTO'}: {m['content']}" for m in case['history']]
+    sections.append('## 前のやりとり\n' + '\n'.join(lines))
+  sections += [
     f"## 質問\n{case['prompt']}",
     f"## 合格の形\n{case.get('expect', '')}",
     f"## 外れの形\n{case.get('fail', '')}",
     f"## MAKOTO の応答\n{text}",
-  ])
+  ]
   return {
-    'model': JUDGE_MODEL,
+    'model': judge_model,
     'max_tokens': MAX_TOKENS,
     'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona, 'cache_control': {'type': 'ephemeral'}}],
     'output_config': {
       'effort': JUDGE_EFFORT,
       'format': {'type': 'json_schema', 'schema': JUDGE_SCHEMA},
     },
-    'messages': [{'role': 'user', 'content': user}],
+    'messages': [{'role': 'user', 'content': '\n'.join(sections)}],
   }
 
 
@@ -287,11 +302,14 @@ def cmd_estimate(args):
     total += amount
     print(f'| {model_key} × {corpus_key} | {tokens:,} | {len(cases)} | {amount:.2f} |')
   n = len(cases) * len(conditions(args))
-  judge_tokens = count_tokens(api, judge_params(persona, sample, 'ダミーの応答です。'))
-  judge_usage = {'cache_creation_input_tokens': judge_tokens, 'output_tokens': EXPECTED_JUDGE_OUTPUT_TOKENS}
-  judge_amount = cost(JUDGE_MODEL, judge_usage) * n
-  print(f'| 判定（{JUDGE_MODEL}） | {judge_tokens:,} | {n} | {judge_amount:.2f} |')
-  print(f'\n合計の見積もり: ${total + judge_amount:.2f}（Batch の半額・キャッシュが当たらない側で計算）')
+  for judge_key in args.judges.split(','):
+    judge_model = JUDGES[judge_key]
+    judge_tokens = count_tokens(api, judge_params(judge_model, persona, sample, 'ダミーの応答です。'))
+    judge_usage = {'cache_creation_input_tokens': judge_tokens, 'output_tokens': EXPECTED_JUDGE_OUTPUT_TOKENS}
+    judge_amount = cost(judge_model, judge_usage) * n
+    total += judge_amount
+    print(f'| 判定（{judge_key}） | {judge_tokens:,} | {n} | {judge_amount:.2f} |')
+  print(f'\n合計の見積もり: ${total:.2f}（Batch の半額・キャッシュが当たらない側で計算）')
 
 
 def cmd_respond(args):
@@ -328,7 +346,14 @@ def cmd_collect(args):
   api = client()
   run_dir = OUT_DIR / args.run
   state = read_json(run_dir / 'state.json')
-  stage, batch_id = ('judge', state['judge_batch']) if 'judge_batch' in state else ('respond', state['respond_batch'])
+  # 🔴 まだ取り込んでいない Batch を 1 つずつ（応答 → 判定役ごと）。
+  pending = [('respond', state['respond_batch'])]
+  pending += [(f'judge-{k}', v) for k, v in state.get('judges', {}).items()]
+  pending = [(stage, b) for stage, b in pending if not (run_dir / f'{stage}.json').exists()]
+  if not pending:
+    print('取り込むものは無い')
+    return
+  stage, batch_id = pending[0]
   while True:
     batch = api.messages.batches.retrieve(batch_id)
     if batch.processing_status == 'ended':
@@ -364,51 +389,56 @@ def cmd_judge(args):
   api = client()
   run_dir = OUT_DIR / args.run
   state = read_json(run_dir / 'state.json')
-  if 'judge_batch' in state:
-    sys.exit(f"判定は投げてある（batch {state['judge_batch']}）")
+  state.setdefault('judges', {})
   responses = read_json(run_dir / 'respond.json')
   cases = {c['id']: c for c in load_cases()}
   persona = load_persona()
-  requests = []
-  for key, entry in responses.items():
-    if entry['type'] != 'succeeded' or entry['stop_reason'] == 'refusal':
+  for judge_key in args.judges.split(','):
+    if judge_key in state['judges']:
+      print(f"judge-{judge_key}: 投げてある（batch {state['judges'][judge_key]}）")
       continue
-    case_id, _, _ = parse_custom_id(key)
-    # 🔴 判定役には条件（モデル・台詞の件数）を見せない。
-    params = judge_params(persona, cases[case_id], entry['text'])
-    requests.append(Request(custom_id=key, params=MessageCreateParamsNonStreaming(**params)))
-  batch = api.messages.batches.create(requests=requests)
-  state['judge_batch'] = batch.id
-  state['judge_model'] = JUDGE_MODEL
-  write_json(run_dir / 'state.json', state)
-  print(f'judge: {len(requests)} 本（batch {batch.id}）')
+    requests = []
+    for key, entry in responses.items():
+      if entry['type'] != 'succeeded' or entry['stop_reason'] == 'refusal':
+        continue
+      case_id, _, _ = parse_custom_id(key)
+      # 🔴 判定役には条件（モデル・台詞の件数）を見せない。
+      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'])
+      requests.append(Request(custom_id=key, params=MessageCreateParamsNonStreaming(**params)))
+    batch = api.messages.batches.create(requests=requests)
+    state['judges'][judge_key] = batch.id
+    write_json(run_dir / 'state.json', state)
+    print(f'judge-{judge_key}: {len(requests)} 本（batch {batch.id}）')
 
 
 def cmd_report(args):
   run_dir = OUT_DIR / args.run
   state = read_json(run_dir / 'state.json')
   responses = read_json(run_dir / 'respond.json')
-  judged = read_json(run_dir / 'judge.json') if (run_dir / 'judge.json').exists() else {}
+  judges = [k for k in JUDGES if (run_dir / f'judge-{k}.json').exists()]
+  judged = {k: read_json(run_dir / f'judge-{k}.json') for k in judges}
   cases = {c['id']: c for c in load_cases()}
   bodies = [q['body'] for q in load_quotes() if len(q['body']) >= VERBATIM_MIN_LENGTH]
   conds = sorted({parse_custom_id(k)[1:] for k in responses}, key=lambda c: (list(MODELS).index(c[0]), list(CORPUS).index(c[1])))
 
   rows = {}
   for key, entry in responses.items():
-    case_id, model_key, corpus_key = parse_custom_id(key)
+    case_id, _, _ = parse_custom_id(key)
     text = entry.get('text', '')
     case = cases[case_id]
     flags = [r['label'] for r in case.get('deny', []) if re.search(r['pattern'], text)]
     if any(b in text for b in bodies):
       flags.append('台詞そのまま')
-    verdict = None
-    if key in judged and judged[key].get('text'):
-      verdict = json.loads(judged[key]['text'])
-    rows[key] = {'entry': entry, 'flags': flags, 'verdict': verdict}
+    verdicts = {}
+    for judge_key in judges:
+      found = judged[judge_key].get(key)
+      if found and found.get('text'):
+        verdicts[judge_key] = json.loads(found['text'])
+    rows[key] = {'entry': entry, 'flags': flags, 'verdicts': verdicts}
 
   out = [f'# 評価の報告 {args.run}', '']
   out.append(f"- 条件: モデル {state['models']} × 台詞 {state['corpus']}・effort {state['respond_effort']}")
-  out.append(f"- 判定役: {state.get('judge_model', '（未実施）')}・条件は見せていない")
+  out.append(f"- 判定役: {'・'.join(judges) or '（未実施）'}。条件は見せていない。pass / fail / unsure は判定役ごとに「{' / '.join(judges)}」の順")
   out.append('- 🔴 目印（機械）は外れの検出だけ。当たらなくても合格とは限らない')
   out.append('')
   out.append('## 条件ごとのまとめ')
@@ -417,19 +447,22 @@ def cmd_report(args):
   out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
   for model_key, corpus_key in conds:
     keys = [k for k in rows if parse_custom_id(k)[1:] == (model_key, corpus_key)]
-    verdicts = [rows[k]['verdict']['verdict'] for k in keys if rows[k]['verdict']]
+    counts = {v: ' / '.join(
+      str(sum(1 for k in keys if rows[k]['verdicts'].get(j, {}).get('verdict') == v)) for j in judges
+    ) for v in ('pass', 'fail', 'unsure')}
     texts = [rows[k]['entry'].get('text', '') for k in keys]
     broken = sum(1 for k in keys if rows[k]['entry']['type'] != 'succeeded' or rows[k]['entry'].get('stop_reason') == 'refusal')
     spent = sum(cost(MODELS[model_key], rows[k]['entry']['usage']) for k in keys if 'usage' in rows[k]['entry'])
     flagged = sum(1 for k in keys if rows[k]['flags'])
     avg = sum(len(t) for t in texts) / len(texts) if texts else 0
     out.append(
-      f'| {model_key} × {corpus_key} | {len(keys)} | {verdicts.count("pass")} | {verdicts.count("fail")} '
-      f'| {verdicts.count("unsure")} | {flagged} | {avg:.0f} 字 | {broken} | {spent:.2f} |'
+      f"| {model_key} × {corpus_key} | {len(keys)} | {counts['pass']} | {counts['fail']} "
+      f"| {counts['unsure']} | {flagged} | {avg:.0f} 字 | {broken} | {spent:.2f} |"
     )
-  judge_spent = sum(cost(JUDGE_MODEL, e['usage']) for e in judged.values() if 'usage' in e)
   out.append('')
-  out.append(f'判定の費用: ${judge_spent:.2f}')
+  for judge_key in judges:
+    spent = sum(cost(JUDGES[judge_key], e['usage']) for e in judged[judge_key].values() if 'usage' in e)
+    out.append(f'- 判定（{judge_key}）の費用: ${spent:.2f}')
   out.append('')
   out.append('## 質問ごと')
   for case_id in state['cases']:
@@ -437,13 +470,17 @@ def cmd_report(args):
     out.append('')
     out.append(f"### {case_id}（{case['axis']}）")
     out.append('')
+    for message in case.get('history', []):
+      speaker = 'ファン' if message['role'] == 'user' else 'MAKOTO'
+      out.append(f"> （前のやりとり・{speaker}）{message['content']}")
+      out.append('>')
     out.append(f"> {case['prompt']}")
     out.append('')
     out.append(f"- 合格の形: {case.get('expect', '')}")
     out.append(f"- 外れの形: {case.get('fail', '')}")
     out.append('')
-    out.append('| 条件 | 応答 | 目印 | 判定 |')
-    out.append('| --- | --- | --- | --- |')
+    out.append('| 条件 | 応答 | 目印 | ' + ' | '.join(f'判定（{j}）' for j in judges) + ' |')
+    out.append('| --- | --- | --- | ' + ' | '.join('---' for _ in judges) + ' |')
     for model_key, corpus_key in conds:
       key = custom_id(case_id, model_key, corpus_key)
       if key not in rows:
@@ -456,9 +493,11 @@ def cmd_report(args):
         text = f"（拒否: {entry.get('refusal')}）"
       else:
         text = entry['text']
-      verdict = row['verdict']
-      judged_text = f"**{verdict['verdict']}** {verdict['reason']}" if verdict else ''
-      out.append(f"| {model_key} × {corpus_key} | {cell(text)} | {cell('・'.join(row['flags']))} | {cell(judged_text)} |")
+      cells = []
+      for judge_key in judges:
+        verdict = row['verdicts'].get(judge_key)
+        cells.append(cell(f"**{verdict['verdict']}** {verdict['reason']}" if verdict else ''))
+      out.append(f"| {model_key} × {corpus_key} | {cell(text)} | {cell('・'.join(row['flags']))} | " + ' | '.join(cells) + ' |')
   (run_dir / 'report.md').write_text('\n'.join(out) + '\n')
   print(run_dir / 'report.md')
 
