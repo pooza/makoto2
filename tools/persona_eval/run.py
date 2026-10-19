@@ -238,9 +238,16 @@ def parse_custom_id(value):
 
 def client():
   config = yaml.safe_load((ROOT / 'config' / 'local.yaml').read_text()) or {}
-  key = (config.get('anthropic') or {}).get('api_key')
+  section = config.get('anthropic') or {}
+  options = {}
   # ⚠ キーが無ければ SDK の既定（ANTHROPIC_API_KEY など）に任せる。
-  return anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+  if section.get('api_key'):
+    options['api_key'] = section['api_key']
+  # 🔴 ワークスペースに紐づいていないキーは、使うワークスペースをヘッダーで名指しする
+  # （無いと 400「This API key is not scoped to a workspace」・2026-10-20 に踏んだ）。
+  if section.get('workspace_id'):
+    options['default_headers'] = {'anthropic-workspace-id': section['workspace_id']}
+  return anthropic.Anthropic(**options)
 
 
 def count_tokens(api, params):
