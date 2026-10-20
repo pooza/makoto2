@@ -406,23 +406,30 @@ def cmd_collect(args):
   api = client()
   run_dir = OUT_DIR / args.run
   state = read_json(run_dir / 'state.json')
-  # 🔴 まだ取り込んでいない Batch を 1 つずつ（応答 → 判定役ごと）。
+  # 🔴 まだ取り込んでいない Batch を 1 つずつ。⚠ 終わったものから取る（判定役の Batch は
+  # 終わる順が決まっていない・2026-10-20 に Opus の判定が 1 時間以上 1 本も進まず、先に
+  # 終わった Sonnet の判定まで取り込めなかった）。
   pending = [('respond', state['respond_batch'])]
   pending += [(f'judge-{k}', v) for k, v in state.get('judges', {}).items()]
   pending = [(stage, b) for stage, b in pending if not (run_dir / f'{stage}.json').exists()]
   if not pending:
     print('取り込むものは無い')
     return
-  stage, batch_id = pending[0]
   while True:
-    batch = api.messages.batches.retrieve(batch_id)
-    if batch.processing_status == 'ended':
+    ended = None
+    for stage, batch_id in pending:
+      batch = api.messages.batches.retrieve(batch_id)
+      if batch.processing_status == 'ended':
+        ended = (stage, batch_id)
+        break
+      counts = batch.request_counts
+      print(f'{stage}: {batch.processing_status}（処理中 {counts.processing}・済み {counts.succeeded}）')
+    if ended:
       break
-    counts = batch.request_counts
-    print(f'{stage}: {batch.processing_status}（処理中 {counts.processing}・済み {counts.succeeded}）')
     if not args.wait:
       return
     time.sleep(60)
+  stage, batch_id = ended
   results = {}
   for item in api.messages.batches.results(batch_id):
     entry = {'type': item.result.type}
