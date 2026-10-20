@@ -62,11 +62,11 @@ JUDGES = {
 }
 
 # 単価（USD / 100 万トークン・2026-10 時点）。⚠ Batch はこの半額。
-# ⚠ キャッシュの書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
+# ⚠ キャッシュの読み出しは入力の 0.05 倍（5.5 系・Opus と Sonnet で額が違う）。書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
 # 見積もりは「当たらない・毎回書き込む」で引く（上振れ側）。
 PRICES = {
   'claude-opus-5-5': {'input': 4.0, 'output': 20.0, 'cache_read': 0.2, 'cache_write': 5.0},
-  'claude-sonnet-5-5': {'input': 2.0, 'output': 10.0, 'cache_read': 0.2, 'cache_write': 2.5},
+  'claude-sonnet-5-5': {'input': 2.0, 'output': 10.0, 'cache_read': 0.1, 'cache_write': 2.5},
 }
 BATCH_DISCOUNT = 0.5
 
@@ -161,6 +161,10 @@ def load_cases(only=None):
       re.compile(rule['pattern'])
   if only:
     ids = set(only.split(','))
+    # 🔴 打ち間違いを黙って落とすと、本数の減った Batch に課金したまま気づけない。
+    unknown = ids - {c['id'] for c in cases}
+    if unknown:
+      sys.exit(f'cases.yaml に無い ID: {", ".join(sorted(unknown))}')
     cases = [c for c in cases if c['id'] in ids]
   return cases
 
@@ -271,7 +275,8 @@ def client():
 
 
 def count_tokens(api, params):
-  fields = {k: params[k] for k in ('model', 'system', 'messages')}
+  # ⚠ output_config も渡す。構造化出力はスキーマ分のシステムプロンプトが足されて課金される。
+  fields = {k: params[k] for k in ('model', 'system', 'messages', 'output_config', 'thinking') if k in params}
   return api.messages.count_tokens(**fields).input_tokens
 
 
