@@ -237,6 +237,19 @@ def judge_params(judge_model, persona, case, text):
   }
 
 
+# 見積もりで共通部分だけを数えるための、中身の無い質問。
+BLANK_CASE = {'prompt': '。'}
+
+
+def judge_keys(args):
+  # 🔴 1 つでも打ち間違いがあれば、Batch を 1 つも投げる前に止める（途中まで課金されて残る）。
+  keys = args.judges.split(',')
+  for key in keys:
+    if key not in JUDGES:
+      sys.exit(f'unknown judge: {key}')
+  return keys
+
+
 def conditions(args):
   models = args.models.split(',')
   corpora = args.corpus.split(',')
@@ -296,30 +309,55 @@ def cost(model, usage):
 def cmd_estimate(args):
   api = client()
   cases = load_cases(args.cases)
+  judges = judge_keys(args)
   persona = load_persona()
   quotes = load_quotes()
-  sample = cases[0]
   total = 0.0
   print(f'質問 {len(cases)} 本・応答可の台詞 {len(quotes)} 件')
-  print('| 条件 | 入力トークン（1 本） | 本数 | 見積もり（USD） |')
+  print('| 条件 | 入力トークン（1 本の平均） | 本数 | 見積もり（USD） |')
   print('| --- | --- | --- | --- |')
   for model_key, corpus_key in conditions(args):
     model = MODELS[model_key]
     system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]))
-    tokens = count_tokens(api, respond_params(model, system, sample))
-    usage = {'cache_creation_input_tokens': tokens, 'output_tokens': EXPECTED_OUTPUT_TOKENS}
-    amount = cost(model, usage) * len(cases)
-    total += amount
-    print(f'| {model_key} × {corpus_key} | {tokens:,} | {len(cases)} | {amount:.2f} |')
-  n = len(cases) * len(conditions(args))
-  for judge_key in args.judges.split(','):
+    params = respond_params(model, system, BLANK_CASE)
+    tokens = per_case_tokens(api, params, [messages_of(c) for c in cases])
+    total += print_estimate(f'{model_key} × {corpus_key}', model, tokens, EXPECTED_OUTPUT_TOKENS)
+  # ⚠ 判定の入力に入る応答は、まだ無いのでダミーで数える（応答の長さぶん少なめに出る）。
+  repeat = len(conditions(args))
+  for judge_key in judges:
     judge_model = JUDGES[judge_key]
-    judge_tokens = count_tokens(api, judge_params(judge_model, persona, sample, 'ダミーの応答です。'))
-    judge_usage = {'cache_creation_input_tokens': judge_tokens, 'output_tokens': EXPECTED_JUDGE_OUTPUT_TOKENS}
-    judge_amount = cost(judge_model, judge_usage) * n
-    total += judge_amount
-    print(f'| 判定（{judge_key}） | {judge_tokens:,} | {n} | {judge_amount:.2f} |')
+    params = judge_params(judge_model, persona, BLANK_CASE, '')
+    messages = [judge_params(judge_model, persona, c, 'ダミーの応答です。')['messages'] for c in cases]
+    tokens = per_case_tokens(api, params, messages) * repeat
+    total += print_estimate(f'判定（{judge_key}）', judge_model, tokens, EXPECTED_JUDGE_OUTPUT_TOKENS)
   print(f'\n合計の見積もり: ${total:.2f}（Batch の半額・キャッシュが当たらない側で計算）')
+
+
+def per_case_tokens(api, params, messages_list):
+  # 🔴 質問ごとに数える（長さが違う・`history` のある質問もある）。指示書と台詞は全部に共通なので
+  # 条件ごとに 1 回だけ数え、質問ごとの差は messages だけを数えて足す（呼ぶ回数を抑える）。
+  base = count_tokens(api, params)
+  model = params['model']
+  blank = message_tokens(api, model, params['messages'])
+  return [base + message_tokens(api, model, m) - blank for m in messages_list]
+
+
+MESSAGE_TOKENS = {}
+
+
+def message_tokens(api, model, messages):
+  # ⚠ 台詞の件数だけが違う条件どうしで、同じ質問を数え直さない。
+  key = (model, json.dumps(messages, ensure_ascii=False))
+  if key not in MESSAGE_TOKENS:
+    MESSAGE_TOKENS[key] = api.messages.count_tokens(model=model, messages=messages).input_tokens
+  return MESSAGE_TOKENS[key]
+
+
+def print_estimate(label, model, tokens, output_tokens):
+  usage = {'cache_creation_input_tokens': sum(tokens), 'output_tokens': output_tokens * len(tokens)}
+  amount = cost(model, usage)
+  print(f'| {label} | {sum(tokens) // len(tokens):,} | {len(tokens)} | {amount:.2f} |')
+  return amount
 
 
 def cmd_respond(args):
@@ -403,7 +441,7 @@ def cmd_judge(args):
   responses = read_json(run_dir / 'respond.json')
   cases = {c['id']: c for c in load_cases()}
   persona = load_persona()
-  for judge_key in args.judges.split(','):
+  for judge_key in judge_keys(args):
     if judge_key in state['judges']:
       print(f"judge-{judge_key}: 投げてある（batch {state['judges'][judge_key]}）")
       continue
