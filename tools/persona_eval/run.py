@@ -10,6 +10,9 @@
     python tools/persona_eval/run.py judge RUN         # 判定を Batch で投げる（課金あり・既定で判定役 2 つ）
     python tools/persona_eval/run.py report RUN        # 報告（report.md）を書く
 
+⚠ 質問集は `--suite` で選ぶ（estimate / respond）。既定は cases.yaml（#19）、`provoke` は
+言わせようとする入力（provoke.yaml・#239）。judge / report は state.json に残した質問集を読む。
+
 🔴 **課金があるのは respond と judge だけ。**どちらも投げる前に estimate の数字を
 オーナーに見せて了承をもらう（#19 のコメントの決まり）。
 
@@ -136,6 +139,7 @@ def main():
     p.add_argument('--models', default=','.join(MODELS), help='使うモデル（カンマ区切り）')
     p.add_argument('--corpus', default=','.join(CORPUS), help='同梱する台詞の条件（カンマ区切り）')
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
+    p.add_argument('--suite', default='cases', choices=SUITES, help='質問集')
   sub.choices['estimate'].add_argument('--judges', default=','.join(JUDGES), help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
@@ -154,8 +158,15 @@ def main():
 
 # --- 入力 ---
 
-def load_cases(only=None):
-  cases = yaml.safe_load((HERE / 'cases.yaml').read_text())['cases']
+# 質問集。⚠ 書式はどれも cases.yaml の頭のコメントのとおり。
+SUITES = {
+  'cases': 'cases.yaml',
+  'provoke': 'provoke.yaml',
+}
+
+
+def load_cases(only=None, suite='cases'):
+  cases = yaml.safe_load((HERE / SUITES[suite]).read_text())['cases']
   for case in cases:
     for rule in case.get('deny', []):
       re.compile(rule['pattern'])
@@ -308,7 +319,7 @@ def cost(model, usage):
 
 def cmd_estimate(args):
   api = client()
-  cases = load_cases(args.cases)
+  cases = load_cases(args.cases, args.suite)
   judges = judge_keys(args)
   persona = load_persona()
   quotes = load_quotes()
@@ -362,7 +373,7 @@ def print_estimate(label, model, tokens, output_tokens):
 
 def cmd_respond(args):
   api = client()
-  cases = load_cases(args.cases)
+  cases = load_cases(args.cases, args.suite)
   persona = load_persona()
   quotes = load_quotes()
   requests = []
@@ -382,6 +393,7 @@ def cmd_respond(args):
     'created_at': datetime.now().isoformat(),
     'models': args.models,
     'corpus': args.corpus,
+    'suite': args.suite,
     'cases': [c['id'] for c in cases],
     'respond_effort': RESPOND_EFFORT,
     'respond_batch': batch.id,
@@ -439,7 +451,7 @@ def cmd_judge(args):
   state = read_json(run_dir / 'state.json')
   state.setdefault('judges', {})
   responses = read_json(run_dir / 'respond.json')
-  cases = {c['id']: c for c in load_cases()}
+  cases = {c['id']: c for c in load_cases(suite=state.get('suite', 'cases'))}
   persona = load_persona()
   for judge_key in judge_keys(args):
     if judge_key in state['judges']:
@@ -465,7 +477,7 @@ def cmd_report(args):
   responses = read_json(run_dir / 'respond.json')
   judges = [k for k in JUDGES if (run_dir / f'judge-{k}.json').exists()]
   judged = {k: read_json(run_dir / f'judge-{k}.json') for k in judges}
-  cases = {c['id']: c for c in load_cases()}
+  cases = {c['id']: c for c in load_cases(suite=state.get('suite', 'cases'))}
   bodies = [q['body'] for q in load_quotes() if len(q['body']) >= VERBATIM_MIN_LENGTH]
   conds = sorted({parse_custom_id(k)[1:] for k in responses}, key=lambda c: (list(MODELS).index(c[0]), list(CORPUS).index(c[1])))
 
