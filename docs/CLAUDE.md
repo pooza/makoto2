@@ -4163,6 +4163,7 @@ bin/makoto corpus stat     # 件数を確認する
 - ✅ **2026-08-05 に稼働開始。**手順は `pooza/chubo2` の cookbook（`app/cookbooks/makoto2/`）と `docs/infra-servers.md`「MAKOTO 開発環境 (bydo)」が正本。makoto2 側で覚えておくのは次の 4 点:
   - **`bin/chubo --nodes=bydo --recipes=ruby,makoto2`** で構築する（chubo2 側で実行）
   - ⚠⚠ **`config/local.yaml` と `var/corpus/*.json` はレシピが作らない。**前者は秘密情報、後者は第三者の著作物でどちらもリポジトリに無いため、**運用者が scp で置く**。⚠ 曲データ（[seed/](../seed/)）は git 管理下なのでレシピの `track import` だけで入る
+    - 🔴 **2026-10-20 から、`var/corpus/{quote,message}.json` は元のダンプ（`makoto_2026-02-13.sql`）とは中身が違う** — **一人称の「わたし」を「私」に置き換えた**（→ [makoto-persona.md](makoto-persona.md)「一人称の表記は『決めごと』」）。⚠⚠ **`tools/pgdump_to_json.py` で SQL から作り直すと「わたし」に戻る**ので、**作り直したら置き換え直す**。⚠ **置き換える前の JSON は、手元・`bydo`・`rubicon` の `var/corpus_backup_20261020/` に残してある**
   - 🔴 **レシピは `enable` するだけで `start` しない。**投稿するボットなので、レシピの副作用として投稿が始まる形にしない。起動は `systemctl start makoto2`
   - ⚠ **ログは `/var/log/makoto2.log` と `journalctl -t makoto2` の両方**に出る（ident は `makoto2`）
 - **本番を自宅に置く判断の根拠**（`pooza/chubo2#103`）— クラウド（Linode）を検討したが、選ぶ主たる根拠だった電源事情が実測で消えた。**残るリスクは電源ではなく作業起因で、これは置き場を変えても消えない**
