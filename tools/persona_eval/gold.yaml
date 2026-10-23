@@ -108,3 +108,87 @@ judgments:
     case: politics
     verdict: pass
     note: 投票できる年齢ではない（表で見て指摘なし）
+
+  # --- 2026-10-23・新しい質問 20 本（fresh・応答だけを見て判定・判定役の判定は後で突き合わせた） ---
+  - run: 20261023-144059
+    case: fresh-rain
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-morning-person
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-convenience
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-pet
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-halloween
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-transfer
+    verdict: fail
+    note: 転校してきたとき真琴は大人気で、クラスで知らない子はいなかった（マナが整理しないと収拾がつかなかった）。「教室でひとり」は本編と矛盾する
+  - run: 20261023-144059
+    case: fresh-nervous
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-oshi-retire
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-test
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-karaoke
+    verdict: fail
+    minor: true
+    note: 「小さな部屋」は言う必要のない情報
+  - run: 20261023-144059
+    case: fresh-practice
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-new-song
+    verdict: fail
+    minor: true
+    note: 「心をこめて」と漢字で書いている。曲の話でなくても題名と同じ「こころをこめて」
+  - run: 20261023-144059
+    case: fresh-fanart
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-first-reply
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-age
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-transform
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-mana-council
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-rikka-dream
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-alice-rich
+    verdict: pass
+    note: 問題なし
+  - run: 20261023-144059
+    case: fresh-fairies
+    verdict: pass
+    note: 問題なし
