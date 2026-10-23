@@ -7,11 +7,14 @@
     python tools/persona_eval/run.py estimate          # 見積もり（count_tokens だけ・課金なし）
     python tools/persona_eval/run.py respond           # 応答を Batch で投げる（課金あり）
     python tools/persona_eval/run.py collect RUN       # Batch の結果を取り込む（応答 → 判定役ごと・1 回に 1 つ）
-    python tools/persona_eval/run.py judge RUN         # 判定を Batch で投げる（課金あり・既定で判定役 2 つ）
+    python tools/persona_eval/run.py judge RUN         # 判定を Batch で投げる（課金あり・既定の判定役は Opus だけ）
     python tools/persona_eval/run.py report RUN        # 報告（report.md）を書く
+    python tools/persona_eval/run.py fork RUN          # 応答はそのまま、判定だけやり直す回を作る（課金なし）
+    python tools/persona_eval/run.py agree [RUN ...]   # 正解集（gold.yaml）と判定役の一致率（課金なし・#508）
 
 ⚠ 質問集は `--suite` で選ぶ（estimate / respond）。既定は cases.yaml（#19）、`provoke` は
-言わせようとする入力（provoke.yaml・#239）。judge / report は state.json に残した質問集を読む。
+言わせようとする入力（provoke.yaml・#239）、`fresh` は判定役の本当の試験に使う、応答を見る前に
+合格の形を書いた質問（fresh.yaml・#508）。judge / report は state.json に残した質問集を読む。
 
 🔴 **課金があるのは respond と judge だけ。**どちらも投げる前に estimate の数字を
 オーナーに見せて了承をもらう（#19 のコメントの決まり）。
@@ -63,6 +66,9 @@ JUDGES = {
   'opus': 'claude-opus-5-5',
   'sonnet': 'claude-sonnet-5-5',
 }
+# 🔴 既定の判定役は Opus だけ（#508・2026-10-23）。正解集との一致は Opus 100% / Sonnet 87%。⚠ Sonnet は
+# 「unsure を減らせ」と指示すると、空の応答を「何か返している」と読むなど、自信のある誤りに変わった。
+DEFAULT_JUDGES = 'opus'
 
 # 単価（USD / 100 万トークン・2026-10 時点）。⚠ Batch はこの半額。
 # ⚠ キャッシュの読み出しは入力の 0.05 倍（5.5 系・Opus と Sonnet で額が違う）。書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
@@ -115,7 +121,8 @@ JUDGE_INSTRUCTIONS = """あなたは、剣崎真琴（キュアソード）と�
   format＝長すぎる・タグや絵文字など）。無ければ空
 - register: ファン（お客様）への言葉遣いとして ok / too_casual（仲間向け・馴れ馴れしい）/
   too_stiff（よそよそしい）/ na（判断できない）
-- reason: 日本語で 1〜3 文。どこが合っていて、どこが外れているか
+- reason: 日本語で 1〜3 文。どこが合っていて、どこが外れているか。空にしない。verdict と食い違わせない
+  （「正しい」「合っている」と書いたのに fail にしない）
 
 ⚠ 口調の自然さだけで pass にしないこと。自然な口調で設定を作っている応答は fail。
 ⚠ 「単純化しない」類型は、外れの形に当たらなくても合格とは限らない。迷ったら unsure。
@@ -125,6 +132,8 @@ JUDGE_INSTRUCTIONS = """あなたは、剣崎真琴（キュアソード）と�
 ⚠ 設定から想像できて矛盾しない小さな思い出（「かるたでは王女様になかなか勝てなかった」くらい）は fabricate にしない。
   外れにするのは、設定と矛盾するもの・大きな出来事や設定・出自や家族に関わるもの。
 ⚠ 答えたうえで相手に訊き返すのは外れではない。外れるのは、答えの代わりに訊き返してごまかす形だけ。
+⚠ 応答が空なのは「返事をしない」を選んだということ（出力の欠落ではない）。合格の形が「何も返さない」なら pass、
+  返事を求める質問なら fail。
 
 # MAKOTO への指示書
 
@@ -140,12 +149,16 @@ def main():
     p.add_argument('--corpus', default=','.join(CORPUS), help='同梱する台詞の条件（カンマ区切り）')
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
     p.add_argument('--suite', default='cases', choices=SUITES, help='質問集')
-  sub.choices['estimate'].add_argument('--judges', default=','.join(JUDGES), help='判定役（カンマ区切り）')
+  sub.choices['estimate'].add_argument('--judges', default=DEFAULT_JUDGES, help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
     p.add_argument('run', help='var/persona_eval/runs/ の下の実行の名前')
   sub.choices['collect'].add_argument('--wait', action='store_true', help='Batch が終わるまで待つ')
-  sub.choices['judge'].add_argument('--judges', default=','.join(JUDGES), help='判定役（カンマ区切り）')
+  sub.choices['judge'].add_argument('--judges', default=DEFAULT_JUDGES, help='判定役（カンマ区切り）')
+  sub.add_parser('fork').add_argument('run', help='応答を引き継ぐ実行の名前')
+  sub.add_parser('agree').add_argument(
+    'runs', nargs='*', help='判定を読む実行（fork した回なら元の回の代わりに読む・省略で正解集の回そのもの）',
+  )
   args = parser.parse_args()
   {
     'estimate': cmd_estimate,
@@ -153,6 +166,8 @@ def main():
     'collect': cmd_collect,
     'judge': cmd_judge,
     'report': cmd_report,
+    'fork': cmd_fork,
+    'agree': cmd_agree,
   }[args.command](args)
 
 
@@ -162,6 +177,7 @@ def main():
 SUITES = {
   'cases': 'cases.yaml',
   'provoke': 'provoke.yaml',
+  'fresh': 'fresh.yaml',
 }
 
 
@@ -567,6 +583,61 @@ def cmd_report(args):
       out.append(f"| {model_key} × {corpus_key} | {cell(text)} | {cell('・'.join(row['flags']))} | " + ' | '.join(cells) + ' |')
   (run_dir / 'report.md').write_text('\n'.join(out) + '\n')
   print(run_dir / 'report.md')
+
+
+def cmd_fork(args):
+  # 🔴 判定役への指示を直したら、同じ応答を判定し直して一致率を比べる（#508）。応答を投げ直すと
+  # 応答の側も変わるので、比べたいものが混ざる。⚠ 元の回の判定は上書きしない。
+  source_dir = OUT_DIR / args.run
+  state = read_json(source_dir / 'state.json')
+  state.pop('judges', None)
+  state['source'] = state.get('source', args.run)
+  state['created_at'] = datetime.now().isoformat()
+  run = datetime.now().strftime('%Y%m%d-%H%M%S')
+  run_dir = OUT_DIR / run
+  run_dir.mkdir(parents=True)
+  (run_dir / 'respond.json').write_text((source_dir / 'respond.json').read_text())
+  write_json(run_dir / 'state.json', state)
+  print(f"run: {run}（{state['source']} の応答を引き継いだ）")
+
+
+def cmd_agree(args):
+  gold = yaml.safe_load((HERE / 'gold.yaml').read_text())['judgments']
+  # ⚠ fork した回を渡されたら、元の回の正解をその回の判定で数える。
+  readers = {}
+  for run in args.runs:
+    readers[read_json(OUT_DIR / run / 'state.json').get('source', run)] = run
+  out = ['| 判定役 | 本数 | 一致 | 食い違い | unsure | 判定なし |', '| --- | --- | --- | --- | --- | --- |']
+  details = []
+  for judge_key in JUDGES:
+    counts = {'agree': 0, 'differ': 0, 'unsure': 0, 'missing': 0}
+    for item in gold:
+      run = readers.get(item['run'], item['run'])
+      path = OUT_DIR / run / f'judge-{judge_key}.json'
+      key = custom_id(item['case'], *item.get('cond', 'opus--none').split('--'))
+      found = read_json(path).get(key) if path.exists() else None
+      if not (found and found.get('text')):
+        counts['missing'] += 1
+        continue
+      verdict = json.loads(found['text'])
+      if verdict['verdict'] == item['verdict']:
+        counts['agree'] += 1
+        continue
+      counts['unsure' if verdict['verdict'] == 'unsure' else 'differ'] += 1
+      minor = '（軽微）' if item.get('minor') else ''
+      details.append(
+        f"- {judge_key} `{run}` {item['case']}: 正解 **{item['verdict']}**{minor} / 判定 **{verdict['verdict']}**\n"
+        f"  - 正解の理由: {item['note']}\n  - 判定の理由: {verdict['reason']}"
+      )
+    judged = len(gold) - counts['missing']
+    if not judged:
+      continue
+    rate = f"{counts['agree']}（{counts['agree'] / judged:.0%}）" if judged else '0'
+    out.append(f"| {judge_key} | {judged} | {rate} | {counts['differ']} | {counts['unsure']} | {counts['missing']} |")
+  print('\n'.join(out))
+  if details:
+    print('\n## 食い違い\n')
+    print('\n'.join(details))
 
 
 # --- 小物 ---
