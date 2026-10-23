@@ -9,6 +9,8 @@
     python tools/persona_eval/run.py collect RUN       # Batch の結果を取り込む（応答 → 判定役ごと・1 回に 1 つ）
     python tools/persona_eval/run.py judge RUN         # 判定を Batch で投げる（課金あり・既定で判定役 2 つ）
     python tools/persona_eval/run.py report RUN        # 報告（report.md）を書く
+    python tools/persona_eval/run.py fork RUN          # 応答はそのまま、判定だけやり直す回を作る（課金なし）
+    python tools/persona_eval/run.py agree [RUN ...]   # 正解集（gold.yaml）と判定役の一致率（課金なし・#508）
 
 ⚠ 質問集は `--suite` で選ぶ（estimate / respond）。既定は cases.yaml（#19）、`provoke` は
 言わせようとする入力（provoke.yaml・#239）。judge / report は state.json に残した質問集を読む。
@@ -146,6 +148,10 @@ def main():
     p.add_argument('run', help='var/persona_eval/runs/ の下の実行の名前')
   sub.choices['collect'].add_argument('--wait', action='store_true', help='Batch が終わるまで待つ')
   sub.choices['judge'].add_argument('--judges', default=','.join(JUDGES), help='判定役（カンマ区切り）')
+  sub.add_parser('fork').add_argument('run', help='応答を引き継ぐ実行の名前')
+  sub.add_parser('agree').add_argument(
+    'runs', nargs='*', help='判定を読む実行（fork した回なら元の回の代わりに読む・省略で正解集の回そのもの）',
+  )
   args = parser.parse_args()
   {
     'estimate': cmd_estimate,
@@ -153,6 +159,8 @@ def main():
     'collect': cmd_collect,
     'judge': cmd_judge,
     'report': cmd_report,
+    'fork': cmd_fork,
+    'agree': cmd_agree,
   }[args.command](args)
 
 
@@ -567,6 +575,59 @@ def cmd_report(args):
       out.append(f"| {model_key} × {corpus_key} | {cell(text)} | {cell('・'.join(row['flags']))} | " + ' | '.join(cells) + ' |')
   (run_dir / 'report.md').write_text('\n'.join(out) + '\n')
   print(run_dir / 'report.md')
+
+
+def cmd_fork(args):
+  # 🔴 判定役への指示を直したら、同じ応答を判定し直して一致率を比べる（#508）。応答を投げ直すと
+  # 応答の側も変わるので、比べたいものが混ざる。⚠ 元の回の判定は上書きしない。
+  source_dir = OUT_DIR / args.run
+  state = read_json(source_dir / 'state.json')
+  state.pop('judges', None)
+  state['source'] = state.get('source', args.run)
+  state['created_at'] = datetime.now().isoformat()
+  run = datetime.now().strftime('%Y%m%d-%H%M%S')
+  run_dir = OUT_DIR / run
+  run_dir.mkdir(parents=True)
+  (run_dir / 'respond.json').write_text((source_dir / 'respond.json').read_text())
+  write_json(run_dir / 'state.json', state)
+  print(f"run: {run}（{state['source']} の応答を引き継いだ）")
+
+
+def cmd_agree(args):
+  gold = yaml.safe_load((HERE / 'gold.yaml').read_text())['judgments']
+  # ⚠ fork した回を渡されたら、元の回の正解をその回の判定で数える。
+  readers = {}
+  for run in args.runs:
+    readers[read_json(OUT_DIR / run / 'state.json').get('source', run)] = run
+  out = ['| 判定役 | 本数 | 一致 | 食い違い | unsure | 判定なし |', '| --- | --- | --- | --- | --- | --- |']
+  details = []
+  for judge_key in JUDGES:
+    counts = {'agree': 0, 'differ': 0, 'unsure': 0, 'missing': 0}
+    for item in gold:
+      run = readers.get(item['run'], item['run'])
+      path = OUT_DIR / run / f'judge-{judge_key}.json'
+      key = custom_id(item['case'], *item.get('cond', 'opus--none').split('--'))
+      found = read_json(path).get(key) if path.exists() else None
+      if not (found and found.get('text')):
+        counts['missing'] += 1
+        continue
+      verdict = json.loads(found['text'])
+      if verdict['verdict'] == item['verdict']:
+        counts['agree'] += 1
+        continue
+      counts['unsure' if verdict['verdict'] == 'unsure' else 'differ'] += 1
+      minor = '（軽微）' if item.get('minor') else ''
+      details.append(
+        f"- {judge_key} `{run}` {item['case']}: 正解 **{item['verdict']}**{minor} / 判定 **{verdict['verdict']}**\n"
+        f"  - 正解の理由: {item['note']}\n  - 判定の理由: {verdict['reason']}"
+      )
+    judged = len(gold) - counts['missing']
+    rate = f"{counts['agree']}（{counts['agree'] / judged:.0%}）" if judged else '0'
+    out.append(f"| {judge_key} | {judged} | {rate} | {counts['differ']} | {counts['unsure']} | {counts['missing']} |")
+  print('\n'.join(out))
+  if details:
+    print('\n## 食い違い\n')
+    print('\n'.join(details))
 
 
 # --- 小物 ---
