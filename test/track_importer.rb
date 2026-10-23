@@ -264,6 +264,18 @@ module Makoto
       end
     end
 
+    # 🔴 **当たらない行は画面にも出す**（#483 → `TrackCommand#import`）。⚠ **syslog と同じ中身を返す。**
+    def test_unused_entries_are_returned_for_the_screen
+      with_corrections([{'id' => 9999, 'from' => 'a', 'to' => 'b'}]) do |dir|
+        importer = TrackImporter.new(dir, db: empty_db)
+
+        assert_empty(importer.unused)
+        importer.exec
+
+        assert_equal({correction: [9999]}, importer.unused)
+      end
+    end
+
     # 🔴 **配っている表の全行が、いまの普段用の曲データにそのまま当たること**
     # （⚠ **当たらない行は「表に書いたのに効いていない」**）。
     def test_the_shipped_kind_table_applies
