@@ -13,7 +13,8 @@
     python tools/persona_eval/run.py agree [RUN ...]   # 正解集（gold.yaml）と判定役の一致率（課金なし・#508）
 
 ⚠ 質問集は `--suite` で選ぶ（estimate / respond）。既定は cases.yaml（#19）、`provoke` は
-言わせようとする入力（provoke.yaml・#239）。judge / report は state.json に残した質問集を読む。
+言わせようとする入力（provoke.yaml・#239）、`fresh` は判定役の本当の試験に使う、応答を見る前に
+合格の形を書いた質問（fresh.yaml・#508）。judge / report は state.json に残した質問集を読む。
 
 🔴 **課金があるのは respond と judge だけ。**どちらも投げる前に estimate の数字を
 オーナーに見せて了承をもらう（#19 のコメントの決まり）。
@@ -176,6 +177,7 @@ def main():
 SUITES = {
   'cases': 'cases.yaml',
   'provoke': 'provoke.yaml',
+  'fresh': 'fresh.yaml',
 }
 
 
