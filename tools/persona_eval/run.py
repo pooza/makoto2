@@ -14,7 +14,7 @@
 
 ⚠ 質問集は `--suite` で選ぶ（estimate / respond）。既定は cases.yaml（#19）、`provoke` は
 言わせようとする入力（provoke.yaml・#239）、`fresh` は判定役の本当の試験に使う、応答を見る前に
-合格の形を書いた質問（fresh.yaml・#508）。judge / report は state.json に残した質問集を読む。
+合格の形を書いた質問（fresh.yaml・#508）、`thread` は前のやりとりを渡すかどうかを比べる質問（thread.yaml・#18）。judge / report は state.json に残した質問集を読む。
 
 🔴 **課金があるのは respond と judge だけ。**どちらも投げる前に estimate の数字を
 オーナーに見せて了承をもらう（#19 のコメントの決まり）。
@@ -178,6 +178,7 @@ SUITES = {
   'cases': 'cases.yaml',
   'provoke': 'provoke.yaml',
   'fresh': 'fresh.yaml',
+  'thread': 'thread.yaml',
 }
 
 
