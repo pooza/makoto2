@@ -146,6 +146,33 @@ module Makoto
       end
     end
 
+    # 🔴 **MV の表で 1 行も当たらない名前を残す**（#498）。
+    def test_an_unused_video_is_reported
+      with_aliases([]) do |dir|
+        videos = [
+          {'name' => 'しまうまグルグル', 'url' => 'https://music.apple.com/jp/music-video/test/1'},
+          {'name' => 'そんな曲は無い', 'url' => 'https://music.apple.com/jp/music-video/test/2'},
+        ]
+        File.write(File.join(dir, MusicVideos::FILE), videos.to_yaml)
+        warnings = import_with_warnings(dir, empty_db, 'video')
+
+        assert_equal(1, warnings.size)
+        assert_equal('unused', warnings.first[:state])
+        assert_equal(['そんな曲は無い'], warnings.first[:name])
+      end
+    end
+
+    # 🔴 **壊れた MV の表も「何も取り込まずに落ちる」**（#317 と同じ線）。
+    def test_a_broken_video_table_imports_nothing
+      with_aliases([]) do |dir|
+        File.write(File.join(dir, MusicVideos::FILE), [{'name' => 'しまうまグルグル', 'url' => 'https://example.test/'}].to_yaml)
+        db = empty_db
+
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db).exec}
+        assert_equal(0, db[:track].count)
+      end
+    end
+
     # 🔴 **`seed/track_aliases.yaml` の 2 組が実際に寄ること**（#123 の実データ）。
     #
     # ⚠⚠ **`Setlist#version_key` はこのクラスメソッドを通る**ので、**ここが寄れば
