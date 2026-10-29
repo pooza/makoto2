@@ -36,10 +36,7 @@ module Makoto
     # 🔴 **同じ曲だが表記が違うものの表**（#123 → `TrackAliases`）。⚠⚠ **訂正表とは
     # 別物**で、**あちらは片方が誤記、こちらはどちらも正しい。**
 
-    # 🔴 **公開してよい曲の URL のホスト**（#283）。⚠⚠ **`track.url` は曲紹介が 1 日 3 回、
-    # 永久に公開する URL**で、**Mastodon はプレビューカードのために取りに行く。**⚠ **収集は
-    # 月 1 回の定常の経路**（#294）なので、**上流の形が変わったら黙って公開せずに落とす。**
-    URL_HOSTS = ['music.apple.com'].freeze
+    # 🔴 **公開してよい曲の URL は `TrackUrl` が決める**（#283）。⚠ **MV の表（#498）と抽選（#355）も同じ線。**
 
     # 🔴 **投稿先がメンションと読む形**（#283）。⚠ **投稿の側で上流の `escape_sigils` が崩す**ので
     # 取り込みでは落とさず、**気づけるように残すだけ**（→ `report_mentions`）。
@@ -107,14 +104,24 @@ module Makoto
         mark_live
         sanitize_urls
       end
-      report_unused_aliases
-      report_unused_spoken
-      report_unused_entries(:correction, corrections)
-      report_unused_entries(:kind, kinds)
+      @unused = {
+        alias: report_unused_aliases,
+        spoken: report_unused_names(:spoken, spoken),
+        video: report_unused_names(:video, videos),
+        correction: report_unused_entries(:correction, corrections),
+        kind: report_unused_entries(:kind, kinds),
+      }.compact
       report_rejected_urls
       report_mentions
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
+    end
+
+    # 🔴 **表に書いたのに 1 行も当たらないもの**（表の名前 → 鍵の列）。⚠ **`exec` の後でだけ埋まる。**
+    # ⚠⚠ **syslog にしか出していなかった**ので、**`makoto track import` を手で叩いた人には counts しか
+    # 見えなかった**（#483）→ `TrackCommand#import` が画面にも出す。
+    def unused
+      return @unused || {}
     end
 
     def counts
@@ -129,20 +136,27 @@ module Makoto
 
     private
 
-    # 🔴 **名指しの表 4 枚は、確定の前に全部読む**（#317）。⚠⚠ **語りの表だけ確定の後に読んでいた**
+    # 🔴 **名指しの表は、確定の前に全部読む**（#317）。⚠⚠ **語りの表だけ確定の後に読んでいた**
     # ので、**壊れていると曲データは入ったうえで `exit 1` になり、`counts` も出なかった**（**レシピは
-    # そこで止まり、後段の `message import` が走らない**）。🔴 **壊れた表は 4 枚とも「何も取り込まずに
-    # 落ちる」に揃えた。**
+    # そこで止まり、後段の `message import` が走らない**）。🔴 **壊れた表はどれも「何も取り込まずに
+    # 落ちる」に揃えた。**⚠ **表を足したらここにも足す**（MV の表 #498）。
     def load_tables
       aliases.keys
       spoken.names
+      videos.names
       corrections
       kinds
+      return nil
     end
 
     def spoken
       @spoken ||= SpokenTracks.new(@dir, aliases: aliases)
       return @spoken
+    end
+
+    def videos
+      @videos ||= MusicVideos.new(@dir, aliases: aliases)
+      return @videos
     end
 
     def path(file)
@@ -176,7 +190,7 @@ module Makoto
       end
     end
 
-    # 🔴 **許可したホストの https だけを残す**（#283 → `URL_HOSTS`）。⚠⚠ **外れた行は `url` を
+    # 🔴 **許可したホストの https だけを残す**（#283 → `TrackUrl`）。⚠⚠ **外れた行は `url` を
     # 空にする** — **行は消さず、`linkable` から外れるので曲紹介にもライブにも出ない。**
     #
     # 🔴 **取り込んだ行だけでなく表全体を見る**（Codex の P2）。⚠⚠ **取り込みは「取り込み元に
@@ -184,16 +198,9 @@ module Makoto
     # 公開され続ける。**
     def sanitize_urls
       rows = @db[:track].exclude(url: nil).select_map([:id, :url])
-      ids = rows.reject {|_, url| public_url?(url)}.map(&:first)
+      ids = rows.reject {|_, url| TrackUrl.public?(url)}.map(&:first)
       @db[:track].where(id: ids).update(url: nil) unless ids.empty?
       @rejected_urls = ids
-    end
-
-    def public_url?(value)
-      uri = URI.parse(value.to_s)
-      return uri.is_a?(URI::HTTPS) && URL_HOSTS.include?(uri.host)
-    rescue URI::InvalidURIError
-      return false
     end
 
     def rejected_urls
@@ -203,7 +210,7 @@ module Makoto
     # ⚠ **落とした行を残す**（黙って曲が減らないように）。
     def report_rejected_urls
       return nil if rejected_urls.empty?
-      logger.warn(track: 'url', state: 'rejected', hosts: URL_HOSTS, id: rejected_urls)
+      logger.warn(track: 'url', state: 'rejected', hosts: TrackUrl::HOSTS, id: rejected_urls)
       return rejected_urls
     end
 
@@ -236,14 +243,15 @@ module Makoto
       return unused
     end
 
-    # 🔴 **語りのトラックの表で、1 行も当たらない名前を残す**（#298 → `SpokenTracks`）。
-    # ⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、その曲に歌向けの前置きが
-    # 付いていても気づけない**（**書き間違いは「表に書いたのに効いていない」**）。
-    def report_unused_spoken
-      return nil if spoken.empty?
-      unused = spoken.unused(@db[:track].select_map(:dedupe_key).to_set)
+    # 🔴 **名前で書く表で、1 行も当たらない名前を残す**（語りの表 #298 → `SpokenTracks`・MV の表 #498 →
+    # `MusicVideos`）。⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、表に書いたのに効いていない
+    # ことに気づけない**（**語りの表なら歌向けの前置きが付いたまま、MV の表なら音源のリンクのまま**で、
+    # **投稿を見ても分からない**）。
+    def report_unused_names(label, table)
+      return nil if table.empty?
+      unused = table.unused(@db[:track].select_map(:dedupe_key).to_set)
       return nil if unused.empty?
-      logger.warn(track: 'spoken', state: 'unused', name: unused)
+      logger.warn(track: label.to_s, state: 'unused', name: unused)
       return unused
     end
 

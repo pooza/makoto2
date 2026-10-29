@@ -36,6 +36,8 @@ module Makoto
       return shared_keys.any? {|shared| key.start_with?(shared)}
     end
 
+    # ⚠ **起動したときの設定と別名表のまま凍る**（`TrackImporter.default_aliases` と同じ・#483）。
+    # 🔴 **`shared_songs` や別名表を書き換えたら、常駐を再起動するまで効かない**（文面だけで並びは動かない）。
     def shared_keys
       @shared_keys ||= Array(optional_config('/live/setlist/shared_songs'))
         .map {|name| TrackImporter.dedupe_key(name)}.reject(&:empty?)

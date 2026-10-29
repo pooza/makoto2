@@ -181,12 +181,17 @@ module Makoto
       return SpokenTracks.new
     end
 
+    # 🔴 **MV の表**（#498）。⚠⚠ **呼ぶたびに作り直す**（#275・語りの表と同じ）。
+    def music_videos
+      return MusicVideos.new
+    end
+
     def source
       @source ||= SongSource.new(
         lottery: lottery,
         prefixes: SongSource::Prefixes.of(selector, kind_selectors, spoken: method(:spoken_tracks)),
         timetable: timetable,
-        collection_kinds: collection_kinds,
+        presentation: SongSource::Presentation.of(collection_kinds, videos: method(:music_videos)),
         quiet_types: quiet_types,
       )
       return @source

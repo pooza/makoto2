@@ -108,17 +108,27 @@ module Makoto
       end
     end
 
+    # 🔴 **本文の見せ方**（→ `TrackPresenter`）。**アルバム名を出す `kind`（#16）と、MV の表を返す口（#498 →
+    # `MusicVideos`）。**⚠ **どちらも「引いた曲をどう出すか」で、どの曲を引くかには効かない。**
+    #
+    # ⚠ **`videos` は呼ぶたびに作り直す**（#275 — メモすると常駐の中で凍る）。⚠ **無ければ MV は無い。**
+    Presentation = Data.define(:collection_kinds, :videos) do
+      def self.of(collection_kinds = nil, videos: nil)
+        return new(collection_kinds: Array(collection_kinds).map(&:to_s), videos: videos)
+      end
+    end
+
     # @param lottery [TrackLottery] 曲を引く口
     # @param prefixes [Prefixes] 前置きを引く口（共通 ＋ `kind` ごと・#293）
     # @param timetable [Timetable] 枠。⚠ **通し番号を出すのに要る**
-    # @param collection_kinds [Array<String>] アルバム名を出す kind（→ `TrackPresenter`）
+    # @param presentation [Presentation] 本文の見せ方（アルバム名を出す kind・MV の表）
     # @param quiet_types [Array<String>] ⚠ **この type が予約されている日は黙る**
-    def initialize(lottery:, prefixes:, timetable:, collection_kinds: nil, quiet_types: nil)
+    def initialize(lottery:, prefixes:, timetable:, presentation: nil, quiet_types: nil)
       @lottery = lottery
       @prefixes = prefixes
       @selector = prefixes.common
       @timetable = timetable
-      @collection_kinds = Array(collection_kinds).map(&:to_s)
+      @presentation = presentation || Presentation.of
       @quiet_types = Array(quiet_types).map(&:to_s)
       # 🔴 **引いた曲を枠ごとに覚える**（#41）。⚠ **プロセス内だけの記憶**で、
       # ⚠⚠ **`PostingJob` が「出した」と言ってきたときに履歴へ書くためだけにある**
@@ -228,6 +238,9 @@ module Makoto
     # 「黙る日」と「前置きが引けない日」を別々に見せる**（→ `SongCommand`）。
     #
     # ⚠ **`kind` を渡さなければ共通だけ**（#293 より前の形）。
+    #
+    # ⚠⚠ **本番からは呼ばれない**（#483）— 実機は `prefix_record`（`call` / 下見）。**テストが本文だけを
+    # 並べて比べるための口**として残している。
     def prefix(time = nil, kind: nil)
       time ||= Time.now
       index = @timetable.index_at(time)
@@ -265,7 +278,8 @@ module Makoto
     # 正本を 2 つに割らない**）。
     def presenter(track, prefix = nil)
       return TrackPresenter.new(
-        track,
+        # 🔴 **MV のある曲は MV のリンクにする**（#498）。⚠⚠ **ライブは差し替えない**（→ `TrackPresenter` 冒頭の表）。
+        with_video(track),
         prefix: prefix,
         # ⚠ **括弧書きは落とさない**（#119）。🔴 **`(TVサイズ)` `(オリジナル・カラオケ)`
         # は、その行が何なのかを言っている唯一の手掛かり。**⚠⚠ **ライブは落とす**
@@ -276,6 +290,27 @@ module Makoto
         artist: true,
         collection: collection?(track),
       )
+    end
+
+    # 🔴 **MV があれば、行の `url` を MV に差し替える**（#498）。⚠ **元の行は書き換えない**（履歴に書く行と同じもの）。
+    def with_video(track)
+      url = video_url(track)
+      return track unless url
+      return track.merge(url: url)
+    end
+
+    # 🔴 **MV の URL**（#498 → `MusicVideos`）。⚠ **無ければ nil**（＝音源のまま）。
+    #
+    # ⚠⚠ **表が読めなければ音源に倒す。**🔴 **1 枠の異常で投稿を止めない**（語りの表 #312 と同じ）。
+    # ⚠ **音源のリンクは MV が無い曲と同じ形**なので、**倒しても外れた投稿にはならない。**
+    def video_url(track)
+      return nil unless @presentation.videos
+      return @presentation.videos.call.url_for(track)
+    rescue => e
+      logger.warn(
+        post: Song::NAME, message: 'video table unreadable', error_class: e.class.name, error: e,
+      )
+      return nil
     end
 
     private
@@ -330,7 +365,7 @@ module Makoto
 
     # ⚠ **アルバム名を主役にする kind か**（→ `TrackPresenter` の「劇伴は…」）。
     def collection?(track)
-      return @collection_kinds.include?(track[:kind].to_s)
+      return @presentation.collection_kinds.include?(track[:kind].to_s)
     end
 
     # 🔴 **引けなかったら黙らない。**⚠⚠ **母集合が空・重みが全部 0 は設定の誤り**で、
