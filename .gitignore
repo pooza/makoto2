@@ -12,7 +12,9 @@ Desktop.ini
 *.bak
 *.swp
 .vscode
-.claude
+# ⚠ .claude は端末ごとの設定（settings.local.json）を持つので外す。スキルだけは git で共有する（#300）
+.claude/*
+!.claude/skills/
 
 # ⚠ tools/ の Python が作る中間ファイル。走らせるたびに diff に出る（2026-09-06 に追跡から外した）
 __pycache__/
