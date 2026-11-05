@@ -13,6 +13,11 @@ module Makoto
       def singer?(artist_name)
         return names.nil? || artist_name.to_s.start_with?('歌手')
       end
+
+      # ⚠ `歌手` が並んだ数を歌手の数とする（辞書に当てる本物の代わり → #157）。
+      def credit_count(artist_name)
+        return [artist_name.to_s.scan('歌手').size, 1].max
+      end
     end
 
     # ⚠ **警告を数えるための受け皿**（#88）。⚠⚠ **「黙って 0 件になる」を防ぐのが

@@ -140,7 +140,7 @@ module Makoto
 
     def weight_of(track)
       return 1 if solo_weight <= 1
-      return CureApiService.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
+      return @cure_api.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
     end
   end
 end

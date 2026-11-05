@@ -38,6 +38,7 @@ module Makoto
       return Struct.new(:x) do
         def available? = true
         def singer?(_name) = true
+        def credit_count(_name) = 1
       end.new(nil)
     end
 
