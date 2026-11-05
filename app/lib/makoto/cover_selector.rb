@@ -112,7 +112,7 @@ module Makoto
     end
 
     def weight_of(track)
-      return CureApiService.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
+      return @cure_api.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
     end
 
     # 重み付きの非復元抽出。⚠⚠ **同じ日付なら毎回同じ並びになること**を壊さない

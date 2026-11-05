@@ -43,34 +43,6 @@ module Makoto
 
     CACHE_NAME = 'cure_api_singers.json'.freeze
 
-    # ⚠ **名義を「何人並んでいるか」で割る区切り**（#65・`credit_count`）。
-    # ⚠⚠ **`split_artist` の区切りとは別物**（あちらは括弧も `CV:` も割る）。
-    #
-    # ⚠ **`with` / `feat.` は入れる。**実データの名義 15 件に出て、⚠⚠ **全件が
-    # 「単独の歌手 ＋ もう 1 組」の区切り**（`うちやえゆか with Splash Stars`）。
-    # 入れないと**この形が単独名義として重みを 2 倍もらう**（#67 のレビュー指摘）。
-    # ⚠ **`\b` は使わない。**`normalize` が空白を落とすので `うちやえゆかwithSplashStars`
-    # になり、⚠⚠ **`\bwith\b` は非 ASCII の隣で効かない**（`and` と同じ罠）。
-    #
-    # ⚠ **`and` は入れない。**実データに `and` を含む名義は 0 件。⚠ **`with` と違って
-    # 出てこないので、書いても「対応済み」に見えるだけ害になる。**
-    CREDIT_SEPARATOR = %r{[,、&＆/／]|with|feat\.?}i
-
-    # ⚠⚠ **中黒は「2 つ以上あるときだけ」区切りとみなす**（#65・#67 のレビュー指摘）。
-    #
-    # ⚠ **中黒は名前の中にも入る** — `キュア・カルテット` `ヤング・フレッシュ`
-    # `ルールー・アムール` はどれも 1 組。無条件に割ると**単独名義が複数名義に化ける。**
-    # ⚠ 一方 `Machico・吉武千颯・北川理恵・ローラ・…`（8 人）は**割らないと単独名義**
-    # として重みを 2 倍もらう。実データではこの 2 つが中黒の数で分かれる。
-    #
-    # ⚠ **括弧を落としてから数える。**`キュア・レインボーズ(五條真由美・うちやえゆか・…)`
-    # は括弧の中に中黒が並ぶだけで、名義そのものは 1 組。
-    #
-    # ⚠ **例外は `ピョートル・イリイチ・チャイコフスキー`**（1 人だが中黒 2 つ）。
-    # ⚠⚠ **カバーの母集合はプリキュア歌手に絞ってあるので届かない**（実測）。
-    MIDDLE_DOT = '・'.freeze
-    MIDDLE_DOT_THRESHOLD = 2
-
     # 取得したものはプロセスの寿命だけ持つ。⚠ **8 時間のライブ中に何度も引かない**
     # （並びは日付ごとに 1 回組むだけだが、キャッシュが無いと再起動のたびに引く）。
     def initialize(http: nil)
@@ -135,14 +107,35 @@ module Makoto
       return singer_names.any?
     end
 
-    # 名義に何人が並んでいるか（#65）。⚠ **`split_artist` は使えない。**
-    # あちらは**歌手辞書に当てるために**括弧も `CV:` も割るので、
-    # ⚠⚠ **`パンプルル姫(CV:花澤香菜)` が 2 人、`秋元こまち(CV:永野 愛) & 水無月かれん
-    # (CV:前田 愛)` が 4 人**になる。**当てる規則と数える規則は別物。**
+    # 名義に何人が並んでいるか（#65）。🔴 **区切って数えず、辞書に当てて数える**
+    # （#157・2026-09-07 の A+ と、2026-11-05 の追加の判断・どちらもオーナー）。
     #
-    # ⚠ **括弧の中は数えない**（CV 表記・コーラス表記は「もう 1 人」ではない）。
-    def self.credit_count(value)
-      return [credit_parts(value).size, 1].max
+    # ⚠⚠ **区切り文字で割る規則は限界だった** — **中黒を区切りとみなすかを中黒の個数で
+    # 決めていた**ので、`五條真由美・宮本佳那子`（中黒 1 つで 2 人）は原理的に当たらず、
+    # 区切り文字も供給元の書き方が増えるたびに伸びていた。
+    #
+    # 数えるのは次の 2 つの和。⚠ **0 にしない**（何も当たらなければ 1 人）。
+    #
+    # 1. 🔴 **辞書に当たった歌手**（括弧の中は見ない）。⚠ **当て方はモロヘイヤの
+    #    `TaggingDictionary#matches` と同じ** — **長い名前から当てて、当たったら本文から消す**
+    #    （`キュア・カルテット` と構成員を二重に数えない）
+    # 2. 🔴 **括弧の注記が付いた、辞書に居ない名前**（`秋元こまち(CV:永野 愛)` / `本名陽子(なぎさ)` /
+    #    `沖 佳苗(as キュアピーチ)`）。⚠⚠ **キャラクター名義のデュエットを 1 人にしない**
+    #    （2026-11-05 の実測で `キュアブラック(本名陽子), …` の 9 人が 1 になっていた）。
+    #    ⚠ **辞書に居る名義の括弧は構成員の注記なので数えない**（`キュア・レインボーズ(五條真由美・…)`）
+    #
+    # - 🔴 **コーラス区画は先に落とす**（`OwnCredit::CHORUS` — 同じ判断を 2 か所に書かない）。
+    #   ⚠⚠ 落とさないと辞書が区画の中の名前まで当てて、`北川理恵 コーラス:五條真由美・Machico` が 3 になる
+    # - ⚠ **括弧の無い、辞書に居ない名前は数えない**（作品名 `、ひろがるスカイ!プリキュア` や
+    #   非プリキュア歌手）。⚠ **使い道がカバーの母集合 ＝ プリキュア歌手の持ち歌に閉じている**
+    #
+    # ⚠ **辞書が引けないと、括弧の注記の数だけになる**が、⚠⚠ **そのときカバーは置かれない**
+    # （`CoverSelector#exec` が `available?` を先に見る）ので、重みに効く場面は無い。
+    def credit_count(value)
+      text = self.class.normalize(value).gsub(OwnCredit::CHORUS, '')
+      dictionary = credit_dictionary
+      count = singers_in(text.gsub(BRACKETS, ''), dictionary) + annotated_in(text, dictionary)
+      return [count, 1].max
     end
 
     # 名義を突き合わせられる形にしたもの。⚠ **正規化（NFKC ＋ 空白除去）＋ 括弧落とし**
@@ -152,8 +145,7 @@ module Makoto
     # ない → `credit_count`）。⚠ **`グロッサムX2(CV:宮本佳那子)` は `グロッサムX2`。**
     #
     # 🔴 **「含むか」を見たいだけの側はここで足りる**（→ `LiveProgram#own_credit?`）。
-    # ⚠⚠ **区切り位置は「含むか」の答えを変えない**ので、⚠ **中黒を区切りにするか
-    # という一番あやふやな判断を巻き込まずに済む**（→ `credit_separator`）。
+    # ⚠⚠ **区切り位置は「含むか」の答えを変えない**ので、⚠ **区切り方の判断を巻き込まずに済む。**
     #
     # 🔴 **括弧の種類は `split_artist` と揃える**（Codex の指摘・PR #156）。
     # ⚠⚠ **`花奈〈CV: 宮本 佳那子〉` は実在の書き方**（→ `split_artist` のコメント）で、
@@ -164,21 +156,6 @@ module Makoto
 
     def self.credit_text(value)
       return normalize(value).gsub(BRACKETS, '')
-    end
-
-    # 名義を「並んでいる 1 組ずつ」に割ったもの。⚠ **正規化済み**（→ `credit_text`）。
-    #
-    # 🔴 **割り方の規則を 2 つ持たない**ためにここに置く。⚠⚠ **割る必要があるのは
-    # 「何人並んでいるか」を数える側だけ**（#65 の `credit_count`）。
-    def self.credit_parts(value)
-      stripped = credit_text(value)
-      return stripped.split(credit_separator(stripped)).map(&:strip).compact_blank
-    end
-
-    # ⚠ **中黒を区切りに足すかは名義ごとに決まる**（→ 上記 `MIDDLE_DOT`）。
-    def self.credit_separator(stripped)
-      return CREDIT_SEPARATOR if stripped.count(MIDDLE_DOT) < MIDDLE_DOT_THRESHOLD
-      return Regexp.union(CREDIT_SEPARATOR, MIDDLE_DOT)
     end
 
     # ⚠ 表記の揺れを落とす。cure-api 側の `Datasource.normalize_name` と同じ規則
@@ -196,6 +173,31 @@ module Makoto
     end
 
     private
+
+    # 辞書に当たった名前の数。⚠ **当たったら本文から消す**（→ `credit_count`）。
+    def singers_in(text, dictionary)
+      return dictionary.count do |name|
+        next false unless text.include?(name)
+        text = text.gsub(name, '')
+        next true
+      end
+    end
+
+    # 括弧の注記が付いた、辞書に居ない名前の数（→ `credit_count`）。⚠ **空の括弧**（コーラス区画を
+    # 落とした跡）**は数えない。**
+    def annotated_in(text, dictionary)
+      return text.enum_for(:scan, BRACKETS).count do
+        match = Regexp.last_match
+        next false if match[0].length <= 2
+        prefix = text[0...match.begin(0)]
+        next dictionary.none? {|name| prefix.end_with?(name)}
+      end
+    end
+
+    # ⚠ **長い名前から当てる**（→ `credit_count`）。
+    def credit_dictionary
+      return singer_names.sort_by {|name| [-name.size, name]}
+    end
 
     def retryable?
       return true unless @failed_at
