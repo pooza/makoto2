@@ -12,6 +12,7 @@ module Makoto
   # ここは取り込みだけを担う。
   class TrackImporter
     include Package
+    extend Forwardable
 
     # 普段用 4,305 曲。ライブ用 234 曲はこの部分集合。
     DAILY = 'makoto_tracks_daily.json'.freeze
@@ -59,9 +60,11 @@ module Makoto
     # 非対称を残すほうが危ない（実データに該当は 0 件）。
     NOISE = /[[:space:][:punct:]♪♯♭♮☆★〜～＋×]/
 
-    def initialize(dir = nil, db: Database.connection)
+    # ⚠ **`soundtrack` を渡せるのはテストのため**（cure-api を引かずに歌手を決める）。
+    def initialize(dir = nil, db: Database.connection, soundtrack: nil)
       @dir = dir || File.join(Environment.dir, config['/track/dir'])
       @db = db
+      @soundtrack = soundtrack || SoundtrackSong.new
     end
 
     # 曲名を重複判定用の鍵にする。
@@ -111,8 +114,7 @@ module Makoto
         correction: report_unused_entries(:correction, corrections),
         kind: report_unused_entries(:kind, kinds),
       }.compact
-      report_rejected_urls
-      report_mentions
+      report
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
     end
@@ -305,13 +307,22 @@ module Makoto
     # 🔴 **どちらも「この行は消せる」合図なので黙らせない。**
     def corrected_kind(row)
       entry = kinds[row[:trackId]]
-      # ⚠ **表に無い行は素のまま**（`nil` も `nil` のまま入れる）。
-      return row[:kind] unless entry
+      # ⚠ **表に無い行は、サントラ盤の中の歌を見分ける規則だけを当てる**（#497）。
+      # ⚠⚠ **表が先**（行ごとに名指しした判断のほうが強い）。`nil` は `nil` のまま入れる。
+      return @soundtrack.kind(row) unless entry
       kind = row[:kind].to_s
       return entry[:to] if kind == entry[:from]
       logger.warn(track: 'kind', id: row[:trackId], state: correction_state(kind, entry),
         expected: entry[:from], actual: kind)
       return kind
+    end
+
+    # ⚠ **取り込みの後に出す警告。**🔴 **サントラ盤の中の歌**（#497）は、⚠⚠ **歌手の一覧が
+    # 引けないと歌手名義の行が黙って `bgm` に残る**ので、`SoundtrackSong` の側が言う。
+    def report
+      report_rejected_urls
+      report_mentions
+      @soundtrack.report(logger)
     end
 
     # ⚠ **訂正表と分類の表の読み込みと検査は `TrackFixes`**（#317 で分けた）。
@@ -320,13 +331,7 @@ module Makoto
       return @fixes
     end
 
-    def corrections
-      return fixes.corrections
-    end
-
-    def kinds
-      return fixes.kinds
-    end
+    def_delegators :fixes, :corrections, :kinds
 
     # ⚠ **`live` は毎回 false に落としてから立て直す。**ライブ用の定義が変わって
     # 外れた曲に、前回の投入で立てたフラグが残らないようにする。
