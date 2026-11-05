@@ -58,10 +58,21 @@ module Makoto
       assert_equal('bgm', rule.kind(row('テストのうた -Short Version-', '作曲家A')))
     end
 
-    # ⚠ **`bgm` でない行には触らない。**
+    # 🔴 **`vocal` の短縮版も `tv_size`**（サントラ盤の外・2026-11-05）。⚠ **名義は問わない**
+    # （歌手の一覧が引けなくても移す）。
+    def test_short_vocals_are_tv_size
+      names = ['テストのうた(Shortサイズ)', 'テストのうた Short Ver.', 'テストのうた (TV サイズ)', 'テストのうた (映画サイズ)']
+
+      names.each do |name|
+        assert_equal('tv_size', rule(online: false).kind(row(name, '誰か', kind: 'vocal')), name)
+      end
+      assert_equal('vocal', rule.kind(row('テストのうた (キュアスター・ヴァージョン)', '誰か', kind: 'vocal')))
+    end
+
+    # ⚠ **`bgm` / `vocal` でない行には触らない。**
     def test_other_kinds_are_untouched
       assert_equal('karaoke', rule.kind(row('テストのうた (TVsize)', '歌手A', kind: 'karaoke')))
-      assert_equal('vocal', rule.kind(row('テストのうた (映画サイズ)', '歌手A', kind: 'vocal')))
+      assert_equal('instrumental', rule.kind(row('テストのうた (映画サイズ)', '歌手A', kind: 'instrumental')))
     end
   end
 end

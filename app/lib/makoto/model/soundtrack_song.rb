@@ -1,5 +1,6 @@
 module Makoto
-  # サントラ盤に入っている歌を、名義で見分けて `bgm` から外す規則（#497）。
+  # サントラ盤に入っている歌を、名義で見分けて `bgm` から外す規則（#497）。⚠ **あわせて、`vocal` に
+  # 入っている短縮版を `tv_size` に移す**（下記「`vocal` の短縮版」）。
   #
   # ⚠⚠ **収集側の `bgm` はアルバム名だけで決まる**（`seed/track_kind.py` — 「サウンドトラック」
   # 「サントラ」「音楽集」など）。🔴 **サントラ盤には主題歌の映画サイズ・挿入歌・キャラクター
@@ -17,6 +18,13 @@ module Makoto
   #   - ⚠⚠ **変身バンクの歌（0:43〜0:57）は `vocal`** — 短いが、それで全部の歌であって短縮版ではない。
   #     **長さでは切らない**
   #
+  # ## `vocal` の短縮版（2026-11-05・オーナー判断）
+  #
+  # 🔴 **「短縮版は `tv_size`」はサントラ盤の外にも当てる。**⚠⚠ **収集側の `tv_size` は「TV サイズ」しか
+  # 見ない**ので、シングル盤やボーカルアルバムの「(Shortサイズ)」「Short Ver.」「(映画サイズ)」が
+  # `vocal` に入っていた（2026-11-05 の実測で既存 7 行・#308 の新しい行 2 行）。⚠ **名義は問わない**
+  # （`vocal` の行はもともと歌）。
+  #
   # ⚠ **作品名が名義の古い盤**（無印 MH / S☆S / 5 / 5GoGo）は名義では判定できない。**そこにある歌は
   # `seed/track_kinds.yaml` で行ごとに正す。**
   class SoundtrackSong
@@ -29,19 +37,18 @@ module Makoto
     #
     # ⚠ **「DX3 version」も短縮版**（『映画プリキュアオールスターズDX3』のサントラ・1:19〜1:27）。
     # ⚠⚠ **いまの曲データには無く、2026-11-05 の収集の下見で新しい行に見つかった**（#308）。
-    SHORT = /(TV|映画)\s*(サイズ|size)|short\s*(サイズ|size|version|edit)|(映画|劇場|movie|DX\d*)[^()]*version/i
+    # ⚠ **`Short Ver.` も短縮版**（`ver` は `version` も拾う）。
+    SHORT = /(TV|映画)\s*(サイズ|size)|short\s*(サイズ|size|ver|edit)|(映画|劇場|movie|DX\d*)[^()]*version/i
 
     def initialize(cure_api: nil)
       @cure_api = cure_api
       @moved = Hash.new(0)
     end
 
-    # 正した `kind`。⚠ **`bgm` でなければ、または歌でなければ、そのまま返す。**
+    # 正した `kind`。⚠ **`bgm` と `vocal` のほかは、そのまま返す。**
     def kind(row)
-      return row[:kind] unless row[:kind] == 'bgm'
-      return row[:kind] unless song?(row[:artistName])
-      kind = short?(row[:trackName]) ? 'tv_size' : 'vocal'
-      @moved[kind] += 1
+      kind = corrected(row)
+      @moved["#{row[:kind]}->#{kind}"] += 1 unless kind == row[:kind]
       return kind
     end
 
@@ -70,6 +77,17 @@ module Makoto
     end
 
     private
+
+    def corrected(row)
+      case row[:kind]
+      when 'vocal'
+        return short?(row[:trackName]) ? 'tv_size' : 'vocal'
+      when 'bgm'
+        return 'bgm' unless song?(row[:artistName])
+        return short?(row[:trackName]) ? 'tv_size' : 'vocal'
+      end
+      return row[:kind]
+    end
 
     # ⚠ **要るときにだけ作る**（`bgm` でない行では cure-api を引かない）。
     def cure_api
