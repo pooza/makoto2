@@ -91,10 +91,37 @@ module Makoto
       return @repository.distinct(@repository.linkable(records))
     end
 
+    # 🔴 **曲ごとにスコアを出し、小さい順に取る**（#309）。⚠⚠ **母集合を並べて
+    # `Random` で引く形は、1 曲増えるだけで並びの位置がずれ、ほぼ全部が引き直しに
+    # なっていた**（2026-09-11 の実測で 11/4 のカバー 8 曲のうち 6 曲）。
+    # **スコアは曲ごとに独立**なので、⚠ **新しい曲が既存のカバーを押し出すのは、
+    # その曲のスコアが上位に入るときだけ。**
+    #
+    # ⚠ **重み付きの非復元抽出は Efraimidis–Spirakis の形**（`-ln(U) / 重み` の小さい順）。
+    # 重みがすべて 1 なら一様抽選と同じ分布になる。
     def sample(pool, total)
-      random = Random.new(@date.strftime('%Y%m%d').to_i)
-      return pool.sample(total, random: random) if solo_weight <= 1
-      return weighted_sample(pool, total, random)
+      return pool.sort_by {|track| [score_of(track), key_of(track)]}.first(total)
+    end
+
+    def score_of(track)
+      return -Math.log(uniform_of(track)) / weight_of(track)
+    end
+
+    # 🔴 **日付と曲の鍵から決まる (0, 1) の値。**⚠⚠ **`Random` は使わない**
+    # （→ `Rotation.shuffle` と同じ理由 — **Ruby の実装・版に依存しうる**）。
+    # ⚠ **0 を出さない**（`-ln(0)` は無限大）ので、53 ビットに 0.5 を足して割る。
+    def uniform_of(track)
+      digest = Digest::SHA256.hexdigest("#{@date.strftime('%Y%m%d')}-#{key_of(track)}")
+      return ((digest[0, 14].to_i(16) >> 3) + 0.5).fdiv(1 << 53)
+    end
+
+    # 🔴 **鍵は `dedupe_key`**（`id` は DB ごとの採番なので、`bydo` と `rubicon` で
+    # 同じ曲が別の番号になる → `Rotation.key_of` と同じ理由）。⚠ **母集合は
+    # `distinct` を通した代表なので、鍵は曲ごとに 1 つ。**
+    def key_of(track)
+      return track[:dedupe_key] if track[:dedupe_key]
+      # ⚠ **鍵の無い行**は、その箱の中では決定的だが箱をまたいでは揃わない。
+      return "id:#{track[:id]}"
     end
 
     def warn(message, **rest)
@@ -112,28 +139,8 @@ module Makoto
     end
 
     def weight_of(track)
+      return 1 if solo_weight <= 1
       return CureApiService.credit_count(track[:artist_name]) == 1 ? solo_weight : 1
-    end
-
-    # 重み付きの非復元抽出。⚠⚠ **同じ日付なら毎回同じ並びになること**を壊さない
-    # （種は日付から作る。壊すと再起動で曲順が変わる）。
-    def weighted_sample(pool, total, random)
-      remaining = pool.dup
-      results = []
-      while results.size < total && remaining.any?
-        results.push(remaining.delete_at(pick_index(remaining, random)))
-      end
-      return results
-    end
-
-    def pick_index(remaining, random)
-      weights = remaining.map {|track| weight_of(track)}
-      point = random.rand(weights.sum.to_f)
-      weights.each_with_index do |weight, index|
-        point -= weight
-        return index if point.negative?
-      end
-      return remaining.size - 1
     end
   end
 end
