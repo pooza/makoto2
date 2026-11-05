@@ -41,6 +41,7 @@ gh pr list --repo pooza/makoto-scripts --state open   # 原稿の正本（privat
 - 🔴 **「モンキーテスト待ちで open」の Issue があったら、実機がその版で動いているかを見る**（待っている対象が動いていなければ、何日待っても結果は出ない）
 - 🔴 **名前が引けなければ VPN を繋ぐ**（`bydo` / `rubicon` は自宅 LAN の中）。「名前が引けない」は「届かない」ではない
 - 🔴 **本番（`rubicon`）の再起動は日曜 08:30〜09:00 を避ける**（キュアスタ！の実況の時間）
+- 🔴 **当てるのは [deploy スキル](../deploy/SKILL.md)**（明示呼び出し・同期の中では当てない）
 - → 経緯: `docs/CLAUDE.md`「デプロイ・運用」、PR を当てた記録は各リリースの節
 
 ## 4. Dependabot
