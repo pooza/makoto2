@@ -790,6 +790,10 @@ https://music.apple.com/jp/album/girls-work/…   ← ⚠ プレビューカー�
 - **インフラ情報** → `pooza/chubo2` の `docs/`。🔴 **2026-08-23 に用途別 8 ファイルへ分割された** — ⚠⚠ **`infra-note.md` は索引**（運用方針・定期点検・資格情報の満了）で、⚠ **MAKOTO の箱は `infra-servers.md`**（「MAKOTO 開発環境 (bydo)」/「MAKOTO 本番 (rubicon)」）、**チューニングは `infra-tuning.md`**
 - **メモリを正本にしない** — 他端末・他セッションから読めないため、引き継ぎが必要な情報は必ず docs か chubo2 に書き、メモリには「どこに書いたか」のポインタだけ残す
 - **クロスリポジトリの Issue 参照は `owner/repo#number` 形式**（`#123` だけでは同一リポジトリを指す）
+- 🔴 **名前のついた手順書** → **スキル（`.claude/skills/<name>/SKILL.md`・git 管理下）が正本**（2026-11-05・#300。作法の正本は [`ginseng-style` の docs/skills.md](https://github.com/pooza/ginseng-style/blob/main/docs/skills.md)）。**docs の節はポインタと「なぜそうするか」・踏んだ記録だけを持つ**
+  - ⚠ **外へ書く step が 1 つでもある手順は `disable-model-invocation: true`**（明示で呼ぶ）。⚠ **同期は例外で自動でよい**（本体は読むだけで、書く前に必ず報告して判断を仰ぐ）
+  - ⚠ **docs のコードブロックはスキルの `scripts/` へ移す**（注意書きをコードにする）。⚠⚠ **`rake test` / rubocop の対象外**なので、`shellcheck` を通し、同期で実際に回して確かめる
+  - ⚠ **Codex の走査の規約は持たない**（`ginseng-style` のプラグイン `ginseng:codex-review` が正本）
 
 ## ブランチ戦略
 
@@ -3878,6 +3882,10 @@ bin/makoto corpus stat     # 件数を確認する
 - 🔴 **増えていく数を地の文に書かない**（2026-09-13・Codex の P2）— ⚠⚠ **「6 回リハーサルした並び」は 7 回目を足したその PR の中で古くなった**（`0.5.1` / `0.9` の行と [track-corpus.md](track-corpus.md) の 3 箇所）。⚠ **数ではなく数え方を置く**（「当日通しリハーサルを重ねた並び」・回数は各回の節が正本）
 
 ## セッション開始時の同期手順
+
+🔴 **手順の正本は [.claude/skills/sync/SKILL.md](../.claude/skills/sync/SKILL.md)（スキル `sync`）へ移した**（2026-11-05・#300）。⚠ **「進捗を同期してください」で起動する。手順を足すときはスキルの側だけを直す。**
+
+⚠ **この節に残っているのは、各段の「なぜそうするか」と踏んだ記録**（ほかの節が「同期手順 N.」の番号で指しているので、番号はスキルと揃えたまま残す）。⚠⚠ **手順として頭から通すのはスキルのほう。**
 
 会話の最初に「進捗を同期してください」等の指示があった場合に実行する。
 
