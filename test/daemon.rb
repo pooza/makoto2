@@ -183,11 +183,16 @@ module Makoto
     #
     # 🔴 **`send_signal` は差し替えない**（#187）— ⚠⚠ **身元の判定はそこに置いてある**
     # ので、**差し替えると見たい判定ごと消える。**
+    #
+    # ⚠ **シグナル 0（在否の確かめ）は数えない。**`ginseng-core` 2.2.0 から上流の
+    # `run_stop` が送る前に `alive_state_of` へ訊く（上流 `#673`）ので、0 が 2 本混ざる。
+    # ⚠ 0 は相手に何も起こさない。見たいのは「誰に TERM を送ったか」だけ（#486）。
     def with_captured_kill(error: nil)
       sent = []
       original = Process.method(:kill)
       Process.define_singleton_method(:kill) do |signal, target|
         raise error if error
+        next 1 if signal.to_s == '0'
         sent.push([target, signal])
         next 1
       end
