@@ -4339,6 +4339,21 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ✅ **実例**（2026-08-20）: **#100（429 で `Retry-After` を見ない）を `pooza/ginseng-core#525` として上流へ出した。**⚠ **#95（`return` の多行チェイン）は上流に既に判断があった**ので**makoto2 側はクローズ**（→ 下記「lint の設定」）。
 
+#### ✅ 追随した（2026-11-05・#486 / #539）— core 1.25.1 → 5.0.0・fediverse 3.1.4 → 7.1.0
+
+🔴 **手順の正本はスキル [`upstream`](../.claude/skills/upstream/SKILL.md)**（この回で作った・#539）。ここには記録だけ置く。
+
+| 読んだ major | makoto2 に当たるか |
+| --- | --- |
+| core 2.0.0（`host_validator` が `follow_redirects` を尊重・`save_config` が symlink を拒む） | `account` は `follow_redirects: true` を明示済み（#486 の本文の追随）。`tmp` / `tmp/cache` は `bydo` / `rubicon` とも実ディレクトリ |
+| core 3.0.0 / 4.0.0 / 5.0.0（資格情報と数える名前が増え、ガード付きの口で 3xx が `GatewayError` に・`secrets=` の型） | makoto2 はそれらのヘッダ・クエリを送らない。`CommandLine#secrets=` を使っていない |
+| fediverse 4.0.0〜7.0.0（ガードの core への移動・`TootURI` / `NoteURI` / `upload_remote_resource` のホスト検証・`MulukhiyaService` のガード） | どの口も使っていない |
+
+- 🔴 **テストが 6 件落ちた** — すべて `run_stop` の `kill` の記録。⚠ core 2.2.0（上流 `#673`）から `run_stop` が送る前に `alive_state_of` へ訊くので、**シグナル 0（在否の確かめ）が 2 本混ざった**だけで、TERM の宛先と本数は変わらない。⚠⚠ 落ちていた間は、後ろの「pid ファイルを残す / 消す」の確かめが走っていなかった（直したらアサーションが 5 本増えて全部通った）
+- ⚠ `bundle update` を `--conservative` なしで回すと `facets` 3 → 4 などが混ざった → 付けて回し直した（増えたのは `resolv` 0.8.1 だけ）
+- ✅ 下見の全文（`live setlist --mc --body --limit=160` の 740 行・`morning preview`）が前後で 1 バイトも変わらない。1147 tests / 0 failures・rubocop 0・`config:lint` OK
+- ⚠ **#525（json-schema の MultiJSON 警告）はこの版では片付かない** — 上流 `ginseng-core#739` が open のまま
+
 #### ✅ 追随した（2026-09-06・#257）— 常駐の pid まわり
 
 🔴 **`ginseng-core` 1.23.5 → 1.23.7**（`d53a18b` → `b6e736d`・**5 commits**）。⚠⚠ **同梱は無い**（**依存の版も 1 つも動いていない**）。
@@ -4412,6 +4427,8 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 ⚠ **`cert/cacert.pem` は置かない**（2026-08-24）。⚠⚠ **上流 `#512` で「無ければ OS の CA ストアに倒れる」ようになった**ので**無害**で、**持つと更新の当番が増える**（🔴 **上流自身が `#515` で当番不在になっている**）。⚠ **固定したくなったら `rake cert:update` を叩けばよい、という状態にしておくのが目的。**
 
 ### 🔴 `ginseng-*` との往復（2026-08-21・#139 / #37）
+
+🔴 **新しい版へ追随する手順の正本はスキル [`upstream`](../.claude/skills/upstream/SKILL.md)**（2026-11-05・#539）。この節は分担と、出すときの作法。
 
 ⚠⚠ **上流は自走している。**⚠ **要望は Issue か PR で送れば埋もれずに処理される**ので、**makoto2 側で抱え込まない**。規約の正本は [ginseng-style の docs/workflow.md](https://github.com/pooza/ginseng-style/blob/main/docs/workflow.md)。**ここにはそれを毎回読み直さずに済むだけの要点を置く。**
 
