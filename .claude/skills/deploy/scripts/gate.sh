@@ -16,7 +16,8 @@ if [ -z "$config" ]; then
   echo "⚠ $host から timetable が読めない（VPN・常駐の設定を確かめる）"
   exit 1
 fi
-now=$(ssh -o ConnectTimeout=10 "$host" 'date +%s')
+# ⚠ GATE_NOW（epoch 秒）で「いま」を差し替えられる（門そのものを確かめるときだけ）。
+now=${GATE_NOW:-$(ssh -o ConnectTimeout=10 "$host" 'date +%s')}
 # shellcheck disable=SC2016 # ruby のコードなので展開しない
 CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
   require "time"
@@ -45,15 +46,20 @@ CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
     end
   end
   bad = []
-  if [11].include?(now.month) && (1..4).cover?(now.day)
-    bad << "11/1〜11/4 はインフラの凍結（rubicon に触らない）"
+  # ⚠ 端の時刻だけでなく、窓全体が禁止の期間と重なるかを見る（窓が期間をまるごと含む形を通さない）。
+  overlap = ->(from, to) { now < to && from <= until_t }
+  [now.year, until_t.year].uniq.each do |year|
+    if overlap.call(Time.new(year, 11, 1), Time.new(year, 11, 5))
+      bad << "11/1〜11/4 はインフラの凍結（rubicon に触らない）"
+    end
   end
   if ENV["HOST"] == "rubicon"
-    [now, until_t].each do |t|
-      if t.sunday? && t.strftime("%H:%M") >= "08:30" && t.strftime("%H:%M") < "09:00"
-        bad << "日曜 08:30〜09:00 は実況の時間（#{t.strftime("%H:%M")}）"
-        break
+    day = Time.new(now.year, now.month, now.day)
+    while day <= until_t
+      if day.sunday? && overlap.call(at.call(day, "08:30"), at.call(day, "09:00"))
+        bad << "日曜 08:30〜09:00 は実況の時間（#{day.strftime("%m-%d")}）"
       end
+      day += 86_400
     end
   end
   inside = heads.select { |head, _| head <= until_t && head + tolerance >= now }.sort

@@ -35,16 +35,31 @@ case "${1:-}" in
       sudo -u deploy -i bash -c 'cd ~/repos/makoto2 && bin/makoto rehearsal report'"
     ;;
   disarm)
-    ssh "$host" "sudo rm -rf $dir && sudo systemctl daemon-reload && sudo systemctl restart makoto2"
-    sleep 15
-    env=$(ssh "$host" 'systemctl show makoto2 -p Environment -p DropInPaths')
-    echo "$env"
-    ssh "$host" 'sudo -u deploy -i bash -c "cd ~/repos/makoto2 && bin/makoto status"' 2>/dev/null | grep -v DEPRECATION | head -3
-    if printf '%s' "$env" | grep -q 'MAKOTO_FAKE_TIME\|MAKOTO_TIME_SCALE'; then
-      echo "🔴 騙した時刻が systemd に残っている"
+    # 🔴 どこかで失敗したら撤収したと言わない（ssh が落ちて値が空でも緑に見えないように）。
+    if ! ssh "$host" "sudo rm -rf $dir && sudo systemctl daemon-reload && sudo systemctl restart makoto2"; then
+      echo "🔴 drop-in の削除か再起動に失敗した。撤収していない"
       exit 1
     fi
-    echo "✅ 撤収した（status の先頭に time travel が出ていないことも見る）"
+    sleep 15
+    if ! env=$(ssh "$host" 'systemctl show makoto2 -p Environment -p DropInPaths') || [ -z "$env" ]; then
+      echo "🔴 systemd の値が読めない。撤収を確かめられていない"
+      exit 1
+    fi
+    echo "$env"
+    if ! status=$(ssh "$host" 'sudo -u deploy -i bash -c "cd ~/repos/makoto2 && bin/makoto status"' 2>/dev/null); then
+      echo "🔴 makoto status が失敗した（常駐が上がっていない・ssh が落ちた）"
+      exit 1
+    fi
+    printf '%s\n' "$status" | grep -v DEPRECATION | head -3
+    if printf '%s' "$env" | grep -q 'MAKOTO_FAKE_TIME\|MAKOTO_TIME_SCALE' || printf '%s' "$env" | grep -q 'DropInPaths=.'; then
+      echo "🔴 騙した時刻か drop-in が systemd に残っている"
+      exit 1
+    fi
+    if printf '%s' "$status" | grep -q 'time travel'; then
+      echo "🔴 常駐がまだ騙した時刻に居る"
+      exit 1
+    fi
+    echo "✅ 撤収した（drop-in なし・騙した時刻なし・status に time travel なし）"
     ;;
   *)
     sed -n '2,15p' "$0"
