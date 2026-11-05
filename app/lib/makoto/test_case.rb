@@ -64,6 +64,23 @@ module Makoto
       return @corpus_db
     end
 
+    # 🔴 **曲データの取り込みで cure-api を引かない**（#497 → `SoundtrackSong`）。⚠⚠ **歌手は
+    # 居ないものとして扱う**（フィクスチャの `bgm` はそのまま劇伴）。⚠ **規則そのものは
+    # `SoundtrackSongTest` と、歌手を渡した `TrackImporterTest` が見る。**
+    NO_SINGERS = Struct.new(:names) do
+      def available?
+        return true
+      end
+
+      def singer?(*)
+        return false
+      end
+    end
+
+    def soundtrack_without_singers
+      return SoundtrackSong.new(cure_api: NO_SINGERS.new([]))
+    end
+
     # スキーマだけ当てた空の DB。投入そのものを見るテストが使う。
     def empty_db
       @empty_db ||= Database.migrate(Database.connect('sqlite:/'))
@@ -80,7 +97,8 @@ module Makoto
     def track_db
       unless @track_db
         @track_db = empty_db
-        TrackImporter.new(track_fixture_dir, db: @track_db).exec
+        TrackImporter.new(track_fixture_dir, db: @track_db,
+          soundtrack: soundtrack_without_singers).exec
       end
       return @track_db
     end
