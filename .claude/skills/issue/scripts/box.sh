@@ -13,18 +13,24 @@ repo=pooza/makoto2
 title=${1:?箱の名前を指定する（例 0.9）}
 line=${2?足す行を指定する（空でもよい）}
 apply=${3:-}
+# 🔴 読みが 1 つでも失敗したら書かない（空の説明文から組み直すと、経緯が全部消える・#547 の Codex の P1）。
+fail() {
+  echo "🔴 $1。何も書いていない"
+  exit 1
+}
 number=$(gh api --paginate "repos/$repo/milestones?state=all&per_page=100" \
-  --jq ".[] | select(.title == \"$title\") | .number")
+  --jq ".[] | select(.title == \"$title\") | .number") || fail "箱の一覧が読めない"
 if [ -z "$number" ]; then
   echo "🔴 箱「$title」が無い"
   exit 1
 fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-gh api "repos/$repo/milestones/$number" --jq '.description // ""' > "$work/old"
+gh api "repos/$repo/milestones/$number" --jq '.description // ""' > "$work/old" || fail "説明文が読めない"
 measured=$(gh issue list --repo "$repo" --state all --milestone "$title" --limit 200 --json labels --jq '[.[] | (.labels | map(.name))
   | (if index("size:L") then 8 elif index("size:M") then 3 elif index("size:S") then 1 else 0 end)]
-  | "\(add // 0) \(length)"')
+  | "\(add // 0) \(length)"') || fail "箱の Issue が読めない"
+[[ $measured =~ ^[0-9]+\ [0-9]+$ ]] || fail "実測が数にならない（$measured）"
 # shellcheck disable=SC2016 # ruby のコードなので展開しない
 LINE="$line" WEIGHT="${measured% *}" COUNT="${measured#* }" TODAY=$(TZ=Asia/Tokyo date +%F) \
   ruby -e '
@@ -38,7 +44,7 @@ LINE="$line" WEIGHT="${measured% *}" COUNT="${measured#* }" TODAY=$(TZ=Asia/Toky
     lines += ["", add] unless add.empty?
     lines += ["", "重み #{ENV["WEIGHT"]}（件数 #{ENV["COUNT"]}・#{ENV["TODAY"]} 実測）"]
     File.write(ARGV[1], lines.join("\n") + "\n")
-  ' "$work/old" "$work/new"
+  ' "$work/old" "$work/new" || fail "説明文を組み直せない"
 diff -u --label "$title（いま）" --label "$title（書いたあと）" "$work/old" "$work/new"
 if [ "$apply" = --apply ]; then
   gh api -X PATCH "repos/$repo/milestones/$number" -F "description=@$work/new" --jq '"✅ \(.title) の説明文を書いた"'
