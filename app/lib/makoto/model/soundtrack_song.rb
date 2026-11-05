@@ -13,7 +13,7 @@ module Makoto
   #   ので、劇伴が歌に化けない
   # - 🔴 **短縮版は `tv_size`、それ以外は `vocal`**（全部 `vocal` にすると、主題歌の短縮版が本体と
   #   並んで `vocal` の枠に出る）
-  #   - ⚠ **「映画version」「劇場Version」「Movie version」も短縮版**（実測で 1:23〜2:29）
+  #   - ⚠ **「映画version」「劇場Version」「Movie version」「DX3 version」も短縮版**（実測で 1:19〜2:49）
   #   - ⚠⚠ **変身バンクの歌（0:43〜0:57）は `vocal`** — 短いが、それで全部の歌であって短縮版ではない。
   #     **長さでは切らない**
   #
@@ -26,7 +26,10 @@ module Makoto
     # 🔴 **短縮版の印**（NFKC の後で見る）。⚠ `TV\s*(サイズ|size)` は収集側の `tv_size` と同じ形
     # （サントラ盤の中にもある — 収集側は `bgm` より先に当たるので、ここに来るのは
     # 「映画サイズ」などの形）。
-    SHORT = /(TV|映画)\s*(サイズ|size)|short\s*(サイズ|size|version|edit)|(映画|劇場|movie)[^()]*version/i
+    #
+    # ⚠ **「DX3 version」も短縮版**（『映画プリキュアオールスターズDX3』のサントラ・1:19〜1:27）。
+    # ⚠⚠ **いまの曲データには無く、2026-11-05 の収集の下見で新しい行に見つかった**（#308）。
+    SHORT = /(TV|映画)\s*(サイズ|size)|short\s*(サイズ|size|version|edit)|(映画|劇場|movie|DX\d*)[^()]*version/i
 
     def initialize(cure_api: nil)
       @cure_api = cure_api

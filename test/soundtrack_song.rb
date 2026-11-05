@@ -31,7 +31,8 @@ module Makoto
         'テストのうた(映画サイズ)', 'テストのうた (映画 size)', 'テストのうた (TVsize)',
         'テストのうた (Short version)', 'テストのうた ~咲 & 舞version~ (SHORT SIZE EDIT)',
         'テストのうた (Shortサイズ)', 'テストのうた(映画version)', 'テストのうた (劇場Version)',
-        'テストのうた(Movie version)', 'テストのうた(映画エンディング主題歌version)'
+        'テストのうた(Movie version)', 'テストのうた(映画エンディング主題歌version)',
+        'テストのうた (DX3 version)'
       ].each do |name|
         assert_equal('tv_size', rule.kind(row(name, '歌手A')), name)
       end

@@ -361,7 +361,7 @@ python3 seed/itunes_corpus.py --dry-run    # 報告だけ（seed/ は書き換�
 
 | `bgm` の行のうち | `kind` |
 | --- | --- |
-| 名義が歌手（cure-api の `/singers` に当たる）か、`CV:` / `CV.` 表記のキャラクター名義で、曲名に短縮版の印（`映画サイズ` / `TVsize` / `Short version` / `映画version` / `劇場Version` / `Movie version` など）がある | `tv_size` |
+| 名義が歌手（cure-api の `/singers` に当たる）か、`CV:` / `CV.` 表記のキャラクター名義で、曲名に短縮版の印（`映画サイズ` / `TVsize` / `Short version` / `映画version` / `劇場Version` / `Movie version` / `DX3 version` など）がある | `tv_size` |
 | 同じ名義で、短縮版の印が無い（⚠ **変身バンクの歌は短くても全部の歌なので、こちら** — 長さでは切らない） | `vocal` |
 | それ以外（作曲家の名義など） | `bgm` のまま |
 
