@@ -191,6 +191,40 @@ module Makoto
       assert_include(output, '🔴 語りの表を読めません（⚠ 全部の曲を共通だけにします）: track_aliases.yaml: 壊れている')
     end
 
+    # 🔴 **MV の表が読めなければ、下見の頭でそう言う**（#557）。⚠⚠ **理由は syslog にしか出ていなかった。**
+    def test_preview_says_the_video_table_is_unreadable
+      song.define_singleton_method(:music_videos) {raise Ginseng::ValidateError, 'track_videos.yaml: 壊れている'}
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_include(output, '🔴 MV の表を読めません（⚠ 全部の曲を音源のリンクにします）: track_videos.yaml: 壊れている')
+    end
+
+    # ⚠ **sample も同じ**（#557）。
+    def test_sample_says_the_video_table_is_unreadable
+      add_prefixes(4)
+      song.define_singleton_method(:music_videos) {raise Ginseng::ValidateError, 'track_videos.yaml: 壊れている'}
+      output = capture {command(kind: 'bgm').sample}
+
+      assert_include(output, '🔴 MV の表を読めません（⚠ 全部の曲を音源のリンクにします）: track_videos.yaml: 壊れている')
+    end
+
+    # ⚠ **別名表が壊れていても言う**（`url_for` は別名表を当てた鍵で引く）。
+    def test_preview_says_the_video_aliases_are_unreadable
+      videos = Object.new
+      videos.define_singleton_method(:unused) {|_present| raise Ginseng::ValidateError, 'track_aliases.yaml: 壊れている'}
+      song.define_singleton_method(:music_videos) {videos}
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_include(output, '🔴 MV の表を読めません（⚠ 全部の曲を音源のリンクにします）: track_aliases.yaml: 壊れている')
+    end
+
+    # ⚠ **表が読めれば何も言わない。**
+    def test_preview_is_quiet_about_a_readable_video_table
+      output = capture {command(date: '2026-09-01', days: 1).preview}
+
+      assert_not_include(output, 'MV の表を読めません')
+    end
+
     # ⚠ **種類別を指定して 0 本なら、前置きは無い**（曲だけになる）。
     def test_sample_with_an_empty_own_bundle
       add_prefixes(4)
@@ -233,6 +267,22 @@ module Makoto
       output = capture {command.slot}
 
       assert_include(output, '黙る日: 11-03 / 11-04')
+    end
+
+    # 🔴 **MV の表が読めなければ `song slot` でそう言う**（#557）。
+    def test_slot_says_the_video_table_is_unreadable
+      song.define_singleton_method(:music_videos) {raise Ginseng::ValidateError, 'track_videos.yaml: 壊れている'}
+      output = capture {command.slot}
+
+      assert_include(output, 'MV のある曲: 🔴 MV の表を読めません（⚠ 全部の曲を音源のリンクにします）: track_videos.yaml: 壊れている')
+    end
+
+    # ⚠ **読めれば本数を出す。**
+    def test_slot_counts_the_videos
+      output = capture {command.slot}
+
+      assert_match(/^MV のある曲: (無し|\d+ 本)/, output)
+      assert_not_include(output, 'MV の表を読めません')
     end
 
     def test_slot_says_when_there_is_no_prefix
