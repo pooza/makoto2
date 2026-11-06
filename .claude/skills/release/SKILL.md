@@ -70,6 +70,6 @@ disable-model-invocation: true
     ```
 
     ⚠ マイルストーン API の `closed_issues` はリリース PR を含む。記録は Issue だけで数える
-11. **リリース後の更新**: ① `docs/CLAUDE.md`（箱の表の行を「リリース済み」に・`### ✅ vX.Y.Z をリリースし、本番へ入れた` の節）② 公開ドキュメント（README）③ chubo2 の `docs/infra-history.md`（main へ直接）④ メモリの経過ログ
+11. **リリース後の更新**: ① `docs/CLAUDE.md`（箱の表の行を「リリース済み」に・`### ✅ vX.Y.Z をリリースし、本番へ入れた` の節）② 公開ドキュメント（README）③ chubo2 の `docs/infra-history.md`（main へ直接）④ メモリの経過ログ ⑤ 節目の版（本番で新しい種類の投稿が始まる・ライブの前の最後の版など）なら `docs/CLAUDE.md`「沿革」に 1 行（日付は JST・#527）
 
 ⚠ 送った黄・緑の受け皿（`0.x.1` / `0.x.2` の箱）の決まりは `docs/CLAUDE.md`「バージョニング」。
