@@ -115,6 +115,7 @@ gh issue list --repo pooza/cure-api --state open
 - 🔴 **makoto2 は cure-api の最大の消費者なので、cure-api の面倒も makoto2 のセッションで見る。こちらはマージまでやる**（`ginseng-*` と分界が違う）
 - 🔴 **とくに「緑のまま眠っている PR」**（`MERGEABLE` / `CLEAN` / `test` 緑・レビュー無しで、押す人がいないだけ）。拾うたびに眠っている
 - ⚠⚠ **`CLEAN` は「押せば入る」であって「押してよい」ではない。**マージの前に 5. の 4 経路を当てる（`mergeStateStatus` は Codex を見ない）。⚠ **dependabot の版上げでもメジャー版を跨ぐものは、そのまま入れずに報告する**（2026-11-05 に `ginseng-core` v1 → v4 の #391 を閉じて #339 に集約した）
+- 🔴 **dependabot の PR には Codex が付かない**（4 経路とも空のまま）。**必要と判断したら、こちらの基準だけでマージしてよい**（オーナー 2026-11-06）。⚠ 見るのは差分そのもの — 題の版と実際の差分が違うことがある（`tag:` 固定の gem は動かず、題だけ残る・2026-11-06 の #396 は題が `ginseng-core` で中身は facets / sanitize のパッチだけだった）
 - ⚠ `UNKNOWN` / `UNSTABLE` は `gh pr checks <n> --repo pooza/cure-api` まで引いて決める（`UNKNOWN` は GitHub がまだ判定していないだけ）
 - ⚠ open / `updatedAt` だけで判断せず、コメントまで読む
 
