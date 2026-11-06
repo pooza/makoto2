@@ -4,7 +4,7 @@
 #   .claude/skills/script/scripts/check.sh [makoto-scripts の場所] [比べる版]
 #     # 既定は ../makoto-scripts と origin/main
 #
-# - 全体: slug が全部の行にあり、直下の YAML をまたいで重ならないこと（取り込みが弾く形）
+# - 全体: slug が全部の行にあり、直下の YAML（.yaml / .yml）をまたいで重ならないこと（取り込みが弾く形）
 # - 足した行（比べる版に無い slug）: 書き方の決まりのうち、語で拾えるもの
 #   ⚠ 語で拾えるのは一部だけ。拾えなかったものが「決まりを満たした」ではない（中身は人が読む）
 # - 本数: type ごとの本数と、朝挨拶の通年の本数（＝ 一周の日数）。⚠ 比べる版との差も出す
@@ -18,15 +18,19 @@ cd "$dir" || exit 1
 git rev-parse --verify -q "$base" >/dev/null || { echo "✗ 比べる版が無い（$base）。git fetch してから"; exit 1; }
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
-for f in *.yaml; do
-  git show "$base:$f" >"$tmp/$f" 2>/dev/null || : >"$tmp/$f"
+# ⚠ 比べる版のファイルは、その版の直下から引く（いまの作業ツリーの名前で絞ると、消した・改名したファイルが両側から消える）。
+# ⚠ 拡張子は取り込みと同じ 2 つ（`ScriptImporter::EXTENSIONS` ＝ .yaml / .yml）。
+git ls-tree --name-only "$base" | grep -E '\.ya?ml$' | while read -r f; do
+  git show "$base:$f" >"$tmp/$f"
 done
+shopt -s nullglob
+files=(./*.yaml ./*.yml)
 
-ruby -ryaml -rdate - "$tmp" ./*.yaml <<'RUBY'
+ruby -ryaml -rdate - "$tmp" "${files[@]}" <<'RUBY'
 base_dir, *files = ARGV
 load = ->(path) { File.zero?(path) ? [] : (YAML.safe_load_file(path, permitted_classes: [Date]) || []) }
 rows = files.flat_map { |f| load.(f).map { _1.merge('_file' => f) } }
-base = files.flat_map { |f| load.(File.join(base_dir, f)) }
+base = Dir[File.join(base_dir, '*')].flat_map { |f| load.(f) }
 errors = 0
 warns = 0
 err = ->(msg) { errors += 1; puts "✗ #{msg}" }
