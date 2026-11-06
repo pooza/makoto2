@@ -40,7 +40,8 @@ SH
   # 🔴 status の error 行と終了コードを捨てない（#559）。⚠ 生きていても投稿の見送り・heartbeat の古さは
   # error で出る。warning（終了コード 2）は ⚠ を出すだけで、判定は落とさない。
   code=$(echo "$out" | sed -n 's/^status-exit \([0-9]*\)$/\1/p')
-  if echo "$out" | grep -q '^error: ' || [ "${code:-1}" = 1 ]; then
+  # ⚠ 0（OK）と 2（warning）以外はすべて error（127 などで CLI が動かないときも・#573 の Codex の P2）。
+  if echo "$out" | grep -q '^error: ' || { [ "$code" != 0 ] && [ "$code" != 2 ]; }; then
     echo "🔴 makoto status が error を返した（終了コード ${code:-?}・上の error: 行）"
     status=1
   elif echo "$out" | grep -q '^warning: ' || [ "$code" = 2 ]; then
