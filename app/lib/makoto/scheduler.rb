@@ -55,15 +55,27 @@ module Makoto
     # で、⚠⚠ **呼ばれて答えるのは割り込みではなく参加**（→ docs/CLAUDE.md）。
     def register(job)
       self.class.validate_window(job)
+      warn_weak_windows(job)
+      @jobs.push(job)
+      logger.info(scheduler: 'register', post: job.name, timetable: job.timetable.to_s)
+      return self
+    end
+
+    # ⚠ **弱い窓の警告**（#255）。🔴 **重なりと、壊れた弱い窓の両方を言う**（どちらも投稿は止めない）。
+    def warn_weak_windows(job)
       self.class.weak_conflicts(job).each do |window|
         logger.warn(
           scheduler: 'register', post: job.name, timetable: job.timetable.to_s,
           message: 'overlaps a weak commentary window', window: window.to_s
         )
       end
-      @jobs.push(job)
-      logger.info(scheduler: 'register', post: job.name, timetable: job.timetable.to_s)
-      return self
+      CommentaryWindow.broken_weak.each do |window|
+        logger.warn(
+          scheduler: 'register', post: job.name, message: 'weak commentary window is broken',
+          window: window.name, error: window.error.message
+        )
+      end
+      return nil
     end
 
     # 🔴 **起動時の検査で登録を見送った投稿**（#350 → `MakotoDaemon#register_jobs`）。

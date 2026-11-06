@@ -32,6 +32,10 @@ module Makoto
       rescue => e
         rejected[job.name] = e
       end
+      # ⚠ **壊れた弱い窓は落とさない**（投稿を止めない）。⚠ 枠ごとではなく 1 回だけ言う。
+      CommentaryWindow.broken_weak.each do |window|
+        puts "jobs: ⚠ weak commentary window #{window.name} is broken: #{window.error.message}"
+      end
       if rejected.empty?
         puts "jobs: OK (#{jobs.size})"
       else

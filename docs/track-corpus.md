@@ -467,7 +467,7 @@ python3 seed/itunes_corpus.py --dry-run    # 報告だけ（seed/ は書き換�
 | `track_corrections.yaml` | ⚠ **供給元が間違えている曲名の訂正表**（#58 → 上記） |
 | `track_aliases.yaml` | 🔴 **同じ曲だが表記が違うものの別名表**（#123 → 上記） |
 | `track_spoken.yaml` | 🔴 **歌ではなく語りのトラックの表**（#298 → 上記） |
-| `track_videos.yaml` | 🔴 **MV のある曲の表**（#498 → 下記）。日常の曲紹介で音源のリンクを MV に差し替える |
+| `track_videos.yaml` | 🔴 **MV のある曲の表**（#498 → 上記）。日常の曲紹介で音源のリンクを MV に差し替える |
 | `track_kinds.yaml` | 🔴 **`kind` の分類を正す表**（#304 → 上記） |
 | `itunes_union.py` | artist 系の収集（宮本佳那子 / 剣崎真琴 / キュアソード）。⚠ **2026-07-29 に 1 回流したきりの調査用**（出力は `seed/` の形ではない） |
 | `itunes_corpus.py` | 🔴 **シリーズ系の収集で、普段用に新しい行を足す**（#294 → 下記「新しいプリキュアソングに追いつく」）。cure-api から取ったシリーズ名を種にアルバム経由 |

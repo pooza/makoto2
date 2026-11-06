@@ -183,5 +183,48 @@ module Makoto
       assert_nil(Scheduler.instance.send(:schedule_posts))
       assert_equal([], Scheduler.instance.scheduler.jobs)
     end
+
+    def capture_warnings(subject)
+      warnings = []
+      logger = Object.new
+      [:info, :debug, :error].each {|name| logger.define_singleton_method(name) {|_payload| nil}}
+      logger.define_singleton_method(:warn) {|payload| warnings.push(payload) && nil}
+      subject.instance_variable_set(:@logger, logger)
+      return warnings
+    end
+
+    # 🔴 **弱い窓との重なりは起動ログに残る**（#255）。⚠⚠ **これが弱い窓の唯一の効き目**なので縛る。
+    def test_register_warns_a_weak_conflict
+      warnings = capture_warnings(Scheduler.instance)
+      Scheduler.instance.register(PostingJob.new(
+        name: 'night',
+        timetable: Timetable.new(start: '20:10', finish: '20:11', interval: '1m'),
+        source: proc {'ok'},
+      ))
+
+      assert_equal(['overlaps a weak commentary window'], warnings.map {it[:message]})
+      assert_equal('night', warnings.first[:post])
+    end
+
+    # 🔴 **壊れた弱い窓で日常の枠を止めない**（v0.9.0 のリリース前レビューの黄）。⚠ **黙らせもしない。**
+    def test_a_broken_weak_window_does_not_reject_the_daily_slots
+      config['/commentary/windows'] = config['/commentary/windows'].map do |entry|
+        entry['name'] == 'night' ? entry.merge('start' => '24:00') : entry
+      end
+      warnings = capture_warnings(Scheduler.instance)
+
+      assert_equal(Scheduler.instance, Scheduler.instance.register(Morning.new.job))
+      assert_equal(['weak commentary window is broken'], warnings.map {it[:message]})
+      assert_equal(['night'], CommentaryWindow.broken_weak.map(&:name))
+    end
+
+    # ⚠ **壊れた強い窓は従来どおり落とす**（閉じる側）。
+    def test_a_broken_strong_window_still_rejects
+      config['/commentary/windows'] = config['/commentary/windows'].map do |entry|
+        entry['name'] == 'nichiasa' ? entry.merge('start' => '24:00') : entry
+      end
+
+      assert_raise(Ginseng::ConfigError) {Scheduler.instance.register(Morning.new.job)}
+    end
   end
 end

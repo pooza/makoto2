@@ -63,6 +63,10 @@ module Makoto
 
     def song?(artist_name)
       return true if CHARACTER.match?(normalize(artist_name))
+      # ⚠⚠ **引けなかったら、その取り込みの間は引き直さない**（v0.9.0 のリリース前レビューの黄）。
+      # 🔴 **取り込みはトランザクションの中で行を当てる**ので、引き直すと SQLite の書き込みロックを
+      # 持ったまま cure-api を待つ（最大でおよそ 90 秒・その間の常駐の書き込みが `SQLITE_BUSY`）。
+      return false unless available?
       return cure_api.singer?(artist_name)
     end
 
@@ -72,8 +76,13 @@ module Makoto
 
     # ⚠ **歌手の一覧が引けたか**（写しで代われた場合を含む）。⚠⚠ **引けないと歌手名義の行は
     # `bgm` のまま残る**ので、取り込みはこれを見て警告を出す。
+    #
+    # 🔴 **最初に聞いた答えを覚える**（`TrackImporter#load_tables` がトランザクションの前に聞く）。
+    # ⚠⚠ **報告の時点で聞き直すと、失敗から 60 秒たって引けた場合に「引けなかった」が info に化ける**
+    # （分類した時点の答えと食い違う）。
     def available?
-      return cure_api.available?
+      @available = cure_api.available? if @available.nil?
+      return @available
     end
 
     private

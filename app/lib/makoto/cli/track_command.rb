@@ -16,6 +16,10 @@ module Makoto
       importer.unused.each do |table, keys|
         warn "⚠ #{table}: 表に書いたのに 1 行も当たらない #{keys.size} 件: #{keys.join(' / ')}"
       end
+      if importer.soundtrack_unavailable?
+        # ⚠ **止めはしない**（`CV:` 名義の行は見分けられ、ほかの行は入っている）。次の取り込みで直る。
+        warn '⚠ soundtrack: cure-api の歌手の一覧が引けなかったので、サントラ盤の歌手名義の歌は bgm のまま入っています（#497）'
+      end
     rescue Sequel::DatabaseError => e
       warn "投入できませんでした。先に `rake migration:run` を実行してください: #{error_message(e)}"
       exit 1

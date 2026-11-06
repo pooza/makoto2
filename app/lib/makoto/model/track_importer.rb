@@ -12,9 +12,10 @@ module Makoto
   # ここは取り込みだけを担う。
   class TrackImporter
     include Package
+    include TrackUnusedReport
     extend Forwardable
 
-    # 普段用 4,305 曲。ライブ用 234 曲はこの部分集合。
+    # 普段用の全曲。ライブ用はこの部分集合（⚠ 曲数は `bin/makoto track stat` で数える）。
     DAILY = 'makoto_tracks_daily.json'.freeze
     LIVE = 'makoto_tracks_live.json'.freeze
 
@@ -126,6 +127,12 @@ module Makoto
       return @unused || {}
     end
 
+    # ⚠⚠ **歌手の一覧が引けなかった取り込み**（#497）。🔴 **歌手名義のサントラ盤の歌が `bgm` のまま入り、
+    # 前回正した行も戻る。**syslog にしか出ていなかったので、`TrackCommand#import` が画面にも出す（#483 と同じ）。
+    def soundtrack_unavailable?
+      return !@soundtrack.available?
+    end
+
     def counts
       tracks = TrackRepository.new(@db)
       return {
@@ -148,6 +155,9 @@ module Makoto
       videos.names
       corrections
       kinds
+      # 🔴 **歌手の一覧もトランザクションの前に引く**（#497・v0.9.0 のリリース前レビューの黄）。⚠⚠ **中で
+      # 初めて引くと、書き込みのロックを持ったまま cure-api を待つ。**⚠ 答えは `SoundtrackSong` が覚える。
+      @soundtrack.available?
       return nil
     end
 
@@ -231,40 +241,6 @@ module Makoto
     def aliases
       @aliases ||= TrackAliases.new(@dir)
       return @aliases
-    end
-
-    # 🔴 **1 行も当たらない表記を残す**（#123）。⚠⚠ **訂正表の `fixed` と同じ合図**で、
-    # **供給元が表記を揃えたか、そもそも書き間違えている** — ⚠ **どちらでもその行は
-    # 消せる。**🔴 **黙ると、効いていない行がいつまでも表に残る。**
-    def report_unused_aliases
-      return nil if aliases.empty?
-      present = @db[:track].select_map(:name).to_set {|name| self.class.normalize(name)}
-      unused = aliases.keys.reject {|key| present.include?(key)}
-      return nil if unused.empty?
-      logger.warn(track: 'alias', state: 'unused', key: unused)
-      return unused
-    end
-
-    # 🔴 **名前で書く表で、1 行も当たらない名前を残す**（語りの表 #298 → `SpokenTracks`・MV の表 #498 →
-    # `MusicVideos`）。⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、表に書いたのに効いていない
-    # ことに気づけない**（**語りの表なら歌向けの前置きが付いたまま、MV の表なら音源のリンクのまま**で、
-    # **投稿を見ても分からない**）。
-    def report_unused_names(label, table)
-      return nil if table.empty?
-      unused = table.unused(@db[:track].select_map(:dedupe_key).to_set)
-      return nil if unused.empty?
-      logger.warn(track: label.to_s, state: 'unused', name: unused)
-      return unused
-    end
-
-    # 🔴 **訂正表と分類の表で、普段用の曲データに無い `id` を残す**（#317）。⚠⚠ **黙って無視していた**
-    # ので、**配信が終わった曲や書き間違えた `id` の行は「表に書いたのに効いていない」まま残った**
-    # （別名表・語りの表の `unused` と同じ合図）。
-    def report_unused_entries(label, entries)
-      unused = entries.keys - daily_ids.to_a
-      return nil if unused.empty?
-      logger.warn(track: label.to_s, state: 'unused', id: unused)
-      return unused
     end
 
     def daily_ids
