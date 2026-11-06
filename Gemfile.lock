@@ -1,9 +1,9 @@
 GIT
   remote: https://github.com/pooza/ginseng-core.git
-  revision: ed6daad4cc3614ce641b5102a268287fbe059401
-  tag: v5.0.0
+  revision: ea58f8c8f0f146746ba085fd9d6d354398ced637
+  tag: v5.1.0
   specs:
-    ginseng-core (5.0.0)
+    ginseng-core (5.1.0)
       activesupport (>= 8.1.2.1)
       addressable (>= 2.9.0)
       cgi (>= 0.4.2)
@@ -17,7 +17,6 @@ GIT
       httparty (>= 0.24.0)
       json-schema
       mail (>= 2.5.5)
-      multi_json
       net-protocol
       net-smtp
       nokogiri (>= 1.19.4)
@@ -120,7 +119,6 @@ GEM
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
-    multi_json (1.21.2)
     multi_xml (0.9.1)
       bigdecimal (>= 3.1, < 5)
     net-imap (0.6.7)
@@ -288,7 +286,7 @@ CHECKSUMS
   fileutils (1.7.3) sha256=57271e854b694a87755d76f836f5c57b2c9538ebbaf4b2154bb66addf15eb5da
   find (0.2.0) sha256=9aabac9dbbea3fdd23781f79a2fd626166e57dab349aaec449400811b40c371b
   fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
-  ginseng-core (5.0.0)
+  ginseng-core (5.1.0)
   ginseng-fediverse (7.1.0)
   ginseng-style (1.1.13)
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
@@ -302,7 +300,6 @@ CHECKSUMS
   mail (2.9.1) sha256=06574eca475253d6c18145dd70af80d0eb970182d55053497c5f4d797ea160e8
   mini_mime (1.1.5) sha256=8681b7e2e4215f2a159f9400b5816d85e9d8c6c6b491e96a12797e798f8bccef
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
-  multi_json (1.21.2) sha256=245531eaf54bdba57aba515ff08b4503505c5e09911daa89c5a561e2f85bea8e
   multi_xml (0.9.1) sha256=7ce766b59c17241ed62976caeae1fae9b2431b263398c35396239a68c4a64e57
   net-imap (0.6.7) sha256=b5c9573be975d856de252ee851871724da66aa2d449b2482d5690bd12bc23660
   net-pop (0.1.2) sha256=848b4e982013c15b2f0382792268763b748cce91c9e91e36b0f27ed26420dff3

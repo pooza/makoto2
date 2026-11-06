@@ -4417,6 +4417,18 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ✅ **実例**（2026-08-20）: **#100（429 で `Retry-After` を見ない）を `pooza/ginseng-core#525` として上流へ出した。**⚠ **#95（`return` の多行チェイン）は上流に既に判断があった**ので**makoto2 側はクローズ**（→ 下記「lint の設定」）。
 
+#### ✅ 追随した（2026-11-07・#525）— core 5.0.0 → 5.1.0
+
+上流 [`ginseng-core#739`](https://github.com/pooza/ginseng-core/issues/739) が v5.1.0 で閉じたので取り込んだ（minor・破壊的変更なし）。
+
+| 変わったこと | makoto2 に当たるか |
+| --- | --- |
+| `JSON::Validator.use_multi_json = false`・gemspec から `multi_json` を外した | ✅ **#525 の警告が消える**（`rake config:lint` の `[DEPRECATION NOTICE]` が 5.0.0 で 1 行 → 5.1.0 で 0 行）。⚠ 文字列で渡すとパースが yajl になるが、`Config#errors` も `test/config.rb` も schema（`YAML.load_file` の Hash）・data とも Hash で渡している。schema に `.inf` / `.nan` は無い |
+| `MASK_FIELDS` に `access-token` / `api_token` / `private_token` などを足した（ログで伏せる名前が増える） | 伏せる側へ広がるだけ。makoto2 はこれらの名前を出していない |
+
+- ✅ `bundle update --conservative ginseng-core` で動いたのは core と `multi_json` の削除だけ
+- ✅ 下見の全文（`live setlist --date=2027-11-04 --mc --body --limit=160` の 740 行・`morning preview`）が前後で一致。1164 tests / 0 failures・rubocop 0・`config:lint` OK
+
 #### ✅ 追随した（2026-11-05・#486 / #539）— core 1.25.1 → 5.0.0・fediverse 3.1.4 → 7.1.0
 
 🔴 **手順の正本はスキル [`upstream`](../.claude/skills/upstream/SKILL.md)**（この回で作った・#539）。ここには記録だけ置く。
