@@ -20,8 +20,14 @@ case "${1:-}" in
   arm)
     start=${2:?出発時刻を指定する（例 '2027-11-04 11:58:00 +0900'）}
     scale=${3:-10}
-    if ! printf '%s' "$start" | grep -q ' [0-9][0-9]:[0-9][0-9]'; then
-      echo "🔴 出発時刻に時:分が無い（$start）"
+    # 🔴 形を丸ごと検査する（#561）。⚠ drop-in の Environment= にそのまま書くので、`"` や改行が
+    # 混ざると unit に指令を足せる。日付・時:分（秒・時差は省ける）だけを通す。
+    if ! [[ "$start" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}(:[0-9]{2})?(\ [+-][0-9]{4})?$ ]]; then
+      echo "🔴 出発時刻の形が違う（'$start'・例 '2027-11-04 11:58:00 +0900'）"
+      exit 1
+    fi
+    if ! [[ "$scale" =~ ^[0-9]+$ ]]; then
+      echo "🔴 倍率は整数で（'$scale'）"
       exit 1
     fi
     printf '[Service]\nEnvironment="MAKOTO_FAKE_TIME=%s"\nEnvironment=MAKOTO_TIME_SCALE=%s\n' "$start" "$scale" |

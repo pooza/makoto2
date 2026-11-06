@@ -150,7 +150,8 @@ module Makoto
     end
 
     # ⚠ `Ginseng::Logger#mask` は Hash / Array / String を再帰的に処理し、`mask_fields` の
-    # キーは値ごと落とす。String は `mask_url` を通る。
+    # キーは値ごと落とす。String は URL のクエリに加え、URL の外の `key: value` / `key=value` も
+    # 伏せる（core 4.4.0〜・#561）。
     def mask(value)
       return value unless value.is_a?(String) || value.is_a?(Hash) || value.is_a?(Array)
       return @logger.mask(value)

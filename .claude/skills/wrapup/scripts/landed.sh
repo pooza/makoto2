@@ -13,7 +13,15 @@ prs=$(gh pr list --repo "$repo" --state merged --base develop --search "merged:>
 echo "== $since 以降に develop へ入った PR"
 printf '%s' "$prs" | jq -r '.[] | "  #\(.number) \(.title)"'
 echo "== 出てくる Issue（PR の番号は除く）"
-nums=$(printf '%s' "$prs" | jq -r '[.[] | (.title + " " + .body) | scan("(?<![\\w/])#([0-9]+)") | .[0]] | unique | .[]')
+# 🔴 よそのリポジトリの番号を拾わない（#561）。`owner/repo#n` は # の直前が英数字なので外れる。
+# ⚠ 「cure-api #396」「chubo2 #296」のように直前がリポジトリ名らしい小文字の語なら外す（Closes / Refs など
+# の動詞と makoto2 は残す）。
+nums=$(printf '%s' "$prs" | jq -r '[.[] | (.title + " " + .body)
+  | scan("(?:([A-Za-z][A-Za-z0-9_.-]*)[ \\t])?(?<![\\w/])#([0-9]+)")
+  | select(.[0] == null or (.[0] | test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$") | not)
+    or (.[0] | IN("close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved",
+      "ref", "refs", "see", "makoto2")))
+  | .[1]] | unique | .[]')
 prnums=$(printf '%s' "$prs" | jq -r '.[].number')
 for n in $nums; do
   printf '%s\n' "$prnums" | grep -qx "$n" && continue
