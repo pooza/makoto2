@@ -10,11 +10,23 @@
 set -u
 host=${1:?ホストを指定する（bydo / rubicon）}
 status=0
-ssh -o ConnectTimeout=10 "$host" 'sudo -u deploy -i bash -s' <<'SH' || status=1
+out=$(ssh -o ConnectTimeout=10 "$host" 'sudo -u deploy -i bash -s' 2>&1 <<'SH'
 cd ~/repos/makoto2 || exit 1
 echo "checkout $(git log -1 --format=%h) $(git rev-parse --abbrev-ref HEAD)"
-bin/makoto status 2>/dev/null | grep -v DEPRECATION
+st=$(bin/makoto status 2>&1)
+echo "status-exit $?"
+printf '%s\n' "$st" | grep -v DEPRECATION
 SH
+) || status=1
+echo "$out" | grep -v '^status-exit '
+# 🔴 status の error 行と終了コードを捨てない（#559）。⚠ warning（終了コード 2）は ⚠ を出すだけ。
+code=$(echo "$out" | sed -n 's/^status-exit \([0-9]*\)$/\1/p')
+if echo "$out" | grep -q '^error: ' || [ "${code:-1}" = 1 ]; then
+  echo "🔴 makoto status が error を返した（終了コード ${code:-?}・上の error: 行）"
+  status=1
+elif echo "$out" | grep -q '^warning: ' || [ "$code" = 2 ]; then
+  echo "⚠ makoto status が warning を返した（上の warning: 行）"
+fi
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 echo "== 登録ログ（直近の起動）"
