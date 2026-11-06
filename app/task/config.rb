@@ -25,8 +25,16 @@ module Makoto
       jobs, rejected = daemon.build_jobs
       jobs.each do |job|
         Scheduler.validate_window(job)
+        # ⚠ 弱い窓は落とさない（#255）。⚠ 枠を動かす PR の時点で見えるよう、ここでも出す。
+        Scheduler.weak_conflicts(job).each do |window|
+          puts "jobs: ⚠ #{job.name} (#{job.timetable}) overlaps a weak window (#{window})"
+        end
       rescue => e
         rejected[job.name] = e
+      end
+      # ⚠ **壊れた弱い窓は落とさない**（投稿を止めない）。⚠ 枠ごとではなく 1 回だけ言う。
+      CommentaryWindow.broken_weak.each do |window|
+        puts "jobs: ⚠ weak commentary window #{window.name} is broken: #{window.error.message}"
       end
       if rejected.empty?
         puts "jobs: OK (#{jobs.size})"

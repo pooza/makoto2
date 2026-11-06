@@ -332,6 +332,40 @@ module Makoto
       end
     end
 
+    # 🔴 **MV のある曲は MV のリンクにする**（#498）。⚠ **実物の表で、盤違いの 2 行（1001 / 1002）とも当たる。**
+    def test_a_track_with_a_video_links_to_the_video
+      url = 'https://music.apple.com/jp/music-video/test/1'
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, MusicVideos::FILE), [{'name' => 'しまうまグルグル', 'url' => url}].to_yaml)
+        subject = video_source(-> {MusicVideos.new(dir)})
+
+        [1001, 1002].each do |id|
+          track = @tracks.dataset.first(id: id)
+          original = track[:url]
+          text = subject.presenter(track).to_s
+
+          assert_equal(url, text.lines.last)
+          # ⚠ **元の行は書き換えない**（履歴に書く行と同じもの）。
+          assert_equal(original, track[:url])
+        end
+        assert_not_equal(url, subject.presenter(@tracks.dataset.first(id: 1003)).to_s.lines.last)
+      end
+    end
+
+    # ⚠⚠ **表が読めなければ音源に倒す。**🔴 **投稿は止めない**が、**警告は残す。**
+    def test_an_unreadable_video_table_falls_to_the_track
+      [Ginseng::ValidateError, Errno::EISDIR, Errno::EACCES, TypeError].each do |error|
+        subject = video_source(-> {raise error, 'broken'})
+        logged = []
+        subject.define_singleton_method(:logger) {Recorder.new(logged)}
+        track = @tracks.dataset.first(id: 1001)
+
+        assert_equal(track[:url], subject.presenter(track).to_s.lines.last, error.name)
+        assert_equal('video table unreadable', logged.first[:message])
+        assert_equal(error.name, logged.first[:error_class])
+      end
+    end
+
     # 🔴 **語りのトラックには共通だけ**（#298）。⚠⚠ **種類が `vocal` でも歌向けは付かない。**
     # ⚠ **語りでない曲はこれまでどおり種類別にも当たる。**
     def test_a_spoken_track_draws_from_the_common_only
@@ -562,6 +596,18 @@ module Makoto
       assert_equal([{post: 'song', message: 'no track to introduce'}], logged)
     end
 
+    # MV の表を差し替えた本物の組み立て（#498）。
+    def video_source(videos)
+      subject = song
+      return SongSource.new(
+        lottery: subject.lottery,
+        prefixes: SongSource::Prefixes.of(subject.selector, subject.kind_selectors),
+        timetable: subject.timetable,
+        presentation: SongSource::Presentation.of(subject.collection_kinds, videos: videos),
+        quiet_types: subject.quiet_types,
+      )
+    end
+
     # 語りのトラックの表を差し替えた本物の組み立て（#298）。
     def spoken_source(spoken)
       subject = song
@@ -569,7 +615,7 @@ module Makoto
         lottery: subject.lottery,
         prefixes: SongSource::Prefixes.of(subject.selector, subject.kind_selectors, spoken: spoken),
         timetable: subject.timetable,
-        collection_kinds: subject.collection_kinds,
+        presentation: SongSource::Presentation.of(subject.collection_kinds),
         quiet_types: subject.quiet_types,
       )
     end

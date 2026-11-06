@@ -17,3 +17,9 @@ mastodon:
 # monitor:
 #   bind: 0.0.0.0
 
+# 評価の実験（#19・tools/persona_eval/）の API キー。⚠ 常駐は読まない（チャットボット #18 で使うときに
+# スキーマへ足す）。⚠ 稼働ホストには置かない — 手元で実験を回すマシンだけ。
+# anthropic:
+#   api_key: CHANGE_ME
+#   # ⚠ キーがワークスペースに紐づいていないときだけ要る（Console の Workspaces に出る `wrkspc_…`）
+#   workspace_id: wrkspc_CHANGE_ME

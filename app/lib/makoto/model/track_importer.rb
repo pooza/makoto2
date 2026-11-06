@@ -12,8 +12,10 @@ module Makoto
   # ここは取り込みだけを担う。
   class TrackImporter
     include Package
+    include TrackUnusedReport
+    extend Forwardable
 
-    # 普段用 4,305 曲。ライブ用 234 曲はこの部分集合。
+    # 普段用の全曲。ライブ用はこの部分集合（⚠ 曲数は `bin/makoto track stat` で数える）。
     DAILY = 'makoto_tracks_daily.json'.freeze
     LIVE = 'makoto_tracks_live.json'.freeze
 
@@ -36,10 +38,7 @@ module Makoto
     # 🔴 **同じ曲だが表記が違うものの表**（#123 → `TrackAliases`）。⚠⚠ **訂正表とは
     # 別物**で、**あちらは片方が誤記、こちらはどちらも正しい。**
 
-    # 🔴 **公開してよい曲の URL のホスト**（#283）。⚠⚠ **`track.url` は曲紹介が 1 日 3 回、
-    # 永久に公開する URL**で、**Mastodon はプレビューカードのために取りに行く。**⚠ **収集は
-    # 月 1 回の定常の経路**（#294）なので、**上流の形が変わったら黙って公開せずに落とす。**
-    URL_HOSTS = ['music.apple.com'].freeze
+    # 🔴 **公開してよい曲の URL は `TrackUrl` が決める**（#283）。⚠ **MV の表（#498）と抽選（#355）も同じ線。**
 
     # 🔴 **投稿先がメンションと読む形**（#283）。⚠ **投稿の側で上流の `escape_sigils` が崩す**ので
     # 取り込みでは落とさず、**気づけるように残すだけ**（→ `report_mentions`）。
@@ -62,9 +61,11 @@ module Makoto
     # 非対称を残すほうが危ない（実データに該当は 0 件）。
     NOISE = /[[:space:][:punct:]♪♯♭♮☆★〜～＋×]/
 
-    def initialize(dir = nil, db: Database.connection)
+    # ⚠ **`soundtrack` を渡せるのはテストのため**（cure-api を引かずに歌手を決める）。
+    def initialize(dir = nil, db: Database.connection, soundtrack: nil)
       @dir = dir || File.join(Environment.dir, config['/track/dir'])
       @db = db
+      @soundtrack = soundtrack || SoundtrackSong.new
     end
 
     # 曲名を重複判定用の鍵にする。
@@ -107,14 +108,29 @@ module Makoto
         mark_live
         sanitize_urls
       end
-      report_unused_aliases
-      report_unused_spoken
-      report_unused_entries(:correction, corrections)
-      report_unused_entries(:kind, kinds)
-      report_rejected_urls
-      report_mentions
+      @unused = {
+        alias: report_unused_aliases,
+        spoken: report_unused_names(:spoken, spoken),
+        video: report_unused_names(:video, videos),
+        correction: report_unused_entries(:correction, corrections),
+        kind: report_unused_entries(:kind, kinds),
+      }.compact
+      report
       logger.info(track: 'import', dir: @dir, **counts)
       return counts
+    end
+
+    # 🔴 **表に書いたのに 1 行も当たらないもの**（表の名前 → 鍵の列）。⚠ **`exec` の後でだけ埋まる。**
+    # ⚠⚠ **syslog にしか出していなかった**ので、**`makoto track import` を手で叩いた人には counts しか
+    # 見えなかった**（#483）→ `TrackCommand#import` が画面にも出す。
+    def unused
+      return @unused || {}
+    end
+
+    # ⚠⚠ **歌手の一覧が引けなかった取り込み**（#497）。🔴 **歌手名義のサントラ盤の歌が `bgm` のまま入り、
+    # 前回正した行も戻る。**syslog にしか出ていなかったので、`TrackCommand#import` が画面にも出す（#483 と同じ）。
+    def soundtrack_unavailable?
+      return !@soundtrack.available?
     end
 
     def counts
@@ -129,20 +145,30 @@ module Makoto
 
     private
 
-    # 🔴 **名指しの表 4 枚は、確定の前に全部読む**（#317）。⚠⚠ **語りの表だけ確定の後に読んでいた**
+    # 🔴 **名指しの表は、確定の前に全部読む**（#317）。⚠⚠ **語りの表だけ確定の後に読んでいた**
     # ので、**壊れていると曲データは入ったうえで `exit 1` になり、`counts` も出なかった**（**レシピは
-    # そこで止まり、後段の `message import` が走らない**）。🔴 **壊れた表は 4 枚とも「何も取り込まずに
-    # 落ちる」に揃えた。**
+    # そこで止まり、後段の `message import` が走らない**）。🔴 **壊れた表はどれも「何も取り込まずに
+    # 落ちる」に揃えた。**⚠ **表を足したらここにも足す**（MV の表 #498）。
     def load_tables
       aliases.keys
       spoken.names
+      videos.names
       corrections
       kinds
+      # 🔴 **歌手の一覧もトランザクションの前に引く**（#497・v0.9.0 のリリース前レビューの黄）。⚠⚠ **中で
+      # 初めて引くと、書き込みのロックを持ったまま cure-api を待つ。**⚠ 答えは `SoundtrackSong` が覚える。
+      @soundtrack.available?
+      return nil
     end
 
     def spoken
       @spoken ||= SpokenTracks.new(@dir, aliases: aliases)
       return @spoken
+    end
+
+    def videos
+      @videos ||= MusicVideos.new(@dir, aliases: aliases)
+      return @videos
     end
 
     def path(file)
@@ -176,7 +202,7 @@ module Makoto
       end
     end
 
-    # 🔴 **許可したホストの https だけを残す**（#283 → `URL_HOSTS`）。⚠⚠ **外れた行は `url` を
+    # 🔴 **許可したホストの https だけを残す**（#283 → `TrackUrl`）。⚠⚠ **外れた行は `url` を
     # 空にする** — **行は消さず、`linkable` から外れるので曲紹介にもライブにも出ない。**
     #
     # 🔴 **取り込んだ行だけでなく表全体を見る**（Codex の P2）。⚠⚠ **取り込みは「取り込み元に
@@ -184,16 +210,9 @@ module Makoto
     # 公開され続ける。**
     def sanitize_urls
       rows = @db[:track].exclude(url: nil).select_map([:id, :url])
-      ids = rows.reject {|_, url| public_url?(url)}.map(&:first)
+      ids = rows.reject {|_, url| TrackUrl.public?(url)}.map(&:first)
       @db[:track].where(id: ids).update(url: nil) unless ids.empty?
       @rejected_urls = ids
-    end
-
-    def public_url?(value)
-      uri = URI.parse(value.to_s)
-      return uri.is_a?(URI::HTTPS) && URL_HOSTS.include?(uri.host)
-    rescue URI::InvalidURIError
-      return false
     end
 
     def rejected_urls
@@ -203,7 +222,7 @@ module Makoto
     # ⚠ **落とした行を残す**（黙って曲が減らないように）。
     def report_rejected_urls
       return nil if rejected_urls.empty?
-      logger.warn(track: 'url', state: 'rejected', hosts: URL_HOSTS, id: rejected_urls)
+      logger.warn(track: 'url', state: 'rejected', hosts: TrackUrl::HOSTS, id: rejected_urls)
       return rejected_urls
     end
 
@@ -222,39 +241,6 @@ module Makoto
     def aliases
       @aliases ||= TrackAliases.new(@dir)
       return @aliases
-    end
-
-    # 🔴 **1 行も当たらない表記を残す**（#123）。⚠⚠ **訂正表の `fixed` と同じ合図**で、
-    # **供給元が表記を揃えたか、そもそも書き間違えている** — ⚠ **どちらでもその行は
-    # 消せる。**🔴 **黙ると、効いていない行がいつまでも表に残る。**
-    def report_unused_aliases
-      return nil if aliases.empty?
-      present = @db[:track].select_map(:name).to_set {|name| self.class.normalize(name)}
-      unused = aliases.keys.reject {|key| present.include?(key)}
-      return nil if unused.empty?
-      logger.warn(track: 'alias', state: 'unused', key: unused)
-      return unused
-    end
-
-    # 🔴 **語りのトラックの表で、1 行も当たらない名前を残す**（#298 → `SpokenTracks`）。
-    # ⚠⚠ **配信が終わったか、書き間違えている** — ⚠ **黙ると、その曲に歌向けの前置きが
-    # 付いていても気づけない**（**書き間違いは「表に書いたのに効いていない」**）。
-    def report_unused_spoken
-      return nil if spoken.empty?
-      unused = spoken.unused(@db[:track].select_map(:dedupe_key).to_set)
-      return nil if unused.empty?
-      logger.warn(track: 'spoken', state: 'unused', name: unused)
-      return unused
-    end
-
-    # 🔴 **訂正表と分類の表で、普段用の曲データに無い `id` を残す**（#317）。⚠⚠ **黙って無視していた**
-    # ので、**配信が終わった曲や書き間違えた `id` の行は「表に書いたのに効いていない」まま残った**
-    # （別名表・語りの表の `unused` と同じ合図）。
-    def report_unused_entries(label, entries)
-      unused = entries.keys - daily_ids.to_a
-      return nil if unused.empty?
-      logger.warn(track: label.to_s, state: 'unused', id: unused)
-      return unused
     end
 
     def daily_ids
@@ -297,13 +283,22 @@ module Makoto
     # 🔴 **どちらも「この行は消せる」合図なので黙らせない。**
     def corrected_kind(row)
       entry = kinds[row[:trackId]]
-      # ⚠ **表に無い行は素のまま**（`nil` も `nil` のまま入れる）。
-      return row[:kind] unless entry
+      # ⚠ **表に無い行は、サントラ盤の中の歌を見分ける規則だけを当てる**（#497）。
+      # ⚠⚠ **表が先**（行ごとに名指しした判断のほうが強い）。`nil` は `nil` のまま入れる。
+      return @soundtrack.kind(row) unless entry
       kind = row[:kind].to_s
       return entry[:to] if kind == entry[:from]
       logger.warn(track: 'kind', id: row[:trackId], state: correction_state(kind, entry),
         expected: entry[:from], actual: kind)
       return kind
+    end
+
+    # ⚠ **取り込みの後に出す警告。**🔴 **サントラ盤の中の歌**（#497）は、⚠⚠ **歌手の一覧が
+    # 引けないと歌手名義の行が黙って `bgm` に残る**ので、`SoundtrackSong` の側が言う。
+    def report
+      report_rejected_urls
+      report_mentions
+      @soundtrack.report(logger)
     end
 
     # ⚠ **訂正表と分類の表の読み込みと検査は `TrackFixes`**（#317 で分けた）。
@@ -312,13 +307,7 @@ module Makoto
       return @fixes
     end
 
-    def corrections
-      return fixes.corrections
-    end
-
-    def kinds
-      return fixes.kinds
-    end
+    def_delegators :fixes, :corrections, :kinds
 
     # ⚠ **`live` は毎回 false に落としてから立て直す。**ライブ用の定義が変わって
     # 外れた曲に、前回の投入で立てたフラグが残らないようにする。

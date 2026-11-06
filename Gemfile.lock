@@ -1,9 +1,9 @@
 GIT
   remote: https://github.com/pooza/ginseng-core.git
-  revision: e0c739e9f4eeb195971d384bda38cbe764135d26
-  tag: v1.25.1
+  revision: ed6daad4cc3614ce641b5102a268287fbe059401
+  tag: v5.0.0
   specs:
-    ginseng-core (1.25.1)
+    ginseng-core (5.0.0)
       activesupport (>= 8.1.2.1)
       addressable (>= 2.9.0)
       cgi (>= 0.4.2)
@@ -23,6 +23,7 @@ GIT
       nokogiri (>= 1.19.4)
       optparse
       rake (>= 12.3.3, != 13.4.0)
+      resolv (>= 0.7.2)
       sanitize (>= 6.0.2)
       securerandom
       set
@@ -34,10 +35,11 @@ GIT
 
 GIT
   remote: https://github.com/pooza/ginseng-fediverse.git
-  revision: 4d758e24f6234bc3165d2ef3fb8d2d257f40393e
-  tag: v3.1.4
+  revision: 8bdda3798900508890ad22829de908042257c717
+  tag: v7.1.0
   specs:
-    ginseng-fediverse (3.1.4)
+    ginseng-fediverse (7.1.0)
+      ginseng-core (>= 2.1.0)
 
 GIT
   remote: https://github.com/pooza/ginseng-style.git
@@ -162,6 +164,7 @@ GEM
     rainbow (3.1.1)
     rake (13.4.2)
     regexp_parser (2.12.0)
+    resolv (0.8.1)
     rexml (3.4.4)
     rubocop (1.91.0)
       json (>= 2.3)
@@ -285,8 +288,8 @@ CHECKSUMS
   fileutils (1.7.3) sha256=57271e854b694a87755d76f836f5c57b2c9538ebbaf4b2154bb66addf15eb5da
   find (0.2.0) sha256=9aabac9dbbea3fdd23781f79a2fd626166e57dab349aaec449400811b40c371b
   fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
-  ginseng-core (1.25.1)
-  ginseng-fediverse (3.1.4)
+  ginseng-core (5.0.0)
+  ginseng-fediverse (7.1.0)
   ginseng-style (1.1.13)
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   httparty (0.24.2) sha256=8fca6a54aa0c4aa4303a0fd33e5e2156175d6a5334f714263b458abd7fda9c38
@@ -326,6 +329,7 @@ CHECKSUMS
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
   rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
   regexp_parser (2.12.0) sha256=35a916a1d63190ab5c9009457136ae5f3c0c7512d60291d0d1378ba18ce08ebb
+  resolv (0.8.1) sha256=7452071b413d0b63054654e4646f07dc717f3e5d3ed1c7dfaf34f7f054d13027
   rexml (3.4.4) sha256=19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142
   rubocop (1.91.0) sha256=9c82b7bf391c5d7e3798c5b9996e22a1fe3bd7468e351dfdeb96140c058296d0
   rubocop-ast (1.50.0) sha256=b9ca88300da0803ee222ad20cdb30494c0a784eed06fdc35d254b06d662788db

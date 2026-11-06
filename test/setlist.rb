@@ -13,6 +13,11 @@ module Makoto
       def singer?(artist_name)
         return names.nil? || artist_name.to_s.start_with?('歌手')
       end
+
+      # ⚠ `歌手` が並んだ数を歌手の数とする（辞書に当てる本物の代わり → #157）。
+      def credit_count(artist_name)
+        return [artist_name.to_s.scan('歌手').size, 1].max
+      end
     end
 
     # ⚠ **警告を数えるための受け皿**（#88）。⚠⚠ **「黙って 0 件になる」を防ぐのが
@@ -648,6 +653,33 @@ module Makoto
       config['/live/setlist/cover_solo_weight'] = 3
 
       assert_equal(setlist(20).covers.map {|t| t[:id]}, setlist(20).covers.map {|t| t[:id]})
+    end
+
+    # 🔴 **曲が増えても、カバーが丸ごと引き直しにならない**（#309）。⚠⚠ **入れ替わる
+    # のは、足した曲が上位に入ったぶんだけ。**
+    def test_new_tracks_only_replace_covers_they_enter
+      seed(songs: 8, covers: 0)
+      (1..30).each {|i| add_cover("候補#{i}", "歌手A#{i}")}
+      config['/live/setlist/cover_solo_weight'] = 2
+      before = setlist(20).covers.map {|track| track[:name]}
+      (1..10).each do |i|
+        add_cover("新しい曲#{i}", "歌手B#{i} & 歌手C#{i}")
+        after = setlist(20).covers.map {|track| track[:name]}
+
+        assert_operator((before - after).size, :<=, i)
+        assert_empty(after - before - (1..i).map {|n| "新しい曲#{n}"})
+      end
+    end
+
+    # 🔴 **鍵は `id` ではなく `dedupe_key`**（#309）。⚠⚠ **`bydo` と `rubicon` は採番が
+    # 違う**ので、`id` で引くとステージングの下見が本番を言い当てられない。
+    def test_covers_do_not_depend_on_ids
+      seed(songs: 8, covers: 0)
+      (1..12).each {|i| add_cover("候補#{i}", "歌手A#{i}")}
+      before = setlist(20).covers.map {|track| track[:name]}
+      @db[:track].where(live: false).update(id: 20_000 - Sequel[:id])
+
+      assert_equal(before, setlist(20).covers.map {|track| track[:name]})
     end
 
     # ⚠⚠ **バージョン違いは 1 曲に寄せる**（#118）。⚠ **`dedupe_key` は括弧の中身を

@@ -27,26 +27,55 @@ module Makoto
 
     # 🔴 **窓の検査はクラスに置く**（#276）。⚠⚠ **`rake config:lint` が `Scheduler.instance`
     # を作らずに当てるため** — ⚠ **インスタンスは作った時点で rufus のスレッドを起こす。**
+    #
+    # 🔴 **落とすのは強い窓だけ**（#255）。⚠ 弱い窓は `weak_conflicts` が拾って警告に回す。
     def self.validate_window(job)
-      window = CommentaryWindow.new
-      return unless window.conflict?(job.timetable)
-      raise Ginseng::ConfigError,
-        "scheduler: #{job.name} (#{job.timetable}) must avoid the commentary window (#{window})"
+      CommentaryWindow.strong.each do |window|
+        next unless window.conflict?(job.timetable)
+        raise Ginseng::ConfigError,
+          "scheduler: #{job.name} (#{job.timetable}) must avoid the commentary window (#{window})"
+      end
+    end
+
+    # ⚠ **弱い窓と重なる窓**（#255）。⚠⚠ **投稿は止めない** — 起動ログと下見で警告するだけ
+    # （「同時でも矛盾はしないが慌ただしい」・2026-09-05 / 09-29・オーナー）。
+    # 🔴 **ライブの枠は見ない**（`/commentary/weak_exempt`・2026-11-06・オーナー判断）。
+    def self.weak_conflicts(job)
+      return [] if CommentaryWindow.weak_exempt?(job.name)
+      return CommentaryWindow.weak.select {|window| window.conflict?(job.timetable)}
     end
 
     # 投稿を登録する。⚠ `exec` の前に呼ぶこと。
     #
-    # 🔴 **ここが「自分から出す投稿」の唯一の入口**（#172・Codex の P2）。⚠⚠ **日曜
-    # 08:30〜09:00 の実況の窓に落ちる枠は、ここで落とす** — ⚠ **機能ごとに検査すると、
+    # 🔴 **ここが「自分から出す投稿」の唯一の入口**（#172・Codex の P2）。⚠⚠ **強い実況の
+    # 窓（日曜 08:30〜09:00）に落ちる枠は、ここで落とす**（弱い窓は警告だけ・#255） — ⚠ **機能ごとに検査すると、
     # 次に足す枠が同じ検査を持つ保証が無い**（→ `CommentaryWindow`）。
     #
     # ⚠ **応答の経路には掛からない**（#18 / #29）。**窓が止めるのは自分から出すほうだけ**
     # で、⚠⚠ **呼ばれて答えるのは割り込みではなく参加**（→ docs/CLAUDE.md）。
     def register(job)
       self.class.validate_window(job)
+      warn_weak_windows(job)
       @jobs.push(job)
       logger.info(scheduler: 'register', post: job.name, timetable: job.timetable.to_s)
       return self
+    end
+
+    # ⚠ **弱い窓の警告**（#255）。🔴 **重なりと、壊れた弱い窓の両方を言う**（どちらも投稿は止めない）。
+    def warn_weak_windows(job)
+      self.class.weak_conflicts(job).each do |window|
+        logger.warn(
+          scheduler: 'register', post: job.name, timetable: job.timetable.to_s,
+          message: 'overlaps a weak commentary window', window: window.to_s
+        )
+      end
+      CommentaryWindow.broken_weak.each do |window|
+        logger.warn(
+          scheduler: 'register', post: job.name, message: 'weak commentary window is broken',
+          window: window.name, error: window.error.message
+        )
+      end
+      return nil
     end
 
     # 🔴 **起動時の検査で登録を見送った投稿**（#350 → `MakotoDaemon#register_jobs`）。

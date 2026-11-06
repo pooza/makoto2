@@ -25,6 +25,7 @@ module Makoto
         def available? = true
         def stale? = false
         def singer?(_name) = false
+        def credit_count(_name) = 1
       end.new(nil)
     end
 

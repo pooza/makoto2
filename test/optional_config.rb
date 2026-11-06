@@ -21,6 +21,7 @@ module Makoto
       '/live/mc/cover',
       '/live/setlist/own_artists',
       '/live/setlist/own_units',
+      '/commentary/weak_exempt',
     ].freeze
 
     def date
@@ -38,6 +39,7 @@ module Makoto
       return Struct.new(:x) do
         def available? = true
         def singer?(_name) = true
+        def credit_count(_name) = 1
       end.new(nil)
     end
 
@@ -53,6 +55,14 @@ module Makoto
       drop(*OPTIONAL_KEYS)
 
       assert_empty(config.errors)
+    end
+
+    # ⚠⚠ **`/commentary/weak_exempt` を消すと日常の枠が全部見送られていた**（v0.9.0 のリリース前レビューの黄）。
+    def test_jobs_are_registered_without_the_weak_exempt
+      drop('/commentary/weak_exempt')
+
+      assert_equal(Scheduler.instance, Scheduler.instance.register(Morning.new.job))
+      assert_false(CommentaryWindow.weak_exempt?(Live::CLOSE_NAME))
     end
 
     # ⚠⚠ **`/live/hashtag` を消すと常駐が起動しなくなっていた。**

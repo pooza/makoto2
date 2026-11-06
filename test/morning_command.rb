@@ -79,7 +79,7 @@ module Makoto
       output = capture {command.slot}
 
       assert_include(output, "#{Morning::NAME}: #{morning.timetable}")
-      assert_include(output, CommentaryWindow.new.to_s)
+      CommentaryWindow.all.each {|window| assert_include(output, window.to_s)}
     end
 
     # 🔴 **一周の長さ ＝ 通年の原稿の本数**（#223 / #225）。⚠⚠ **「少しずつ増やす」の

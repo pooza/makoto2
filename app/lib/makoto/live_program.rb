@@ -36,6 +36,8 @@ module Makoto
       return shared_keys.any? {|shared| key.start_with?(shared)}
     end
 
+    # ⚠ **起動したときの設定と別名表のまま凍る**（`TrackImporter.default_aliases` と同じ・#483）。
+    # 🔴 **`shared_songs` や別名表を書き換えたら、常駐を再起動するまで効かない**（文面だけで並びは動かない）。
     def shared_keys
       @shared_keys ||= Array(optional_config('/live/setlist/shared_songs'))
         .map {|name| TrackImporter.dedupe_key(name)}.reject(&:empty?)
@@ -210,9 +212,8 @@ module Makoto
     # 🔴 **名義を割らない**（#155）。⚠⚠ **区切り位置は「含むか」の答えを変えない** —
     # **自分の名義に区切り文字は入っていない**ので、どこで割っても一致は保たれる。
     # ⚠ **これで中黒の扱い**（`キュア・カルテット` は 1 組・`五條真由美・宮本佳那子` は
-    # 2 組、という数で決める曖昧な規則 → `CureApiService.credit_separator`）**を
-    # この判定から外せた。**⚠⚠ **割る必要があるのは「何人並んでいるか」を数える側
-    # だけ**（#65 の `credit_count`）。
+    # 2 組）**をこの判定から外せた。**⚠ **数える側（#65 の `credit_count`）も、#157 で
+    # 割るのをやめて辞書に当てる形になった。**
     #
     # 🔴 **本人がメンバーのユニット名義もここに入る**（2026-08-23・**#177**）。
     # ⚠⚠ **`キュア・カルテット` は名義に本人の名前を含まない**ので、

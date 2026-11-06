@@ -27,10 +27,9 @@ module Makoto
   # （2026-09-05・オーナー）。**どちらも「人が話している場に割り込まない」。**
   #
   # ⚠ **強いほう（ニチアサ）は `CommentaryWindow` が起動を拒否する。**⚠⚠ **弱いほう
-  # （夜）はそこまでせず、枠を置かないだけで足りる** — 🔴 **窓にすると 11/4 の
-  # `live-close`（20:00 ちょうど）が道連れで起動しなくなる。**
-  #
-  # ⚠ **窓を複数・強さつきで持つ構造にするかは #255。**
+  # （夜実況・振り返り・MX 再放送）は投稿を止めず、起動ログと下見で警告するだけ**（#255）—
+  # 🔴 **拒否にすると 11/4 の `live-close`（20:00 ちょうど）が道連れで起動しなくなる**
+  # （ライブの枠は弱い窓の検査から外してある・`/commentary/weak_exempt`）。
   #
   # ## 🔴 ライブが持つ日は黙る
   #
@@ -181,12 +180,17 @@ module Makoto
       return SpokenTracks.new
     end
 
+    # 🔴 **MV の表**（#498）。⚠⚠ **呼ぶたびに作り直す**（#275・語りの表と同じ）。
+    def music_videos
+      return MusicVideos.new
+    end
+
     def source
       @source ||= SongSource.new(
         lottery: lottery,
         prefixes: SongSource::Prefixes.of(selector, kind_selectors, spoken: method(:spoken_tracks)),
         timetable: timetable,
-        collection_kinds: collection_kinds,
+        presentation: SongSource::Presentation.of(collection_kinds, videos: method(:music_videos)),
         quiet_types: quiet_types,
       )
       return @source

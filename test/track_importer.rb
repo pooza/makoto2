@@ -3,7 +3,7 @@ require 'tmpdir'
 module Makoto
   class TrackImporterTest < TestCase
     def test_import_counts
-      counts = TrackImporter.new(track_fixture_dir, db: empty_db).exec
+      counts = TrackImporter.new(track_fixture_dir, db: empty_db, soundtrack: soundtrack_without_singers).exec
 
       assert_equal(12, counts[:track])
       assert_equal(4, counts[:live])
@@ -27,8 +27,8 @@ module Makoto
     # ⚠ 何度実行しても同じ結果になること。id は iTunes の trackId をそのまま使う。
     def test_import_is_idempotent
       db = empty_db
-      first = TrackImporter.new(track_fixture_dir, db: db).exec
-      second = TrackImporter.new(track_fixture_dir, db: db).exec
+      first = TrackImporter.new(track_fixture_dir, db: db, soundtrack: soundtrack_without_singers).exec
+      second = TrackImporter.new(track_fixture_dir, db: db, soundtrack: soundtrack_without_singers).exec
 
       assert_equal(first, second)
       assert_equal(12, db[:track].count)
@@ -38,7 +38,7 @@ module Makoto
     def test_live_flag_is_rebuilt
       db = track_db
       db[:track].where(id: 1009).update(live: true)
-      TrackImporter.new(track_fixture_dir, db: db).exec
+      TrackImporter.new(track_fixture_dir, db: db, soundtrack: soundtrack_without_singers).exec
 
       assert_equal(4, db[:track].where(live: true).count)
       assert_false(db[:track][id: 1009][:live])
@@ -74,7 +74,7 @@ module Makoto
     def test_an_alias_folds_the_dedupe_key
       with_aliases([alias_entry('しまうまグルグル', 'テストのうた My True Love!')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
 
         assert_equal(db[:track][id: 1001][:dedupe_key], db[:track][id: 1003][:dedupe_key])
       end
@@ -84,7 +84,7 @@ module Makoto
     def test_an_alias_does_not_touch_the_name
       with_aliases([alias_entry('しまうまグルグル', 'テストのうた My True Love!')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
 
         assert_equal('しまうまグルグル', db[:track][id: 1001][:name])
         assert_equal('テストのうた My True Love!', db[:track][id: 1003][:name])
@@ -95,7 +95,7 @@ module Makoto
     def test_the_first_name_wins
       with_aliases([alias_entry('テストのうた My True Love!', 'しまうまグルグル')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
 
         assert_equal(
           TrackImporter.normalize('テストのうた My True Love!'),
@@ -143,6 +143,33 @@ module Makoto
         File.write(File.join(dir, SpokenTracks::FILE), [{'name' => 'しまうまグルグル'}].to_yaml)
 
         assert_empty(import_with_warnings(dir, empty_db, 'spoken'))
+      end
+    end
+
+    # 🔴 **MV の表で 1 行も当たらない名前を残す**（#498）。
+    def test_an_unused_video_is_reported
+      with_aliases([]) do |dir|
+        videos = [
+          {'name' => 'しまうまグルグル', 'url' => 'https://music.apple.com/jp/music-video/test/1'},
+          {'name' => 'そんな曲は無い', 'url' => 'https://music.apple.com/jp/music-video/test/2'},
+        ]
+        File.write(File.join(dir, MusicVideos::FILE), videos.to_yaml)
+        warnings = import_with_warnings(dir, empty_db, 'video')
+
+        assert_equal(1, warnings.size)
+        assert_equal('unused', warnings.first[:state])
+        assert_equal(['そんな曲は無い'], warnings.first[:name])
+      end
+    end
+
+    # 🔴 **壊れた MV の表も「何も取り込まずに落ちる」**（#317 と同じ線）。
+    def test_a_broken_video_table_imports_nothing
+      with_aliases([]) do |dir|
+        File.write(File.join(dir, MusicVideos::FILE), [{'name' => 'しまうまグルグル', 'url' => 'https://example.test/'}].to_yaml)
+        db = empty_db
+
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec}
+        assert_equal(0, db[:track].count)
       end
     end
 
@@ -197,7 +224,7 @@ module Makoto
     def test_kind_is_corrected
       with_kinds([kind_entry(1003, 'vocal', 'instrumental')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
 
         assert_equal('instrumental', db[:track][id: 1003][:kind])
         assert_equal('テストのうた My True Love!', db[:track][id: 1003][:name])
@@ -216,10 +243,69 @@ module Makoto
       end
     end
 
+    # ⚠ 実際の cure-api を叩かない。`テスト歌手` だけを歌手として通す。
+    FakeCureApi = Struct.new(:online) do
+      def available?
+        return online
+      end
+
+      def singer?(artist_name)
+        return online && artist_name.to_s == 'テスト歌手'
+      end
+    end
+
+    def soundtrack(online: true)
+      return SoundtrackSong.new(cure_api: FakeCureApi.new(online))
+    end
+
+    # サントラ盤（`bgm`）に歌手名義の行を 2 本置く（フルサイズと映画サイズ）。
+    def edit_soundtrack_songs(rows)
+      full = rows.find {|row| row['trackId'] == 1005}
+      full['artistName'] = 'テスト歌手'
+      full['trackName'] = 'サントラのうた'
+      short = rows.find {|row| row['trackId'] == 1006}
+      short['artistName'] = 'テスト歌手'
+      short['trackName'] = 'サントラのうた(映画サイズ)'
+    end
+
+    # 🔴 **サントラ盤の中の歌を `bgm` から外す**（#497）。⚠⚠ **作曲家の名義は劇伴のまま。**
+    def test_songs_on_a_soundtrack_leave_bgm
+      db, = import_edited_rows('soundtrack', soundtrack: soundtrack) {|rows| edit_soundtrack_songs(rows)}
+
+      assert_equal('vocal', db[:track][id: 1005][:kind])
+      assert_equal('tv_size', db[:track][id: 1006][:kind])
+      assert_equal('instrumental', db[:track][id: 1009][:kind])
+      assert_equal('karaoke', db[:track][id: 1011][:kind])
+    end
+
+    # ⚠⚠ **歌手の一覧が引けないと、歌手名義の行は `bgm` に残る。黙らない。**
+    def test_an_unavailable_singer_list_is_reported
+      db, warnings = import_edited_rows('soundtrack', soundtrack: soundtrack(online: false)) do |rows|
+        edit_soundtrack_songs(rows)
+      end
+
+      assert_equal('bgm', db[:track][id: 1005][:kind])
+      assert_equal(['cure-api is unavailable'], warnings.map {|w| w[:message]})
+    end
+
+    # ⚠⚠ **分類の表が先**（行ごとに名指しした判断のほうが強い）。
+    def test_the_kind_table_wins_over_the_soundtrack_rule
+      with_kinds([kind_entry(1005, 'bgm', 'instrumental')]) do |dir|
+        rows = JSON.parse(File.read(File.join(dir, TrackImporter::DAILY)))
+        edit_soundtrack_songs(rows)
+        File.write(File.join(dir, TrackImporter::DAILY), JSON.generate(rows))
+        db = empty_db
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack).exec
+
+        assert_equal('instrumental', db[:track][id: 1005][:kind])
+        assert_equal('tv_size', db[:track][id: 1006][:kind])
+      end
+    end
+
     # 🔴 **重みの無い `kind` へは正させない**（⚠⚠ **その曲が抽選で永久に出なくなる**）。
     def test_an_unweighted_kind_is_an_error
       with_kinds([kind_entry(1003, 'vocal', 'drama')]) do |dir|
-        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: empty_db).exec}
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: empty_db, soundtrack: soundtrack_without_singers).exec}
       end
     end
 
@@ -230,7 +316,7 @@ module Makoto
         File.write(File.join(dir, SpokenTracks::FILE), [{'name' => ''}].to_yaml)
         db = empty_db
 
-        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db).exec}
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec}
         assert_equal(0, db[:track].count)
       end
     end
@@ -241,12 +327,12 @@ module Makoto
       with_corrections([{'id' => '1003', 'from' => 'a', 'to' => 'b'}]) do |dir|
         db = empty_db
 
-        error = assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db).exec}
+        error = assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec}
         assert_include(error.message, '引用符で囲まない')
         assert_equal(0, db[:track].count)
       end
       with_kinds([kind_entry('1003', 'vocal', 'instrumental')]) do |dir|
-        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: empty_db).exec}
+        assert_raise(Ginseng::ValidateError) {TrackImporter.new(dir, db: empty_db, soundtrack: soundtrack_without_singers).exec}
       end
     end
 
@@ -261,6 +347,18 @@ module Makoto
         warnings = import_with_warnings(dir, empty_db, 'kind')
 
         assert_equal([{track: 'kind', state: 'unused', id: [9999]}], warnings)
+      end
+    end
+
+    # 🔴 **当たらない行は画面にも出す**（#483 → `TrackCommand#import`）。⚠ **syslog と同じ中身を返す。**
+    def test_unused_entries_are_returned_for_the_screen
+      with_corrections([{'id' => 9999, 'from' => 'a', 'to' => 'b'}]) do |dir|
+        importer = TrackImporter.new(dir, db: empty_db, soundtrack: soundtrack_without_singers)
+
+        assert_empty(importer.unused)
+        importer.exec
+
+        assert_equal({correction: [9999]}, importer.unused)
       end
     end
 
@@ -284,8 +382,8 @@ module Makoto
     end
 
     # ⚠ 取り込み中の警告を拾う。**訂正表を片付ける合図が実際に出ること**を見る。
-    def import_with_warnings(dir, db, kind = 'correction')
-      importer = TrackImporter.new(dir, db: db)
+    def import_with_warnings(dir, db, kind = 'correction', soundtrack: nil)
+      importer = TrackImporter.new(dir, db: db, soundtrack: soundtrack || soundtrack_without_singers)
       warnings = []
       logger = Object.new
       logger.define_singleton_method(:warn) {|message| warnings.push(message)}
@@ -296,14 +394,14 @@ module Makoto
     end
 
     # 普段用の行を書き換えてから取り込む（#283）。⚠ **戻り値は `[db, その種類の警告]`。**
-    def import_edited_rows(kind)
+    def import_edited_rows(kind, soundtrack: nil)
       Dir.mktmpdir do |dir|
         FileUtils.cp(File.join(track_fixture_dir, TrackImporter::LIVE), File.join(dir, TrackImporter::LIVE))
         rows = JSON.parse(File.read(File.join(track_fixture_dir, TrackImporter::DAILY)))
         yield rows
         File.write(File.join(dir, TrackImporter::DAILY), JSON.generate(rows))
         db = empty_db
-        return [db, import_with_warnings(dir, db, kind)]
+        return [db, import_with_warnings(dir, db, kind, soundtrack: soundtrack)]
       end
     end
 
@@ -326,7 +424,7 @@ module Makoto
     # 以前入った行の URL が検査を通らないまま残っていた。**
     def test_a_retained_row_with_an_unexpected_url_is_dropped
       db = empty_db
-      TrackImporter.new(track_fixture_dir, db: db).exec
+      TrackImporter.new(track_fixture_dir, db: db, soundtrack: soundtrack_without_singers).exec
       row = db[:track][id: 1001].merge(id: 424_242, url: 'https://evil.example/track/424242')
       db[:track].insert(row)
       warnings = import_with_warnings(track_fixture_dir, db, 'url')
@@ -359,7 +457,7 @@ module Makoto
     def test_correction_fixes_the_name_and_the_dedupe_key
       with_corrections([correction(1010, '日付が壊れている曲', 'テスト組曲')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
 
         assert_equal('テスト組曲', db[:track][id: 1010][:name])
         assert_equal(db[:track][id: 1009][:dedupe_key], db[:track][id: 1010][:dedupe_key])
@@ -371,7 +469,7 @@ module Makoto
     def test_untouched_names_are_identical
       with_corrections([correction(1010, '日付が壊れている曲', 'テスト組曲')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
         expected = track_db[:track].exclude(id: 1010).order(:id).select_map([:id, :name, :dedupe_key])
 
         assert_equal(expected, db[:track].exclude(id: 1010).order(:id).select_map([:id, :name, :dedupe_key]))
@@ -418,8 +516,8 @@ module Makoto
     def test_correction_survives_a_reimport
       with_corrections([correction(1010, '日付が壊れている曲', 'テスト組曲')]) do |dir|
         db = empty_db
-        TrackImporter.new(dir, db: db).exec
-        TrackImporter.new(dir, db: db).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
+        TrackImporter.new(dir, db: db, soundtrack: soundtrack_without_singers).exec
 
         assert_equal('テスト組曲', db[:track][id: 1010][:name])
       end
@@ -428,7 +526,7 @@ module Makoto
     # ⚠ 訂正表は無くてもよい（あとから足せる）。
     def test_import_without_a_corrections_file
       assert_false(File.exist?(File.join(track_fixture_dir, TrackImporter::CORRECTIONS)))
-      assert_equal(12, TrackImporter.new(track_fixture_dir, db: empty_db).exec[:track])
+      assert_equal(12, TrackImporter.new(track_fixture_dir, db: empty_db, soundtrack: soundtrack_without_singers).exec[:track])
     end
 
     # ⚠⚠ 名義違い・盤違いの同一曲が同じ鍵になること。duration は 1〜3 秒ばらつくので

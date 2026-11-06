@@ -511,6 +511,14 @@ module Makoto
       assert_includes(live.program.track_text(entry), '五條真由美')
     end
 
+    # ⚠ **英語の `Chorus:` も同じ**（2026-11-05・#157）。
+    def test_an_english_chorus_only_credit_is_shown
+      entry = Setlist::Entry.new(kind: :song,
+        track: track_row('吉武千颯 Chorus:宮本佳那子'))
+
+      assert_includes(live.program.track_text(entry), '吉武千颯')
+    end
+
     # ⚠ **落とすのはコーラスの区画だけ** — **主名義が本人なら隠す。**
     def test_a_credit_with_own_name_and_a_chorus_is_hidden
       entry = Setlist::Entry.new(kind: :song,
