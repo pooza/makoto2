@@ -75,6 +75,18 @@ CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
       warn "⚠ /commentary/windows に強い窓が無い。門を判定できない"
       exit 1
     end
+    # ⚠ 使う前に形を確かめる（#575 の Codex の P2）。bin/makoto config は値を出すだけで検査しないので、
+    # 曜日が空・範囲外、時計の形が違う窓を黙って飛ばすと門が開く。壊れていれば門を開けない。
+    clock = /\A([01]\d|2[0-3]):[0-5]\d\z/
+    strong.each do |w|
+      days = w["weekdays"]
+      broken = !w["start"].to_s.match?(clock) || !w["finish"].to_s.match?(clock) ||
+        w["start"].to_s >= w["finish"].to_s ||
+        (!days.nil? && (!days.is_a?(Array) || days.empty? || !days.all? { |d| d.is_a?(Integer) && d.between?(0, 6) }))
+      next unless broken
+      warn "⚠ 強い窓 #{w["name"]} の書き方が壊れている（#{w.inspect}）。門を判定できない"
+      exit 1
+    end
     day = Time.new(now.year, now.month, now.day)
     while day <= until_t
       strong.each do |w|
