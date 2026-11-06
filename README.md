@@ -8,6 +8,8 @@ Mastodon サーバー「[キュアスタ！](https://precure.ml)」で稼働す�
 
 ⚠ 版は [リリース一覧](https://github.com/pooza/makoto2/releases) を見る（ここに版を書かない）。⚠⚠ **タグは本番へ入れる前に打つ**ので、最新のリリースが本番で動いているとは限らない — **本番に入った版は [docs/CLAUDE.md](docs/CLAUDE.md) のデプロイの記録が正本。**
 
+2026-07-30 に起動した。節目の日付は [docs/CLAUDE.md の「沿革」](docs/CLAUDE.md#沿革) にまとめてある。
+
 - [docs/CLAUDE.md](docs/CLAUDE.md) — 開発ガイド（プロジェクトのルール・運用手順の正本）
 - [docs/makoto-persona.md](docs/makoto-persona.md) — 剣崎真琴の人物設定と、MAKOTO が語ってよい範囲
 - [docs/makoto-legacy.md](docs/makoto-legacy.md) — 旧実装の経緯と引き継ぐ資産（台詞コーパス）
