@@ -36,23 +36,46 @@ properties:
   # ⚠ この type は /message/anniversary にも登録すること（登録が無いと毎日出る）。
   announcement:
     $ref: '#/definitions/scripted_slot'
-  # 日曜の実況の窓（#172）。⚠ 欠けると「自分から出す投稿」の枠を検査できない。
+  # 実況の窓（#172 / #255）。⚠ 欠けると「自分から出す投稿」の枠を検査できない。
   # ⚠⚠ 検査できないことは、窓に差し込んでしまうまで分からない。
   commentary:
     type: object
     properties:
-      weekday:
-        type: integer
-        minimum: 0
-        maximum: 6
-      start:
-        type: string
-      finish:
-        type: string
+      windows:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          properties:
+            name:
+              type: string
+            weekdays:
+              type: array
+              minItems: 1
+              items:
+                type: integer
+                minimum: 0
+                maximum: 6
+            start:
+              type: string
+            finish:
+              type: string
+            strength:
+              type: string
+              enum:
+                - strong
+                - weak
+          required:
+            - name
+            - start
+            - finish
+            - strength
+      weak_exempt:
+        type: array
+        items:
+          type: string
     required:
-      - weekday
-      - start
-      - finish
+      - windows
   corpus:
     type: object
     properties:

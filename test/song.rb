@@ -29,10 +29,12 @@ module Makoto
     # 🔴 **朝挨拶（08:00）・予告（10:00）・ニチアサ実況の窓（日曜 08:30〜09:00）の
     # どれとも重ならない。**⚠⚠ **窓の検査そのものは `Scheduler#register`。**
     #
-    # ⚠ **夜実況（概ね毎晩 20:00〜）はここでは見ない** — 🔴 **性格は同じだが強さが違い、
-    # 窓としては持っていない**（→ #254 / #255）。
+    # 🔴 **弱い窓（夜実況 20:00〜・MX 再放送 水木 19:30〜・振り返り 土 20:30〜）とも重ならない**
+    # （#254 / #255）。⚠ **19:00 は MX の 30 分前**（投稿 1 本は約 1 秒）。
     def test_the_default_slot_avoids_the_commentary_window
-      assert_false(CommentaryWindow.new.conflict?(song.timetable))
+      CommentaryWindow.all.each do |window|
+        assert_false(window.conflict?(song.timetable), window.name)
+      end
     end
 
     def test_the_default_slot_is_accepted
