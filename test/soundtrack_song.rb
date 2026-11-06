@@ -74,5 +74,25 @@ module Makoto
       assert_equal('karaoke', rule.kind(row('テストのうた (TVsize)', '歌手A', kind: 'karaoke')))
       assert_equal('instrumental', rule.kind(row('テストのうた (映画サイズ)', '歌手A', kind: 'instrumental')))
     end
+
+    # 🔴 **引けなかったら、その取り込みの間は引き直さない**（v0.9.0 のリリース前レビューの黄）。
+    # ⚠⚠ **取り込みはトランザクションの中で行を当てる**ので、引き直すと書き込みのロックを持ったまま待つ。
+    def test_an_unavailable_list_is_not_asked_again
+      calls = []
+      api = Object.new
+      api.define_singleton_method(:available?) {calls.push(:available?) && false}
+      api.define_singleton_method(:singer?) {|_name| calls.push(:singer?) && true}
+      subject = SoundtrackSong.new(cure_api: api)
+
+      assert_false(subject.available?)
+      assert_equal('bgm', subject.kind(row('テストのうた', '歌手A')))
+      assert_equal('bgm', subject.kind(row('テストのうた2', '歌手B')))
+      assert_equal([:available?], calls)
+    end
+
+    # ⚠ **`CV:` 名義は一覧なしで見分けられる**（引けない日も外れない）。
+    def test_a_character_is_vocal_without_the_list
+      assert_equal('vocal', rule(online: false).kind(row('テストのうた', 'キュアテスト(CV.声優A)')))
+    end
   end
 end

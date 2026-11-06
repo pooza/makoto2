@@ -47,22 +47,39 @@ module Makoto
       return all.select(&:strong?)
     end
 
+    # ⚠ **検査できる弱い窓だけ。**壊れた弱い窓は `broken_weak` が拾う。
     def self.weak
-      return all.select(&:weak?)
+      return all.select(&:weak?).reject(&:error)
+    end
+
+    # 🔴 **壊れた弱い窓**（時計・曜日の誤り）。⚠⚠ **弱い窓は警告のための窓なので、壊れていても
+    # 投稿を止めない**（v0.9.0 のリリース前レビューの黄）— 止めないときに失うのは警告だけ、止めたときに
+    # 失うのは日常の投稿全部で、釣り合わない。⚠ **黙らせもしない**（起動ログ・`config:lint`・下見で言う）。
+    # ⚠ **強さの綴り誤りは別**（`strength` が落とす）— 強い窓のつもりだったかもしれないので、閉じる側に倒す。
+    def self.broken_weak
+      return all.select(&:weak?).select(&:error)
     end
 
     # 🔴 **弱い窓の検査から外す枠**（2026-11-06・オーナー判断）。⚠⚠ **バースデーライブ当日は
     # 場そのものが違う。**⚠ **強い窓には効かない。**
+    #
+    # ⚠ **省いてよい設定**（#77 の規約・v0.9.0 のリリース前レビューの黄）。⚠⚠ **素で読むと、消しただけで
+    # `ConfigError` になり、日常の枠が全部登録を見送られていた**（警告のための設定で投稿が止まる）。
     def self.weak_exempt?(name)
-      return Array(Config.instance["#{PREFIX}/weak_exempt"]).map(&:to_s).include?(name.to_s)
+      config = Config.instance
+      return false unless config.key?("#{PREFIX}/weak_exempt")
+      return Array(config["#{PREFIX}/weak_exempt"]).map(&:to_s).include?(name.to_s)
     end
 
     # 下見（`morning slot` / `song slot`）に出す行。⚠ **弱い窓との重なりはここで見える**
     # （常駐は止めないので、枠を動かす PR の時点で気づく口）。
     def self.summary(job)
-      lines = ['実況の窓:'] + all.map {|window| "  #{window}"}
+      lines = ['実況の窓:'] + all.map {|window| "  #{window.error ? window.name : window}"}
       Scheduler.weak_conflicts(job).each do |window|
         lines.push("  ⚠ 弱い窓と重なる: #{window}（投稿は止めない）")
+      end
+      broken_weak.each do |window|
+        lines.push("  ⚠ 弱い窓が壊れていて検査できない: #{window.error.message}")
       end
       return lines
     end
@@ -82,6 +99,17 @@ module Makoto
       return value if STRENGTHS.include?(value)
       raise Ginseng::ConfigError,
         "commentary: #{name}: strength must be #{STRENGTHS.join(' or ')} (got '#{value}')"
+    end
+
+    # 窓の書き方の誤り（`ConfigError`）。⚠ **無ければ nil。**曜日・時計・強さを 1 度ずつ読んで確かめる。
+    def error
+      weekdays
+      start_minutes
+      finish_minutes
+      strength
+      return nil
+    rescue Ginseng::ConfigError => e
+      return e
     end
 
     def strong?

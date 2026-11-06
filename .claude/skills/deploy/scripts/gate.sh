@@ -18,6 +18,12 @@ if [ -z "$config" ]; then
 fi
 # ⚠ GATE_NOW（epoch 秒）で「いま」を差し替えられる（門そのものを確かめるときだけ）。
 now=${GATE_NOW:-$(ssh -o ConnectTimeout=10 "$host" 'date +%s')}
+# 🔴 **時刻が取れなければ落とす**（v0.9.0 のリリース前レビューの黄）。⚠⚠ 空のままだと「いま」が
+# 1970-01-01 になり、凍結・実況の窓・枠の頭のどれにも当たらず門が開いていた。
+if ! [[ "$now" =~ ^[0-9]+$ ]] || [ "$now" -lt 1000000000 ]; then
+  echo "⚠ $host の時刻が読めない（'$now'）。門を判定できない"
+  exit 1
+fi
 # shellcheck disable=SC2016 # ruby のコードなので展開しない
 CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
   require "time"
