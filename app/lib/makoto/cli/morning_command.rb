@@ -36,7 +36,7 @@ module Makoto
       job = morning.job
       puts "#{job.name}: #{job.timetable}"
       puts "原稿の type: #{morning.types.join(', ')}（定型挨拶が付くのは #{morning.type}）"
-      puts "実況の窓: #{CommentaryWindow.new}"
+      puts CommentaryWindow.summary(job)
       dump_cycle
       dump_seasons
     rescue Ginseng::ConfigError => e

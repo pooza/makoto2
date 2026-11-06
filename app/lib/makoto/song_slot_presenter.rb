@@ -15,7 +15,7 @@ module Makoto
       job = song.job
       puts "#{job.name}: #{job.timetable}"
       puts "1 日 #{job.timetable.size(today)} 本（#{slot_times(job)}）"
-      puts "実況の窓: #{CommentaryWindow.new}"
+      puts CommentaryWindow.summary(job)
       dump_quiet_days
       dump_prefixes
       dump_spoken
