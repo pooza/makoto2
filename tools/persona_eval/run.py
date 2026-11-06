@@ -515,9 +515,9 @@ def cmd_report(args):
       flags.append('台詞そのまま')
     verdicts = {}
     for judge_key in judges:
-      found = judged[judge_key].get(key)
-      if found and found.get('text'):
-        verdicts[judge_key] = json.loads(found['text'])
+      verdict = parse_verdict(judged[judge_key].get(key))
+      if verdict:
+        verdicts[judge_key] = verdict
     rows[key] = {'entry': entry, 'flags': flags, 'verdicts': verdicts}
 
   out = [f'# 評価の報告 {args.run}', '']
@@ -616,11 +616,10 @@ def cmd_agree(args):
       run = readers.get(item['run'], item['run'])
       path = OUT_DIR / run / f'judge-{judge_key}.json'
       key = custom_id(item['case'], *item.get('cond', 'opus--none').split('--'))
-      found = read_json(path).get(key) if path.exists() else None
-      if not (found and found.get('text')):
+      verdict = parse_verdict(read_json(path).get(key) if path.exists() else None)
+      if not verdict:
         counts['missing'] += 1
         continue
-      verdict = json.loads(found['text'])
       if verdict['verdict'] == item['verdict']:
         counts['agree'] += 1
         continue
@@ -645,6 +644,27 @@ def cmd_agree(args):
 
 def cell(text):
   return text.replace('|', '\\|').replace('\n', '<br>')
+
+
+# 判定役の応答 1 本を {'verdict', 'reason'} に。⚠ 応答が無ければ None（判定なし）。
+#
+# 🔴 途中で切れた応答は unsure として数える（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
+# 終わると text が途中で切れた JSON になり、json.loads が落ちて報告がまるごと書けなかった。
+# ⚠ 課金済みの結果は残るので、失うのはその 1 本の判定だけにする。
+def parse_verdict(found):
+  if not (found and found.get('text')):
+    return None
+  stop = found.get('stop_reason')
+  if stop in ('max_tokens', 'refusal'):
+    return {'verdict': 'unsure', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
+  try:
+    verdict = json.loads(found['text'])
+  except json.JSONDecodeError:
+    return {'verdict': 'unsure', 'reason': f'（判定役の応答を JSON として読めない: stop_reason {stop}）'}
+  if not isinstance(verdict, dict) or verdict.get('verdict') not in ('pass', 'fail', 'unsure'):
+    return {'verdict': 'unsure', 'reason': f'（判定役の応答に verdict が無い: stop_reason {stop}）'}
+  verdict.setdefault('reason', '')
+  return verdict
 
 
 def read_json(path):
