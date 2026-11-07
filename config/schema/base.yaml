@@ -470,6 +470,29 @@ properties:
         type: string
     required:
       - db
+  # メンションの受信（#29）。⚠⚠ 欠けたら止める — optional_config で既定値に逃がすと、
+  # 消しただけで受信の止まりの検知が静かに消える（#77 の裏返し）。
+  streaming:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      stale:
+        type: string
+      retry:
+        type: object
+        properties:
+          base:
+            type: string
+          max:
+            type: string
+        required:
+          - base
+          - max
+    required:
+      - enabled
+      - stale
+      - retry
   # 例外の集約（#28）。⚠ dsn が null なら送らない。
   sentry:
     type: object
@@ -538,4 +561,5 @@ required:
   - scheduler
   - song
   - sqlite3
+  - streaming
   - track

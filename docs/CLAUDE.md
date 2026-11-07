@@ -92,9 +92,18 @@
 | 向き | 経路 | 抽象化するか |
 | --- | --- | --- |
 | **出す**（投稿） | モロヘイヤの **Slack 互換 webhook**（`POST /mulukhiya/webhook/{digest}`）／ Mastodon API 直 | **する。**Slack 互換 webhook を実装した他サービスにも同じコードで向けられる |
-| **読む**（メンション検知） | Mastodon の **Streaming API**（WebSocket） | **しない。Mastodon に決め打つ。**読む側は SNS 固有の仕様に踏み込むので、抽象化しても得るものが無い |
+| **読む**（メンション検知） | Mastodon の **Streaming API**（🔴 **SSE** — 2026-11-07 に WebSocket から改めた・#29） | **しない。Mastodon に決め打つ。**読む側は SNS 固有の仕様に踏み込むので、抽象化しても得るものが無い |
 
-⚠ **どちらも outbound。**「inbound は開けない」（→ 下記「実行環境」）と矛盾しない。webhook は**送りつける側**であって、MAKOTO が受け口を持つのではない。Streaming API も MAKOTO 側から張る WebSocket 接続。
+⚠ **どちらも outbound。**「inbound は開けない」（→ 下記「実行環境」）と矛盾しない。webhook は**送りつける側**であって、MAKOTO が受け口を持つのではない。Streaming API も MAKOTO 側から張る接続（SSE の長い GET）。
+
+#### 🔴 受信は SSE で、常駐の中の別スレッド（2026-11-07・#29・オーナー判断）
+
+⚠⚠ **WebSocket（モロヘイヤの `Listener` ＝ `faye-websocket` の fork ＋ EventMachine）は移さなかった。**`EM.run` がブロックするので、スケジューラ（rufus）と同居させる工夫が要る。🔴 **SSE の口（`/api/v1/streaming/user/notification`）なら標準の `Net::HTTP` で読むだけで、gem も足さない**（→ `MentionListener`）。
+
+- 🔴 **諦めて常駐を落とさない**（モロヘイヤは最大リトライで `exit 1` するが、MAKOTO は投稿も同じ常駐で回す）。切れたら `/streaming/retry` の指数で繋ぎ直し続ける
+- 🔴 **「繋がっているが何も受けていない」は `:thump`（Mastodon が無通信でも 15 秒ごとに流す）で見る。**届くたびに痕跡の `streamed_at` を進め（30 秒に 1 回まで）、`/streaming/stale` を過ぎたら `makoto status` が **warning**（⚠ **error ではない** — 再起動で投稿を巻き込まない）。`stream:` の行も出す
+- ⚠ **本文はログに出さない**（メンバーの書いたもの）。出すのは通知の ID・相手・公開範囲・長さ
+- 🔴🔴 **ステージングの前段（noah）を通すと、HTTP/1.1 の SSE が 1 バイトも届かない**（2026-11-07 に実測）。⚠ **HTTP/2（curl の既定）なら届き、noah を飛ばして層1（dev25 の nginx）へ HTTP/1.1 で直に繋げば届く。**⚠⚠ **`Net::HTTP` は HTTP/1.1 しか話さない**ので、**noah が直るまで `bydo` は `stream` が warning のままになる。**⚠ 本番には前段が無い（→ chubo2 の infra-servers「逆プロキシは 2 層構成」）
 
 ⚠ **「モロヘイヤの webhook を受ける」という書き方をしない。**向きが逆に読めて、inbound を開ける話だと誤解される（実際に一度誤読された）。
 

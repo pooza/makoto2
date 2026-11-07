@@ -69,6 +69,18 @@ module Makoto
       assert_match(/^tick: 30s ago \(limit \d+s\)$/, status_output)
     end
 
+    # 🔴 **メンションの受信の行**（#29）。⚠ **切っていれば `off`。**
+    def test_stream_line_is_printed
+      config['/streaming/enabled'] = true
+      Heartbeat.record_stream(now: now - 20)
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_match(/^stream: 20s ago \(limit \d+s\)$/, status_output)
+      config['/streaming/enabled'] = false
+
+      assert_match(/^stream: off$/, status_output)
+    end
+
     # ⚠⚠ **死んでいれば 1 行だけ**（→ `status`）。tick の行を足しても増やさない。
     def test_a_dead_daemon_prints_one_line
       assert_equal("not running\n", status_output(alive: false))
@@ -80,7 +92,7 @@ module Makoto
       Heartbeat.touch(jobs: 1, now: now)
       output = status_output
 
-      ['running (PID ', 'jobs: ', 'heartbeat: ', 'tick: ', 'posting: ', 'orphans: ', 'sentry: '].each do |line|
+      ['running (PID ', 'jobs: ', 'heartbeat: ', 'tick: ', 'stream: ', 'posting: ', 'orphans: ', 'sentry: '].each do |line|
         assert_include(output, line)
       end
     end

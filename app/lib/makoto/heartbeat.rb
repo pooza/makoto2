@@ -110,6 +110,9 @@ module Makoto
       # 🔴 **リハーサルが痕跡に残した未来の時刻を捨てる口**（#421 → `HeartbeatFuture`）。
       include HeartbeatFuture
 
+      # 🔴 **メンションの受信の痕跡**（#29 → `HeartbeatStream`）。
+      include HeartbeatStream
+
       # ⚠ **テストは別のファイルに落とす。**`Environment.db` と同じ理由で、稼働中の
       # 痕跡をテストが書き換えると `makoto status` が嘘をつく。
       def path

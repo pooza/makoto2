@@ -92,6 +92,9 @@ module Makoto
       verify_credentials
       # 🔴 **投稿先の本文の上限を、設定と突き合わせる**（#351）。
       verify_max_length
+      # 🔴 **メンションの受信は別スレッド**（#29）。⚠⚠ **`Scheduler#exec` は戻らない**ので、その前に。
+      # ⚠ **繋がらなくても常駐は止めない**（→ `MentionListener`）。
+      mention_listener.start
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -106,12 +109,19 @@ module Makoto
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
       monitor_server.stop
+      # ⚠ **受信のスレッドも畳む**（#29・孤児を残さない）。
+      mention_listener.stop
       Scheduler.instance.shutdown
     end
 
     def monitor_server
       @monitor_server ||= MonitorServer.new
       return @monitor_server
+    end
+
+    def mention_listener
+      @mention_listener ||= MentionListener.new
+      return @mention_listener
     end
 
     # 常駐が回す投稿を並べる。
