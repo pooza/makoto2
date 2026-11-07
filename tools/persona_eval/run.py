@@ -654,12 +654,17 @@ def cell(text):
 # 🔴 途中で切れた応答は unsure として数える（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
 # 終わると text が途中で切れた JSON になり、json.loads が落ちて報告がまるごと書けなかった。
 # ⚠ 課金済みの結果は残るので、失うのはその 1 本の判定だけにする。
+#
+# ⚠ stop_reason は本文の有無より先に見る（v0.9.1 のリリース前レビューの黄）。思考で MAX_TOKENS を使い切ると
+# 本文が空のまま切れるので、本文で先に打ち切ると「判定なし」に紛れて合計から黙って抜けていた。
 def parse_verdict(found):
-  if not (found and found.get('text')):
+  if not found:
     return None
   stop = found.get('stop_reason')
   if stop in ('max_tokens', 'refusal'):
     return {'verdict': 'unsure', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
+  if not found.get('text'):
+    return None
   try:
     verdict = json.loads(found['text'])
   except json.JSONDecodeError:
