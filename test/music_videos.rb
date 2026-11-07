@@ -58,18 +58,31 @@ module Makoto
     end
 
     # 🔴 **同じ曲の行が 2 つあれば落とす**（#561）。⚠ **表記ゆれでも同じ鍵なら同じ曲。**
+    #
+    # 🔴 **下見・取り込み・起動時の検査が引く口（`names` / `unused` / `empty?`）でも落ちる**（v0.9.1 の
+    # リリース前レビューの黄）。⚠⚠ **`url_for` だけで落ちると、壊れた表を下見が「問題なし」と言う。**
     def test_rejects_the_same_track_twice
       with_table([entry('ねこざかなダンシング'), entry('ねこざかな　ダンシング♪', url: "#{URL}&x=1")]) do |subject|
-        error = assert_raise(Ginseng::ValidateError) {subject.url_for(track('ねこざかなダンシング'))}
-        assert_include(error.message, '同じ曲の行が 2 つ')
+        assert_rejected(subject, '同じ曲の行が 2 つ')
       end
     end
 
     # ⚠ **鍵が空になる名前の行も落とす**（記号だけの名前など）。
     def test_rejects_a_name_without_a_key
       with_table([entry('♪♪')]) do |subject|
-        error = assert_raise(Ginseng::ValidateError) {subject.url_for(track('ねこざかなダンシング'))}
-        assert_include(error.message, '照合の鍵が空')
+        assert_rejected(subject, '照合の鍵が空')
+      end
+    end
+
+    def assert_rejected(subject, message)
+      [
+        -> {subject.names},
+        -> {subject.unused(Set.new)},
+        -> {subject.empty?},
+        -> {subject.url_for(track('ねこざかなダンシング'))},
+      ].each do |call|
+        error = assert_raise(Ginseng::ValidateError) {call.call}
+        assert_include(error.message, message)
       end
     end
 
