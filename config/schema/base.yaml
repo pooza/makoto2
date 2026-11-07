@@ -470,6 +470,52 @@ properties:
         type: string
     required:
       - db
+  # チャットのモデレーション（#510）。⚠⚠ 欠けたら止める — 既定値に逃がすと、消しただけで上限が外れる。
+  chat:
+    type: object
+    properties:
+      limit:
+        type: object
+        properties:
+          account:
+            type: object
+            properties:
+              hour:
+                type: integer
+                minimum: 1
+              day:
+                type: integer
+                minimum: 1
+            required:
+              - hour
+              - day
+          global:
+            type: object
+            properties:
+              day:
+                type: integer
+                minimum: 1
+            required:
+              - day
+        required:
+          - account
+          - global
+      followers:
+        type: object
+        properties:
+          refresh:
+            type: string
+        required:
+          - refresh
+      penalty:
+        type: array
+        minItems: 1
+        items:
+          type: string
+    required:
+      - limit
+      - followers
+      - penalty
   # メンションの受信（#29）。⚠⚠ 欠けたら止める — optional_config で既定値に逃がすと、
   # 消しただけで受信の止まりの検知が静かに消える（#77 の裏返し）。
   streaming:
@@ -544,6 +590,7 @@ properties:
       - weight
 required:
   - announcement
+  - chat
   - commentary
   - corpus
   - cure_api

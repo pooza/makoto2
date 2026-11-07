@@ -41,6 +41,9 @@ module Makoto
     # メンションを受ける SSE の口（#29）。⚠ **通知だけを流すストリーム**（ホームの投稿は来ない）。
     STREAMING_PATH = '/api/v1/streaming/user/notification'.freeze
 
+    # フォロワーの一覧を辿るページ数の上限（80 件ずつ ＝ 8,000 人）。⚠ 尽きたら例外（途中までを返さない）。
+    FOLLOWER_MAX_PAGES = 100
+
     def initialize(uri = nil, token = nil)
       super
       # ⚠ **`optional_config` で既定値に逃がさない**（→ Package#optional_config）。
@@ -110,6 +113,29 @@ module Makoto
       body = response.parsed_response
       return nil unless body.is_a?(Hash)
       return body.dig('configuration', 'statuses', 'max_characters')&.to_i
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # MAKOTO のフォロワーの ID を全部（#510 の門 → `FollowerRoster`）。⚠ **投稿しない**ので副作用は無い。
+    #
+    # 🔴 **`/api/v1/accounts/relationships` を使わない** — ⚠⚠ **`read:follows` が要り、いまのトークン
+    # （`read:accounts read:notifications write:statuses write:media`）では 403**（2026-11-07 に実測）。
+    # **スコープは発行後に足せない**ので、`read:accounts` で引ける自分のフォロワー一覧を使う。
+    #
+    # ⚠ **ページは `Link` の `next` を辿る**（80 件ずつ）。⚠ **辿る先は同じホストのときだけ**、
+    # 経路の設定に関わらず直で聞く（→ `#account`）。🔴 **聞けなければ例外**（途中までの一覧を返さない —
+    # ⚠⚠ 欠けた一覧で「フォロワーでない」と答えると、フォロワーへ「フォローしてくれたら」を返してしまう）。
+    def follower_ids(max_pages: FOLLOWER_MAX_PAGES)
+      id = URI.encode_www_form_component(account['id'].to_s)
+      path = "/api/v1/accounts/#{id}/followers?limit=80"
+      ids = []
+      max_pages.times do
+        page, path = follower_page(path)
+        ids.concat(page)
+        return ids unless path
+      end
+      raise Ginseng::GatewayError, "mastodon: followers exceed #{max_pages} pages"
     rescue Ginseng::GatewayError => e
       raise classify(e)
     end
@@ -306,6 +332,30 @@ module Makoto
       # `message` の末尾 3 桁を上流のステータスとして読む**ので、**末尾に数字が来る
       # 書き方をすると `classify` の分類が化ける。**⚠ **型はログの側に出してある。**
       raise Ginseng::GatewayError, 'mastodon returned an unexpected shape'
+    end
+
+    # フォロワーの一覧の 1 ページ。⚠ **ID の配列と、次のページのパス（無ければ nil）を返す。**
+    def follower_page(path)
+      response = http.get(path, {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      ids = body.filter_map {|follower| follower['id']&.to_s if follower.is_a?(Hash)}
+      return ids, next_page(response.headers['link'])
+    end
+
+    # `Link` の `rel="next"` を、同じホストのパスとクエリにして返す。⚠ **無い・別ホストなら nil。**
+    def next_page(link)
+      found = link.to_s.split(',').find {|part| part.include?('rel="next"')}
+      return nil unless found
+      uri = URI.parse(found[/<([^>]+)>/, 1].to_s)
+      return nil unless uri.host == http.base_uri.host
+      return [uri.path, uri.query].compact.join('?')
+    rescue URI::InvalidURIError
+      return nil
     end
 
     # モロヘイヤを迂回して Mastodon 本体を直に叩くためのヘッダ。

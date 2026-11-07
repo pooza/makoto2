@@ -373,6 +373,48 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {MastodonService.new.declared_max_length}
     end
 
+    def stub_account(id = '7')
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials")
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {id: id}.to_json)
+    end
+
+    # 🔴 **フォロワーの一覧は `Link` の `next` を辿って全部引く**（#510 の門）。
+    def test_follower_ids
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
+      json = {'Content-Type' => 'application/json'}
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '1'}, {id: '2'}].to_json,
+        headers: json.merge('Link' => "<#{base}?limit=80&max_id=2>; rel=\"next\", <#{base}?since_id=1>; rel=\"prev\""))
+      stub_request(:get, "#{base}?limit=80&max_id=2").to_return(status: 200, body: [{id: '3'}].to_json,
+        headers: json)
+
+      assert_equal(['1', '2', '3'], MastodonService.new.follower_ids)
+    end
+
+    # 🔴 **聞けなければ例外**（途中までの一覧を返さない）。⚠ **ページが尽きても例外。**
+    def test_follower_ids_raise_instead_of_returning_a_partial_list
+      config['/http/retry/seconds'] = 0
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '1'}].to_json,
+        headers: {'Content-Type' => 'application/json', 'Link' => "<#{base}?limit=80&max_id=1>; rel=\"next\""})
+      stub_request(:get, "#{base}?limit=80&max_id=1").to_return(status: 503, body: '{}')
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids}
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids(max_pages: 1)}
+    end
+
+    # ⚠ **別ホストの `next` は辿らない。**
+    def test_follower_ids_do_not_follow_another_host
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '1'}].to_json,
+        headers: {'Content-Type' => 'application/json',
+                  'Link' => '<https://evil.example.com/next>; rel="next"'})
+
+      assert_equal(['1'], MastodonService.new.follower_ids)
+    end
+
     # 🔴 **SSE の口は申告された `streaming_api` から組む**（#29）。⚠ `wss://` は `https://` へ。
     # ⚠⚠ **トークンをクエリに載せない**（ヘッダで渡す）。
     def test_streaming_uri

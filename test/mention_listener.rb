@@ -67,6 +67,17 @@ module Makoto
       assert_empty(received)
     end
 
+    # 🔴 **フォローの通知で、フォロワーの一覧へすぐ足す**（#510 の門）。
+    def test_a_follow_is_added_to_the_roster
+      roster = FollowerRoster.new(fetcher: -> {['1']})
+      roster.refresh
+      listener = MentionListener.new(service: service, roster: roster)
+      payload = {id: 'n1', type: 'follow', account: {id: '9', acct: 'new_fan'}}.to_json
+      listener.receive("event: notification\ndata: #{payload}\n\n", ServerSentEvents.new)
+
+      assert_true(roster.include?('9'))
+    end
+
     # ⚠⚠ **壊れた本文の抜粋をログに出さない**（PR #586 の Codex の P2）。
     def test_a_broken_payload_does_not_raise
       listener = MentionListener.new(service: service)
