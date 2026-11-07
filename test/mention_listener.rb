@@ -67,12 +67,19 @@ module Makoto
       assert_empty(received)
     end
 
+    # ⚠⚠ **壊れた本文の抜粋をログに出さない**（PR #586 の Codex の P2）。
     def test_a_broken_payload_does_not_raise
       listener = MentionListener.new(service: service)
+      logged = []
+      listener.logger.define_singleton_method(:warn) {|payload| logged.push(payload)}
 
       assert_nothing_raised do
-        listener.receive("event: notification\ndata: {broken\n\n", ServerSentEvents.new)
+        listener.receive("event: notification\ndata: {secret words\n\n", ServerSentEvents.new)
       end
+      assert_equal(1, logged.size)
+      assert_equal('JSON::ParserError', logged.first[:error_class])
+      assert_false(logged.first.key?(:error))
+      assert_not_include(logged.first.to_s, 'secret')
     end
 
     # 🔴 **応答の側の失敗で受信を止めない**（#18 が繋ぐ口）。

@@ -128,7 +128,9 @@ module Makoto
       return unless notification.is_a?(Hash) && notification['type'] == 'mention'
       on_mention(notification)
     rescue JSON::ParserError => e
-      logger.warn(stream: 'notification', message: 'unreadable payload', error: e)
+      # ⚠⚠ **例外そのものを渡さない**（PR #586 の Codex の P2）— **`JSON::ParserError` の文は入力の
+      # 抜粋を含む**ので、メンバーの書いた本文がログに漏れる（`on_mention` で本文を出さないのと同じ理由）。
+      logger.warn(stream: 'notification', message: 'unreadable payload', error_class: e.class.name)
     end
 
     # ⚠⚠ **本文はログに出さない**（メンバーの書いたもの）。⚠ 長さと宛先だけ。

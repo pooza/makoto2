@@ -400,6 +400,25 @@ module Makoto
       assert_true(Heartbeat.tick_stale?(real + Heartbeat.tick_limit + 1))
     end
 
+    # 🔴 **リハーサル中の未来の `streamed_at` も捨てる**（#29・PR #586 の Codex の P2）。
+    def test_a_start_drops_a_future_stream
+      real = now - (40 * 86_400)
+      Heartbeat.record_start(now: now - 3600)
+      Heartbeat.record_stream(now: now)
+      Heartbeat.record_start(now: real)
+
+      assert_nil(Heartbeat.streamed_at)
+      assert_true(Heartbeat.stream_stale?(real + Heartbeat.stream_limit + 1))
+    end
+
+    def test_a_start_during_time_travel_drops_a_future_stream
+      Heartbeat.record_start(now: now)
+      Heartbeat.record_stream(now: now + 3600)
+      with_time_travel {Heartbeat.record_start(now: now)}
+
+      assert_nil(Heartbeat.streamed_at)
+    end
+
     # ⚠ **初回 tick の前に撤収した形**（未来の `started_at` だけが残る）でも猶予を据え置かない（#421）。
     def test_a_start_drops_a_future_start
       real = now - (40 * 86_400)
