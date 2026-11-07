@@ -373,6 +373,29 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {MastodonService.new.declared_max_length}
     end
 
+    # 🔴 **SSE の口は申告された `streaming_api` から組む**（#29）。⚠ `wss://` は `https://` へ。
+    # ⚠⚠ **トークンをクエリに載せない**（ヘッダで渡す）。
+    def test_streaming_uri
+      stub_instance(200, {urls: {streaming_api: 'wss://streaming.example.com'}})
+      service = MastodonService.new
+      uri = service.streaming_uri
+
+      assert_equal('https://streaming.example.com/api/v1/streaming/user/notification', uri.to_s)
+      assert_nil(uri.query)
+      assert_equal("Bearer #{service.token}", service.streaming_headers['Authorization'])
+      assert_equal('text/event-stream', service.streaming_headers['Accept'])
+      assert_equal(Package.full_name, service.streaming_headers['X-Mulukhiya'])
+    end
+
+    # ⚠ **申告が無ければ本体のホストに倒す。**
+    def test_streaming_uri_without_the_field
+      stub_instance(200, {})
+      uri = MastodonService.new.streaming_uri
+
+      assert_equal(URI.parse(config['/mastodon/url']).host, uri.host)
+      assert_equal(MastodonService::STREAMING_PATH, uri.path)
+    end
+
     # ⚠ 「テストが本物のサーバーを叩かない」こと自体を見る。WebMock.enable! を忘れると
     # stub も disable_net_connect! も無言で素通りし、実サーバーへ書き込む。
     def test_net_connect_is_blocked

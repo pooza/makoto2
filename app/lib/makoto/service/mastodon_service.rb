@@ -38,6 +38,9 @@ module Makoto
       422 => Ginseng::ValidateError,
     }.freeze
 
+    # メンションを受ける SSE の口（#29）。⚠ **通知だけを流すストリーム**（ホームの投稿は来ない）。
+    STREAMING_PATH = '/api/v1/streaming/user/notification'.freeze
+
     def initialize(uri = nil, token = nil)
       super
       # ⚠ **`optional_config` で既定値に逃がさない**（→ Package#optional_config）。
@@ -109,6 +112,33 @@ module Makoto
       return body.dig('configuration', 'statuses', 'max_characters')&.to_i
     rescue Ginseng::GatewayError => e
       raise classify(e)
+    end
+
+    # メンションを受ける SSE の口（#29）。⚠ **トークンは載せない**（→ `streaming_headers`）。
+    #
+    # 🔴 **ホストは投稿先が申告する `urls.streaming_api` から引く** — ⚠ **Streaming API は
+    # 本体と別のホストに置ける**ので、`/mastodon/url` から組み立てない。⚠ 申告は `wss://` なので
+    # SSE 用に `https://` へ読み替える。⚠ **申告が無ければ本体のホストに倒す。**
+    #
+    # ⚠ **上流の `create_streaming_uri` を使わない** — ⚠⚠ **トークンをクエリに載せる**ので、
+    # 逆プロキシのアクセスログに残る。
+    def streaming_uri
+      response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
+      body = response.parsed_response
+      declared = body.dig('urls', 'streaming_api') if body.is_a?(Hash)
+      uri = URI.parse(declared.presence || http.base_uri.to_s)
+      uri = URI.parse(uri.to_s.sub(/\Awss:/, 'https:').sub(/\Aws:/, 'http:'))
+      uri.path = STREAMING_PATH
+      uri.query = nil
+      return uri
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # ⚠ **トークンはヘッダで渡す**（→ `streaming_uri`）。⚠ **経路の設定に関わらず直で受ける** —
+    # 🔴 **受信にモロヘイヤを挟む理由が無い**（タグ付けは投稿の側の仕事）。
+    def streaming_headers
+      return direct_headers({'Accept' => 'text/event-stream'})
     end
 
     # `idempotency_key` は再送で使い回すもの。既定では 1 回の呼び出しにつき 1 つ作る。

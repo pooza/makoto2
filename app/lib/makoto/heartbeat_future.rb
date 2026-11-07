@@ -8,6 +8,12 @@ module Makoto
   # ⚠ **切り出したのは `Metrics/ClassLength` に当たったから**だが、🔴 **境目は「痕跡を読み書きする
   # 口」と「起き上がりのときの後始末」**で引いてある。
   module HeartbeatFuture
+    # 起き上がりのときに、未来なら捨てる時刻。🔴 **`streamed_at` も含める**（#29・PR #586 の Codex の P2）—
+    # ⚠⚠ **リハーサル中に受けた見かけの時刻が残ると、撤収後に受信が止まっても警告が出ない**
+    # （`stream_stale?` は `started_at` との新しいほうを見る）。⚠ **騙している間も捨てる**（`ticked_at` と同じ・
+    # 起き直したら見かけの時刻が開始時刻へ戻るので、残すと見かけの時刻が追いつくまで鳴らない）。
+    FUTURE_STAMPS = [:started_at, :ticked_at, :streamed_at].freeze
+
     # 🔴 **`time` より未来の時刻を痕跡から捨てる**（#421 → `record_start`）。
     #
     # ⚠ **`started_at` / `ticked_at` は消すだけ**（**`record_start` が猶予を張り直す**）。
@@ -19,7 +25,7 @@ module Makoto
     # ⚠⚠ **失敗と成功は同じリハーサルの証拠なので残す**（→ `record_start` の注記）。
     def forget_future(record, time)
       cleaned = record.reject do |key, value|
-        [:started_at, :ticked_at].include?(key) && future?(value, time)
+        FUTURE_STAMPS.include?(key) && future?(value, time)
       end
       return cleaned if TimeTravel.active?
       return forget_future_successes(forget_future_failures(cleaned, time), time)

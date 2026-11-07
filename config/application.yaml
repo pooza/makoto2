@@ -644,3 +644,16 @@ scheduler:
   timezone: Asia/Tokyo
 sqlite3:
   db: makoto.db
+# メンションの受信（#29）。⚠ **Mastodon の Streaming API を SSE で読む**（WebSocket ではない・
+# 2026-11-07 オーナー判断 → `MentionListener`）。⚠ **いまは受けてログに出すだけ**（応答は #18）。
+streaming:
+  # ⚠ **切ると status の `stream` 行が `off` になり、止まりの警告も出ない。**
+  enabled: true
+  # 🔴 **受信が止まったとみなすまでの猶予。**⚠⚠ **Mastodon は無通信でも 15 秒ごとに合図を流す**ので、
+  # 繋がっていれば痕跡は 30 秒ごとに進む（`MentionListener::RECORD_INTERVAL`）。⚠ **繋ぎ直しの
+  # 上限（`retry/max`）より長くする** — 短いと、繋ぎ直しを待っている間ずっと鳴る。
+  stale: 10m
+  # 切れたら繋ぎ直すまでの間隔。⚠ `base * 2 ** (n - 1)` を `max` で頭打ち。
+  retry:
+    base: 5s
+    max: 5m

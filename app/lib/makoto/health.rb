@@ -212,8 +212,28 @@ module Makoto
       # ⚠ 死んでいるときは `errors` の側が言うので、ここでは重ねない。
       results.push(*posting_warnings) if alive?
       results.push(*sentry_warnings) if alive?
+      results.push(*stream_warnings) if alive?
       results.push(*orphan_warnings)
       return results
+    end
+
+    # 🔴 **メンションの受信が止まっていること**（#29）。
+    #
+    # ⚠⚠ **`errors`（＝ 復旧させる）には置かない** — 🔴 **受信の不調の多くは相手（Mastodon の
+    # Streaming）側**で、⚠ **常駐は自分で繋ぎ直し続けている**（→ `MentionListener`）。
+    # ⚠⚠ **再起動で投稿の側まで巻き込まない。**
+    #
+    # ⚠ **受信を切っている（`/streaming/enabled: false`）なら言わない。**⚠ **いま生きている常駐が
+    # 書いた痕跡だけ**（→ `own_heartbeat?`）— 🔴 **起き直した直後に前の常駐の古い時刻で鳴らない。**
+    def stream_warnings
+      return [] unless MentionListener.enabled? && own_heartbeat?
+      return [] unless Heartbeat.stream_stale?(now)
+      return ["mention stream is stale (limit #{Heartbeat.stream_limit.round}s)"]
+    end
+
+    # 最後にメンションの受信で何かが届いた時刻（#29）。⚠ **一度も無ければ nil。**
+    def streamed_at
+      return Heartbeat.streamed_at
     end
 
     # 🔴 **常駐の Sentry が DSN を持つのに送れないこと**（#347・Codex の P2）。⚠ **画面に赤で出すだけ
