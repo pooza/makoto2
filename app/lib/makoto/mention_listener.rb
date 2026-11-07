@@ -45,8 +45,10 @@ module Makoto
     #   （切断の注入）
     # @param sleeper [#call] 待ち。⚠ テストが差し替える
     # @param handler [#call, nil] メンションを受けたときに呼ぶ（#18 が繋ぐ）
-    def initialize(service: nil, opener: nil, sleeper: nil, handler: nil)
+    # @param roster [FollowerRoster] フォローの通知を足す先。⚠ テストが差し替える
+    def initialize(service: nil, opener: nil, sleeper: nil, handler: nil, roster: nil)
       @service = service
+      @roster = roster
       @opener = opener || method(:open_stream)
       @sleeper = sleeper || ->(seconds) {sleep(seconds)}
       @handler = handler
@@ -121,12 +123,15 @@ module Makoto
       parser.feed(chunk) {|event| dispatch(event)}
     end
 
-    # ⚠ **見るのは通知のうちメンションだけ**（フォロー・お気に入りなどは捨てる）。
+    # ⚠ **見るのは通知のうちメンションとフォローだけ**（お気に入りなどは捨てる）。
     def dispatch(event)
       return unless event.name == 'notification'
       notification = JSON.parse(event.data)
-      return unless notification.is_a?(Hash) && notification['type'] == 'mention'
-      on_mention(notification)
+      return unless notification.is_a?(Hash)
+      case notification['type']
+      when 'mention' then on_mention(notification)
+      when 'follow' then on_follow(notification)
+      end
     rescue JSON::ParserError => e
       # ⚠⚠ **例外そのものを渡さない**（PR #586 の Codex の P2）— **`JSON::ParserError` の文は入力の
       # 抜粋を含む**ので、メンバーの書いた本文がログに漏れる（`on_mention` で本文を出さないのと同じ理由）。
@@ -151,7 +156,22 @@ module Makoto
       report_error(e, stream: 'mention')
     end
 
+    # 🔴 **新しいフォロワーをすぐ一覧に足す**（#510 の門 → `FollowerRoster`）。⚠ **フォローしてすぐ
+    # 話しかけてくれた人を、一覧の引き直し（1 時間ごと）まで待たせない。**
+    def on_follow(notification)
+      id = notification.dig('account', 'id')
+      return unless id
+      roster.add(id)
+      logger.info(stream: 'follow', notification_id: notification['id'],
+        acct: notification.dig('account', 'acct'))
+    end
+
     private
+
+    def roster
+      @roster ||= FollowerRoster.instance
+      return @roster
+    end
 
     def service
       @service ||= MastodonService.new

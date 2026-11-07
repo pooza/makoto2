@@ -39,6 +39,14 @@ module Makoto
       assert_equal(:ask_follow, gate.decide(account('2'), now: now + ChatGate::DAY + 1).action)
     end
 
+    # ⚠ **フォロワーかが分からなければ黙る**（「フォロワーでない」に倒さない）。
+    def test_unknown_followers_mean_silence
+      broken = ChatGate.new(repository: @repository, followed_by: ->(_) {raise Ginseng::GatewayError, 'x'})
+      decision = broken.decide(account('2'), now: now)
+
+      assert_equal([:silent, :followers_unknown], [decision.action, decision.reason])
+    end
+
     # ⚠ **ボットには、フォロワーでも返さない**（ボット同士の応酬を止める）。
     def test_a_bot_is_ignored
       decision = gate.decide(account('1', bot: true), now: now)

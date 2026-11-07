@@ -500,6 +500,13 @@ properties:
         required:
           - account
           - global
+      followers:
+        type: object
+        properties:
+          refresh:
+            type: string
+        required:
+          - refresh
       penalty:
         type: array
         minItems: 1
@@ -507,6 +514,7 @@ properties:
           type: string
     required:
       - limit
+      - followers
       - penalty
   # メンションの受信（#29）。⚠⚠ 欠けたら止める — optional_config で既定値に逃がすと、
   # 消しただけで受信の止まりの検知が静かに消える（#77 の裏返し）。

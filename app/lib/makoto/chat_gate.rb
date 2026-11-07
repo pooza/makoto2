@@ -13,6 +13,7 @@ module Makoto
   # | --- | --- | --- |
   # | 1 | `bot` の印が付いたアカウント | 黙る（ボット同士の応酬を止める） |
   # | 2 | ペナルティの期間中 | 黙る |
+  # | 3' | フォロワーかが分からない（一覧が一度も引けていない） | 黙る |
   # | 3 | フォロワーでない | **話せる条件を伝える**（決まった文）。⚠ その相手へは 1 日 1 回まで |
   # | 4 | 全体の 1 日の上限に届いた | 黙る（暴走したときの歯止め） |
   # | 5 | 相手ごとの上限に届いた | **上限を伝える**（決まった文）を 1 回だけ、あとは黙る |
@@ -53,7 +54,9 @@ module Makoto
       id = account['id']
       return silent(:bot) if account['bot']
       return silent(:penalty) if penalized?(id, now)
-      return not_follower(id, now) unless followed_by?(id)
+      follower = follower_state(id)
+      return silent(:followers_unknown) if follower.nil?
+      return not_follower(id, now) unless follower
       return silent(:global_limit) if global_count(now) >= limit('/chat/limit/global/day')
       return over_limit(id, now) if over_limit?(id, now)
       return Decision.new(action: :respond, reason: nil)
@@ -104,8 +107,13 @@ module Makoto
       return @repository
     end
 
-    def followed_by?(account_id)
-      return (@followed_by || ->(id) {MastodonService.new.followed_by?(id)}).call(account_id)
+    # フォロワーなら true・でなければ false・⚠ **分からなければ nil**（→ 黙る）。⚠⚠ **「フォロワーでない」に倒すと、Mastodon の不調のたびに
+    # フォロワーへ「フォローしてくれたら」を返してしまう。**
+    def follower_state(account_id)
+      return (@followed_by || ->(id) {FollowerRoster.instance.include?(id)}).call(account_id)
+    rescue Ginseng::GatewayError, Ginseng::AuthError => e
+      logger.warn(chat: 'gate', message: 'followers unknown', error_class: e.class.name)
+      return nil
     end
 
     def silent(reason)
