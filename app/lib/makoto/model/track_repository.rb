@@ -37,7 +37,7 @@ module Makoto
     # 崩れる。**⚠ **`https://<ホスト>/` の前方一致**（末尾の `/` があるので `@` やポートで別ホストへ
     # 逃げる形は当たらない）。
     def linkable(records = dataset)
-      hosts = TrackUrl::HOSTS.map {|host| Sequel.like(:url, "https://#{host}/%")}
+      hosts = TrackUrl::HOSTS.map {|host| Sequel.like(:url, "#{TrackUrl.prefix(host)}%")}
       return records.where(hosts.reduce(:|))
     end
 

@@ -9,11 +9,23 @@ module Makoto
     HOSTS = ['music.apple.com'].freeze
 
     # 許可したホストの https か。
+    #
+    # 🔴 **`linkable`（`https://<host>/` の前方一致）と同じ強さにする**（#558）。⚠ `URI#host` だけを
+    # 見ると、userinfo つき（`https://x:y@music.apple.com/a`）やポートつき
+    # （`https://music.apple.com:8080/a`）も通ってしまう。
     def self.public?(value)
-      uri = URI.parse(value.to_s)
-      return uri.is_a?(URI::HTTPS) && HOSTS.include?(uri.host)
+      value = value.to_s
+      uri = URI.parse(value)
+      return false unless uri.is_a?(URI::HTTPS)
+      return false unless uri.userinfo.nil?
+      return HOSTS.include?(uri.host) && value.start_with?(prefix(uri.host))
     rescue URI::InvalidURIError
       return false
+    end
+
+    # 🔴 **`TrackRepository#linkable` が SQL の前方一致に使う形と同じ**。
+    def self.prefix(host)
+      return "https://#{host}/"
     end
   end
 end
