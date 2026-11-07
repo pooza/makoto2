@@ -20,7 +20,7 @@
 オーナーに見せて了承をもらう（#19 のコメントの決まり）。
 
 ⚠ 入力に第三者の著作物（台詞）が入るので、**結果は var/persona_eval/ に出す**
-（var/ はコミットしない）。このファイルと cases.yaml・persona_prompt.md には台詞を書かない。
+（var/ はコミットしない）。このファイルと cases.yaml・config/chat/persona.md には台詞を書かない。
 
 ⚠ API キーは config/local.yaml の `/anthropic/api_key`（無ければ環境変数
 `ANTHROPIC_API_KEY`）。ログにもファイルにも書き出さない。
@@ -85,6 +85,21 @@ EXPECTED_OUTPUT_TOKENS = 800
 EXPECTED_JUDGE_OUTPUT_TOKENS = 1500
 
 RESPOND_EFFORT = 'low'
+
+# 🔴 返事の形（#18・2026-11-08）。`json` は本番（Makoto::ChatModel）と同じ — 指示書の後ろに
+# config/chat/reply_format.md を足し、structured outputs で {reply, marks} を返させる。`text` は
+# 2026-11-07 までの評価の形（返事の文だけ）。⚠ 本番の口調を測るなら json で回す。
+REPLY_FORMATS = ('json', 'text')
+# ⚠ Makoto::ChatModel::SCHEMA と揃える（印の種類も）。
+REPLY_SCHEMA = {
+  'type': 'object',
+  'properties': {
+    'reply': {'type': 'string'},
+    'marks': {'type': 'array', 'items': {'type': 'string', 'enum': ['provoke', 'backstage', 'impersonate']}},
+  },
+  'required': ['reply', 'marks'],
+  'additionalProperties': False,
+}
 JUDGE_EFFORT = 'medium'
 MAX_TOKENS = 8000
 
@@ -150,6 +165,7 @@ def main():
     p.add_argument('--corpus', default=','.join(CORPUS), help='同梱する台詞の条件（カンマ区切り）')
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
     p.add_argument('--suite', default='cases', choices=SUITES, help='質問集')
+    p.add_argument('--reply-format', default='json', choices=REPLY_FORMATS, help='返事の形（json は本番と同じ）')
   sub.choices['estimate'].add_argument('--judges', default=DEFAULT_JUDGES, help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
@@ -199,7 +215,16 @@ def load_cases(only=None, suite='cases'):
 
 
 def load_persona():
-  text = (HERE / 'persona_prompt.md').read_text()
+  return load_prompt('persona.md')
+
+
+def load_reply_format(name):
+  return load_prompt('reply_format.md') if name == 'json' else None
+
+
+def load_prompt(name):
+  # ⚠ 書き手向けの注記（HTML のコメント）は渡さない（Makoto::ChatModel#system_blocks と同じ）。
+  text = (ROOT / 'config' / 'chat' / name).read_text()
   return re.sub(r'<!--.*?-->\s*', '', text, flags=re.S).strip()
 
 
@@ -219,9 +244,12 @@ def corpus_block(quotes, limit):
   return '# 本編での真琴の台詞（口調の素材）\n\n' + '\n'.join(lines)
 
 
-def system_blocks(persona, corpus):
-  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。
+def system_blocks(persona, corpus, reply_format=None):
+  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。⚠ 返事の形は指示書のすぐ後ろ
+  # （本番の並びと同じ）。
   blocks = [{'type': 'text', 'text': persona}]
+  if reply_format:
+    blocks.append({'type': 'text', 'text': reply_format})
   if corpus:
     blocks.append({'type': 'text', 'text': corpus})
   blocks[-1]['cache_control'] = {'type': 'ephemeral'}
@@ -233,14 +261,28 @@ def messages_of(case):
   return list(case.get('history', [])) + [{'role': 'user', 'content': case['prompt']}]
 
 
-def respond_params(model, system, case):
+def respond_params(model, system, case, reply_format='text'):
+  output_config = {'effort': RESPOND_EFFORT}
+  if reply_format == 'json':
+    output_config['format'] = {'type': 'json_schema', 'schema': REPLY_SCHEMA}
   return {
     'model': model,
     'max_tokens': MAX_TOKENS,
     'system': system,
-    'output_config': {'effort': RESPOND_EFFORT},
+    'output_config': output_config,
     'messages': messages_of(case),
   }
+
+
+def split_reply(entry):
+  # json の回の応答を、返事の文と印に分ける。⚠ 判定役と報告は `text`（返事の文）を読む。
+  raw = entry.get('text', '')
+  try:
+    data = json.loads(raw)
+    entry.update({'raw': raw, 'text': data.get('reply', ''), 'marks': data.get('marks', [])})
+  except (json.JSONDecodeError, AttributeError):
+    entry['unreadable'] = True
+  return entry
 
 
 def judge_params(judge_model, persona, case, text):
@@ -349,8 +391,8 @@ def cmd_estimate(args):
   print('| --- | --- | --- | --- |')
   for model_key, corpus_key in conditions(args):
     model = MODELS[model_key]
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]))
-    params = respond_params(model, system, BLANK_CASE)
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format))
+    params = respond_params(model, system, BLANK_CASE, args.reply_format)
     tokens = per_case_tokens(api, params, [messages_of(c) for c in cases])
     total += print_estimate(f'{model_key} × {corpus_key}', model, tokens, EXPECTED_OUTPUT_TOKENS)
   # ⚠ 判定の入力に入る応答は、まだ無いのでダミーで数える（応答の長さぶん少なめに出る）。
@@ -398,9 +440,9 @@ def cmd_respond(args):
   quotes = load_quotes()
   requests = []
   for model_key, corpus_key in conditions(args):
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]))
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format))
     for case in cases:
-      params = respond_params(MODELS[model_key], system, case)
+      params = respond_params(MODELS[model_key], system, case, args.reply_format)
       requests.append(Request(
         custom_id=custom_id(case['id'], model_key, corpus_key),
         params=MessageCreateParamsNonStreaming(**params),
@@ -416,6 +458,7 @@ def cmd_respond(args):
     'suite': args.suite,
     'cases': [c['id'] for c in cases],
     'respond_effort': RESPOND_EFFORT,
+    'reply_format': args.reply_format,
     'respond_batch': batch.id,
   }
   write_json(run_dir / 'state.json', state)
@@ -465,6 +508,8 @@ def cmd_collect(args):
       })
       if message.stop_reason == 'refusal' and message.stop_details:
         entry['refusal'] = message.stop_details.category
+      elif stage == 'respond' and state.get('reply_format') == 'json':
+        split_reply(entry)
     elif item.result.type == 'errored':
       entry['error'] = str(item.result.error)
     results[item.custom_id] = entry
@@ -524,7 +569,7 @@ def cmd_report(args):
     rows[key] = {'entry': entry, 'flags': flags, 'verdicts': verdicts}
 
   out = [f'# 評価の報告 {args.run}', '']
-  out.append(f"- 条件: モデル {state['models']} × 台詞 {state['corpus']}・effort {state['respond_effort']}")
+  out.append(f"- 条件: モデル {state['models']} × 台詞 {state['corpus']}・effort {state['respond_effort']}・返事の形 {state.get('reply_format', 'text')}")
   out.append(f"- 判定役: {'・'.join(judges) or '（未実施）'}。条件は見せていない。pass / fail / unsure は判定役ごとに「{' / '.join(judges)}」の順")
   out.append('- 🔴 目印（機械）は外れの検出だけ。当たらなくても合格とは限らない')
   out.append('')
@@ -578,8 +623,12 @@ def cmd_report(args):
         text = f"（{entry['type']}: {entry.get('error', '')}）"
       elif entry['stop_reason'] == 'refusal':
         text = f"（拒否: {entry.get('refusal')}）"
+      elif entry.get('unreadable'):
+        text = f"（JSON として読めない）{entry['text']}"
       else:
-        text = entry['text']
+        text = entry['text'] or '（返事をしない）'
+        if entry.get('marks'):
+          text += f"〔印: {'・'.join(entry['marks'])}〕"
       cells = []
       for judge_key in judges:
         verdict = row['verdicts'].get(judge_key)

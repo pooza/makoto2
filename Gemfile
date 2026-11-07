@@ -7,6 +7,9 @@ ruby '>= 4.0', '< 5.0'
 gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v5.1.0', require: 'ginseng'
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v7.1.0',
   require: 'ginseng/fediverse'
+# チャットボットの応答（#18）。⚠ **公式の Ruby SDK**（Messages API・structured outputs）。
+# ⚠ 2.x は API 版 `2026-10-21` に合わせた系列。⚠ 出たばかりの版を避けて 2.3（2026-10-23）から。
+gem 'anthropic', '~> 2.3.0'
 gem 'rufus-scheduler'
 # 例外の集約（#28）。⚠ **DSN が無ければ初期化しない**（→ `Makoto.setup_sentry`）。
 gem 'sentry-ruby'

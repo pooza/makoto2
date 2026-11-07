@@ -512,10 +512,57 @@ properties:
         minItems: 1
         items:
           type: string
+      # 返事を作る LLM（#18・→ `ChatModel`）。
+      model:
+        type: object
+        properties:
+          name:
+            type: string
+          effort:
+            type: string
+            enum:
+              - low
+              - medium
+              - high
+          max_tokens:
+            type: integer
+            minimum: 1
+          timeout:
+            type: string
+          max_retries:
+            type: integer
+            minimum: 0
+          price:
+            type: object
+            properties:
+              input:
+                type: number
+              output:
+                type: number
+            required:
+              - input
+              - output
+        required:
+          - name
+          - effort
+          - max_tokens
+          - timeout
+          - max_retries
+          - price
     required:
       - limit
       - followers
       - penalty
+      - model
+  # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
+  # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。
+  anthropic:
+    type: object
+    properties:
+      api_key:
+        type: string
+      workspace_id:
+        type: string
   # メンションの受信（#29）。⚠⚠ 欠けたら止める — optional_config で既定値に逃がすと、
   # 消しただけで受信の止まりの検知が静かに消える（#77 の裏返し）。
   streaming:
