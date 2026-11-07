@@ -18,8 +18,10 @@ fail() {
   echo "🔴 $1。何も書いていない"
   exit 1
 }
-number=$(gh api --paginate "repos/$repo/milestones?state=all&per_page=100" \
-  --jq ".[] | select(.title == \"$title\") | .number") || fail "箱の一覧が読めない"
+# ⚠ 箱の名前は jq のフィルタに埋め込まず --arg で渡す（#561）。gh の --jq は --arg を取れないので jq に流す。
+list=$(gh api --paginate "repos/$repo/milestones?state=all&per_page=100") || fail "箱の一覧が読めない"
+number=$(printf '%s' "$list" | jq -rs --arg title "$title" '.[] | .[] | select(.title == $title) | .number') ||
+  fail "箱の一覧が読めない"
 if [ -z "$number" ]; then
   echo "🔴 箱「$title」が無い"
   exit 1

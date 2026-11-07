@@ -4,7 +4,7 @@ source 'https://rubygems.org'
 #   ⚠⚠ 事故が理由の pin ではない。外すのは「実機と CI の Ruby を 5.x にし、
 #   当日通しリハーサルを 5.x で通した」とき（→ docs/CLAUDE.md の当日通し）。
 ruby '>= 4.0', '< 5.0'
-gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v5.0.0', require: 'ginseng'
+gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v5.1.0', require: 'ginseng'
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v7.1.0',
   require: 'ginseng/fediverse'
 gem 'rufus-scheduler'
@@ -30,7 +30,7 @@ group :development do
   gem 'bundler-audit', require: false
   # ⚠⚠ タグではなく SHA で固定する（pooza/ginseng-style#75）。タグは付け替えられる。
   gem 'ginseng-style', github: 'pooza/ginseng-style',
-    ref: '05a9e5c997082bd75bd913190e0c947fdaff082d', require: false # v1.1.13
+    ref: '127c2854e76811eeec41e21c7bf262b4a527d2b7', require: false # v1.1.15
   gem 'rubocop-sequel'
   gem 'test-unit'
   gem 'webmock'

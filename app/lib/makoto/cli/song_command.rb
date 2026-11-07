@@ -14,6 +14,9 @@ module Makoto
     # 既定で見る日数。⚠ 1 週間ぶんあれば「連日で同じ前置きが続かない」は目視できる。
     DEFAULT_DAYS = 7
 
+    # 🔴 **MV の表が読めないときの 1 行**（#557）。⚠ **`song slot` と下見の頭で同じ文面にする。**
+    VIDEO_FAILURE = 'MV の表を読めません（⚠ 全部の曲を音源のリンクにします）'.freeze
+
     # `song sample --pool` の値（#314 → `SongSource#prefix_record`）。
     POOLS = ['auto', 'own', 'common'].freeze
 
@@ -84,6 +87,19 @@ module Makoto
       return false
     end
 
+    # 🔴 **MV の表が読めないことを下見の頭で言う**（#557）。⚠⚠ **読めないと MV のある曲も音源のリンクで
+    # 出るが、理由の `warn` は syslog にしか出ない**（語りの表の #314 と同じ形）。
+    #
+    # ⚠ **`unused` まで引く**（**別名表も読む** — `url_for` は別名表を当てた鍵で引くので、別名表が
+    # 壊れていても実機は音源に倒れる）。
+    def dump_video_failure
+      song.music_videos.unused(Set.new)
+      return true
+    rescue => e
+      puts "🔴 #{VIDEO_FAILURE}: #{error_message(e)}"
+      return false
+    end
+
     def kinds(value)
       available = repository.count_by_kind(song.lottery.candidates).keys.map(&:to_s).sort
       return available unless value
@@ -106,6 +122,7 @@ module Makoto
     # `--pool=own` も黙って効かなかった**（`preview` だけ #314 で直していた）。
     def dump_samples(names, count, pool)
       @spoken_readable = dump_spoken_failure
+      dump_video_failure
       names.each do |kind|
         puts "=== #{kind} ==="
         song.lottery.candidates.where(kind: kind).order(Sequel.lit('RANDOM()'))
@@ -144,6 +161,7 @@ module Makoto
     # 食い違う** — ⚠ **11/3 / 11/4 はライブが持っているので 1 通も出ない。**
     def dump(date, days)
       dump_spoken_failure
+      dump_video_failure
       days.times do |offset|
         day = date + offset
         puts "#{day} (#{Date::ABBR_DAYNAMES[day.wday]})"

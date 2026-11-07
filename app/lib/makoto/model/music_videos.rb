@@ -45,6 +45,9 @@ module Makoto
     end
 
     # その曲の MV の URL。⚠ **無ければ nil**（＝音源のまま）。⚠ **`track` は `track` 表の行**。
+    #
+    # ⚠ **鍵の無い曲には当てない**（#561 — 空の鍵どうしで当たると、鍵の無い曲すべてが同じ MV になる）。
+    # ⚠ **表の側に空の鍵は入らない**（読み込みで落とす → `check_keys`）ので、曲の鍵が空なら必ず nil。
     def url_for(track)
       return nil unless track
       return urls[track[:dedupe_key].to_s]
@@ -63,10 +66,25 @@ module Makoto
     private
 
     def urls
-      @urls ||= entries.to_h do |entry|
-        [TrackImporter.dedupe_key(entry[:name], aliases), entry[:url]]
-      end
+      @urls ||= entries.to_h {|entry| [entry[:key], entry[:url]]}
       return @urls
+    end
+
+    # 🔴 **同じ曲を 2 行書いたら落とす・鍵が空になる名前も落とす**（#561）。⚠⚠ **`to_h` は後の行で黙って
+    # 上書きする**ので、どちらの URL が出るかが表の並びで決まっていた。
+    #
+    # 🔴 **読み込みの時点で見る**（v0.9.1 のリリース前レビューの黄）。⚠⚠ **`url_for` の中だけで見ていたので、
+    # 下見（`song slot` / `song sample`）・`track import`・起動時の検査は `names` / `unused` しか引かず、
+    # 壊れた表を「問題なし」と言っていた** — 本番の曲紹介だけが例外を握り、全部の曲を音源のリンクに倒す形。
+    def check_keys(entries)
+      seen = Set.new
+      return entries.map do |entry|
+        name = entry[:name]
+        key = TrackImporter.dedupe_key(name, aliases).to_s
+        raise Ginseng::ValidateError, "#{FILE}: #{name} の照合の鍵が空です" if key.empty?
+        raise Ginseng::ValidateError, "#{FILE}: #{name} は同じ曲の行が 2 つあります" unless seen.add?(key)
+        entry.merge(key: key)
+      end
     end
 
     def aliases
@@ -77,7 +95,7 @@ module Makoto
     def load_entries
       return [] unless File.exist?(path)
       entries = Array(YAML.safe_load_file(path, permitted_classes: [Date], symbolize_names: true))
-      return entries.map {|entry| validate(entry)}
+      return check_keys(entries.map {|entry| validate(entry)})
     rescue Psych::Exception => e
       raise Ginseng::ValidateError, "#{FILE}: YAML を読めません: #{error_message(e)}"
     end

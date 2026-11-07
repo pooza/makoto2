@@ -156,6 +156,22 @@ module Makoto
       config.delete('/song/kind_types/vocl')
     end
 
+    # 🔴 **表の置き場は起動時に読み、枠ごとには読み直さない**（#561）。⚠⚠ **表は fail-open な `rescue` の内側
+    # （`SongSource#spoken?` / `#video_url`）で作るので、そこで設定を読むと、設定の誤りが「表が読めない」に
+    # 飲まれて毎枠 warn するだけになる。**⚠ 設定の誤りそのものは起動時の検査が落とす。
+    #
+    # ⚠ **`track_dir` を自分で呼ばない**（v0.9.1 のリリース前レビューの緑）— 呼ぶとメモ化だけを見ることになり、
+    # **`validate` が先に読むこと**を留めない（`validate` の行を消しても通っていた）。
+    def test_reads_the_track_dir_at_startup
+      dir = File.join(Environment.dir, config['/track/dir'])
+      subject = song
+      subject.job
+      config.delete('/track/dir')
+
+      assert_equal(dir, File.dirname(subject.music_videos.path))
+      assert_equal(dir, File.dirname(subject.spoken_tracks.path))
+    end
+
     # ⚠ **type が空でも落とす**（**書いたつもりで共通だけになる**）。
     def test_rejects_a_blank_kind_type
       config['/song/kind_types/bgm'] = ''

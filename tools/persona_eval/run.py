@@ -70,12 +70,13 @@ JUDGES = {
 # 「unsure を減らせ」と指示すると、空の応答を「何か返している」と読むなど、自信のある誤りに変わった。
 DEFAULT_JUDGES = 'opus'
 
-# 単価（USD / 100 万トークン・2026-10 時点）。⚠ Batch はこの半額。
-# ⚠ キャッシュの読み出しは入力の 0.05 倍（5.5 系・Opus と Sonnet で額が違う）。書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
+# 単価（USD / 100 万トークン・2026-10-06 時点の公式の価格表で確かめた・#561）。⚠ Batch はこの半額。
+# ⚠ キャッシュの読み出しは Opus 5.5・Sonnet 5.5 とも 0.20（⚠ 入力の倍率ではない — Sonnet は入力の 0.1 倍）。
+# 書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
 # 見積もりは「当たらない・毎回書き込む」で引く（上振れ側）。
 PRICES = {
   'claude-opus-5-5': {'input': 4.0, 'output': 20.0, 'cache_read': 0.2, 'cache_write': 5.0},
-  'claude-sonnet-5-5': {'input': 2.0, 'output': 10.0, 'cache_read': 0.1, 'cache_write': 2.5},
+  'claude-sonnet-5-5': {'input': 2.0, 'output': 10.0, 'cache_read': 0.2, 'cache_write': 2.5},
 }
 BATCH_DISCOUNT = 0.5
 
@@ -302,7 +303,9 @@ def parse_custom_id(value):
 # --- API ---
 
 def client():
-  config = yaml.safe_load((ROOT / 'config' / 'local.yaml').read_text()) or {}
+  # ⚠ local.yaml が無ければ SDK の既定に任せる（docstring のとおり・#561）。
+  path = ROOT / 'config' / 'local.yaml'
+  config = (yaml.safe_load(path.read_text()) if path.exists() else None) or {}
   section = config.get('anthropic') or {}
   options = {}
   # ⚠ キーが無ければ SDK の既定（ANTHROPIC_API_KEY など）に任せる。
@@ -515,9 +518,9 @@ def cmd_report(args):
       flags.append('台詞そのまま')
     verdicts = {}
     for judge_key in judges:
-      found = judged[judge_key].get(key)
-      if found and found.get('text'):
-        verdicts[judge_key] = json.loads(found['text'])
+      verdict = parse_verdict(judged[judge_key].get(key))
+      if verdict:
+        verdicts[judge_key] = verdict
     rows[key] = {'entry': entry, 'flags': flags, 'verdicts': verdicts}
 
   out = [f'# 評価の報告 {args.run}', '']
@@ -616,11 +619,10 @@ def cmd_agree(args):
       run = readers.get(item['run'], item['run'])
       path = OUT_DIR / run / f'judge-{judge_key}.json'
       key = custom_id(item['case'], *item.get('cond', 'opus--none').split('--'))
-      found = read_json(path).get(key) if path.exists() else None
-      if not (found and found.get('text')):
+      verdict = parse_verdict(read_json(path).get(key) if path.exists() else None)
+      if not verdict:
         counts['missing'] += 1
         continue
-      verdict = json.loads(found['text'])
       if verdict['verdict'] == item['verdict']:
         counts['agree'] += 1
         continue
@@ -645,6 +647,32 @@ def cmd_agree(args):
 
 def cell(text):
   return text.replace('|', '\\|').replace('\n', '<br>')
+
+
+# 判定役の応答 1 本を {'verdict', 'reason'} に。⚠ 応答が無ければ None（判定なし）。
+#
+# 🔴 途中で切れた応答は unsure として数える（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
+# 終わると text が途中で切れた JSON になり、json.loads が落ちて報告がまるごと書けなかった。
+# ⚠ 課金済みの結果は残るので、失うのはその 1 本の判定だけにする。
+#
+# ⚠ stop_reason は本文の有無より先に見る（v0.9.1 のリリース前レビューの黄）。思考で MAX_TOKENS を使い切ると
+# 本文が空のまま切れるので、本文で先に打ち切ると「判定なし」に紛れて合計から黙って抜けていた。
+def parse_verdict(found):
+  if not found:
+    return None
+  stop = found.get('stop_reason')
+  if stop in ('max_tokens', 'refusal'):
+    return {'verdict': 'unsure', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
+  if not found.get('text'):
+    return None
+  try:
+    verdict = json.loads(found['text'])
+  except json.JSONDecodeError:
+    return {'verdict': 'unsure', 'reason': f'（判定役の応答を JSON として読めない: stop_reason {stop}）'}
+  if not isinstance(verdict, dict) or verdict.get('verdict') not in ('pass', 'fail', 'unsure'):
+    return {'verdict': 'unsure', 'reason': f'（判定役の応答に verdict が無い: stop_reason {stop}）'}
+  verdict.setdefault('reason', '')
+  return verdict
 
 
 def read_json(path):

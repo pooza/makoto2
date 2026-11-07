@@ -19,6 +19,7 @@ module Makoto
       dump_quiet_days
       dump_prefixes
       dump_spoken
+      dump_videos
       dump_history
       dump_pool
       return nil
@@ -100,6 +101,22 @@ module Makoto
     rescue => e
       # ⚠ **`ValidateError` だけを受けない**（#314）— **実行時の倒し方（`SongSource#spoken?`）と揃える**（#312）。
       puts "語りのトラック: 🔴 表を読めません（⚠ 全部の曲を共通だけにします）: #{error_message(e)}"
+    end
+
+    # 🔴 **MV の表**（#498 → `MusicVideos`）。⚠ **母集合に当たらない名前も出す**（語りの表と同じ）。
+    #
+    # ⚠⚠ **表が読めなければそう書く**（#557）。🔴 **実機（`SongSource#video_url`）は音源のリンクに
+    # 倒して syslog に warn するだけ**なので、**ここで言わないと気づく場所が無い。**
+    def dump_videos
+      videos = song.music_videos
+      return puts('MV のある曲: 無し') if videos.empty?
+      unused = videos.unused(song.lottery.candidates.select_map(:dedupe_key).to_set)
+      line = "MV のある曲: #{videos.names.size} 本（日常の曲紹介だけ MV のリンク）"
+      line = "#{line} 🔴 母集合に当たらない: #{unused.join(' / ')}" unless unused.empty?
+      puts line
+    rescue => e
+      # ⚠ **`ValidateError` だけを受けない** — **実行時の倒し方（`SongSource#video_url`）と揃える。**
+      puts "MV のある曲: 🔴 #{SongCommand::VIDEO_FAILURE}: #{error_message(e)}"
     end
 
     # その type だけの本数。

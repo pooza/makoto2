@@ -11,7 +11,7 @@ hosts=("$@")
 status=0
 for name in "${hosts[@]}"; do
   echo "== $name"
-  # ⚠ Host 行は FQDN（bydo.b-shock.local）なので前方一致で引く。完全一致に「直さない」（→ docs/CLAUDE.md）。
+  # ⚠ Host 行は FQDN（短い名前 ＋ 内部のドメイン）なので前方一致で引く。完全一致に「直さない」（→ docs/CLAUDE.md）。
   fqdn=$(awk -v h="$name" 'tolower($1) == "host" && index($2, h) == 1 {print $2; exit}' ~/.ssh/config 2>/dev/null)
   if [ -z "$fqdn" ]; then
     echo "⚠ ~/.ssh/config に $name の Host 行が無い。判定できない"
@@ -26,14 +26,27 @@ for name in "${hosts[@]}"; do
   fi
   out=$(ssh -o ConnectTimeout=10 "$name" 'sudo -u deploy -i bash -s' 2>&1 <<'SH'
 cd ~/repos/makoto2 || exit 1
-bin/makoto status 2>/dev/null | grep -v DEPRECATION | head -2
+st=$(bin/makoto status 2>&1)
+echo "status-exit $?"
+printf '%s\n' "$st" | grep -v DEPRECATION | grep -Ev '^(error|warning): ' | head -2
+printf '%s\n' "$st" | grep -E '^(error|warning): '
 echo "checkout $(git log -1 --format=%h) $(git rev-parse --abbrev-ref HEAD)"
 SH
 )
-  echo "$out"
+  echo "$out" | grep -v '^status-exit '
   # 🔴 DropInPaths が空であること（リハーサルの drop-in の撤収漏れ → #174）。
   ssh -o ConnectTimeout=10 "$name" 'systemctl show makoto2 -p ActiveEnterTimestamp -p NRestarts -p DropInPaths' 2>&1 | tr '\n' ' '
   echo
+  # 🔴 status の error 行と終了コードを捨てない（#559）。⚠ 生きていても投稿の見送り・heartbeat の古さは
+  # error で出る。warning（終了コード 2）は ⚠ を出すだけで、判定は落とさない。
+  code=$(echo "$out" | sed -n 's/^status-exit \([0-9]*\)$/\1/p')
+  # ⚠ 0（OK）と 2（warning）以外はすべて error（127 などで CLI が動かないときも・#573 の Codex の P2）。
+  if echo "$out" | grep -q '^error: ' || { [ "$code" != 0 ] && [ "$code" != 2 ]; }; then
+    echo "🔴 makoto status が error を返した（終了コード ${code:-?}・上の error: 行）"
+    status=1
+  elif echo "$out" | grep -q '^warning: ' || [ "$code" = 2 ]; then
+    echo "⚠ makoto status が warning を返した（上の warning: 行）"
+  fi
   revision=$(echo "$out" | sed -n 's/.*revision \([0-9a-f]*\)).*/\1/p')
   checkout=$(echo "$out" | sed -n 's/^checkout \([0-9a-f]*\) .*/\1/p')
   if [ -z "$revision" ] || [ -z "$checkout" ]; then

@@ -11,8 +11,8 @@
 set -u
 host=${1:?ホストを指定する（bydo / rubicon）}
 minutes=${2:-15}
-config=$(ssh -o ConnectTimeout=10 "$host" 'sudo -u deploy -i bash -c "cd ~/repos/makoto2 && bin/makoto config"' 2>/dev/null | grep timetable)
-if [ -z "$config" ]; then
+config=$(ssh -o ConnectTimeout=10 "$host" 'sudo -u deploy -i bash -c "cd ~/repos/makoto2 && bin/makoto config"' 2>/dev/null)
+if ! echo "$config" | grep -q timetable; then
   echo "⚠ $host から timetable が読めない（VPN・常駐の設定を確かめる）"
   exit 1
 fi
@@ -27,6 +27,7 @@ fi
 # shellcheck disable=SC2016 # ruby のコードなので展開しない
 CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
   require "time"
+  require "yaml"
   ENV["TZ"] = "Asia/Tokyo"
   tolerance = 30
   now = Time.at(ENV["NOW"].to_i)
@@ -34,6 +35,7 @@ CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
   live_day = [[11, 3], [11, 4]].include?([now.month, now.day])
   table = Hash.new { |h, k| h[k] = {} }
   ENV["CONFIG"].each_line do |line|
+    next unless line.include?("/timetable/")
     next unless line =~ %r{"/(.+)/timetable/(start|finish|interval)":\s*\x27?([^\x27\s]+)}
     table[$1][$2] = $3
   end
@@ -59,11 +61,39 @@ CONFIG="$config" NOW="$now" MINUTES="$minutes" HOST="$host" ruby -e '
       bad << "11/1〜11/4 はインフラの凍結（rubicon に触らない）"
     end
   end
+  # 🔴 強い窓（実況の時間）は設定の /commentary/windows から引く（#561）。⚠ 日曜 08:30〜09:00 を焼かない。
+  # ⚠ 読めなければ門を開けない（窓が空のまま通すと、実況の時間に本番を止めうる）。
   if ENV["HOST"] == "rubicon"
+    windows = begin
+      Array(YAML.safe_load(ENV["CONFIG"])["/commentary/windows"])
+    rescue => e
+      warn "⚠ /commentary/windows が読めない（#{e.class}）。門を判定できない"
+      exit 1
+    end
+    strong = windows.select { |w| w["strength"] == "strong" }
+    if strong.empty?
+      warn "⚠ /commentary/windows に強い窓が無い。門を判定できない"
+      exit 1
+    end
+    # ⚠ 使う前に形を確かめる（#575 の Codex の P2）。bin/makoto config は値を出すだけで検査しないので、
+    # 曜日が空・範囲外、時計の形が違う窓を黙って飛ばすと門が開く。壊れていれば門を開けない。
+    clock = /\A([01]\d|2[0-3]):[0-5]\d\z/
+    strong.each do |w|
+      days = w["weekdays"]
+      broken = !w["start"].to_s.match?(clock) || !w["finish"].to_s.match?(clock) ||
+        w["start"].to_s >= w["finish"].to_s ||
+        (!days.nil? && (!days.is_a?(Array) || days.empty? || !days.all? { |d| d.is_a?(Integer) && d.between?(0, 6) }))
+      next unless broken
+      warn "⚠ 強い窓 #{w["name"]} の書き方が壊れている（#{w.inspect}）。門を判定できない"
+      exit 1
+    end
     day = Time.new(now.year, now.month, now.day)
     while day <= until_t
-      if day.sunday? && overlap.call(at.call(day, "08:30"), at.call(day, "09:00"))
-        bad << "日曜 08:30〜09:00 は実況の時間（#{day.strftime("%m-%d")}）"
+      strong.each do |w|
+        next if w["weekdays"] && !w["weekdays"].include?(day.wday)
+        if overlap.call(at.call(day, w["start"]), at.call(day, w["finish"]))
+          bad << "#{w["start"]}〜#{w["finish"]} は実況の時間（#{w["name"]}・#{day.strftime("%m-%d %a")}）"
+        end
       end
       day += 86_400
     end
