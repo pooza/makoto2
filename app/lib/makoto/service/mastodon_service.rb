@@ -131,15 +131,8 @@ module Makoto
       path = "/api/v1/accounts/#{id}/followers?limit=80"
       ids = []
       max_pages.times do
-        response = http.get(path, {
-          headers: direct_headers,
-          host_validator: ->(host) {host == http.base_uri.host},
-          follow_redirects: true,
-        })
-        body = response.parsed_response
-        raise_unexpected(body.class.name) unless body.is_a?(Array)
-        ids.concat(body.filter_map {|follower| follower['id']&.to_s if follower.is_a?(Hash)})
-        path = next_page(response.headers['link'])
+        page, path = follower_page(path)
+        ids.concat(page)
         return ids unless path
       end
       raise Ginseng::GatewayError, "mastodon: followers exceed #{max_pages} pages"
@@ -339,6 +332,19 @@ module Makoto
       # `message` の末尾 3 桁を上流のステータスとして読む**ので、**末尾に数字が来る
       # 書き方をすると `classify` の分類が化ける。**⚠ **型はログの側に出してある。**
       raise Ginseng::GatewayError, 'mastodon returned an unexpected shape'
+    end
+
+    # フォロワーの一覧の 1 ページ。⚠ **ID の配列と、次のページのパス（無ければ nil）を返す。**
+    def follower_page(path)
+      response = http.get(path, {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      ids = body.filter_map {|follower| follower['id']&.to_s if follower.is_a?(Hash)}
+      return ids, next_page(response.headers['link'])
     end
 
     # `Link` の `rel="next"` を、同じホストのパスとクエリにして返す。⚠ **無い・別ホストなら nil。**
