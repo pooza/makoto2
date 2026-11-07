@@ -114,6 +114,25 @@ module Makoto
       raise classify(e)
     end
 
+    # その相手が MAKOTO をフォローしているか（#510 の門）。⚠ **投稿しない**ので副作用は無い。
+    #
+    # ⚠ **経路の設定に関わらず直で聞く**・**別ホストへのリダイレクトは追わない**（→ `#account`）。
+    # 🔴 **聞けなければ例外**（呼び出し側が黙る — ⚠⚠ 「フォロワーでない」に倒すと、
+    # Mastodon の不調のたびにフォロワーへ「フォローしてくれたら」を返してしまう）。
+    def followed_by?(account_id)
+      id = URI.encode_www_form_component(account_id.to_s)
+      response = http.get("/api/v1/accounts/relationships?id[]=#{id}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      return body.first.is_a?(Hash) && body.first['followed_by'] == true
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
     # メンションを受ける SSE の口（#29）。⚠ **トークンは載せない**（→ `streaming_headers`）。
     #
     # 🔴 **ホストは投稿先が申告する `urls.streaming_api` から引く** — ⚠ **Streaming API は

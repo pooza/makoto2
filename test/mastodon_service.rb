@@ -373,6 +373,28 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {MastodonService.new.declared_max_length}
     end
 
+    # 🔴 **フォロワーかを聞く**（#510 の門）。
+    def test_followed_by
+      url = "#{config['/mastodon/url']}/api/v1/accounts/relationships?id[]=42"
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'},
+        body: [{id: '42', followed_by: true}].to_json)
+
+      assert_true(MastodonService.new.followed_by?('42'))
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'},
+        body: [{id: '42', followed_by: false}].to_json)
+
+      assert_false(MastodonService.new.followed_by?('42'))
+    end
+
+    # 🔴 **聞けなければ例外**（「フォロワーでない」に倒さない）。
+    def test_followed_by_raises_when_unreachable
+      config['/http/retry/seconds'] = 0
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/accounts/relationships?id[]=42")
+        .to_return(status: 503, body: '{}')
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.followed_by?('42')}
+    end
+
     # 🔴 **SSE の口は申告された `streaming_api` から組む**（#29）。⚠ `wss://` は `https://` へ。
     # ⚠⚠ **トークンをクエリに載せない**（ヘッダで渡す）。
     def test_streaming_uri

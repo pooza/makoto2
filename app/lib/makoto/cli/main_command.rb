@@ -66,6 +66,9 @@ module Makoto
     desc 'live SUBCOMMAND', 'バースデーライブの並び・枠の下見'
     subcommand 'live', LiveCommand
 
+    desc 'chat SUBCOMMAND', 'チャットのモデレーション（#510）'
+    subcommand 'chat', ChatCommand
+
     desc 'rehearsal SUBCOMMAND', 'リハーサルの結果の集計（#110）'
     subcommand 'rehearsal', RehearsalCommand
 
