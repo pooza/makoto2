@@ -45,9 +45,13 @@ module Makoto
     end
 
     # その曲の MV の URL。⚠ **無ければ nil**（＝音源のまま）。⚠ **`track` は `track` 表の行**。
+    #
+    # ⚠ **鍵の無い曲には当てない**（#561 — 空の鍵どうしで当たると、鍵の無い曲すべてが同じ MV になる）。
     def url_for(track)
       return nil unless track
-      return urls[track[:dedupe_key].to_s]
+      key = track[:dedupe_key].to_s
+      return nil if key.empty?
+      return urls[key]
     end
 
     # 🔴 **曲データに 1 行も当たらない名前**（`dedupe_key` の集合を渡す）。
@@ -62,9 +66,14 @@ module Makoto
 
     private
 
+    # 🔴 **同じ曲を 2 行書いたら落とす・鍵が空になる名前も落とす**（#561）。⚠⚠ **`to_h` は後の行で黙って
+    # 上書きする**ので、どちらの URL が出るかが表の並びで決まっていた。
     def urls
-      @urls ||= entries.to_h do |entry|
-        [TrackImporter.dedupe_key(entry[:name], aliases), entry[:url]]
+      @urls ||= entries.each_with_object({}) do |entry, result|
+        key = TrackImporter.dedupe_key(entry[:name], aliases)
+        raise Ginseng::ValidateError, "#{FILE}: #{entry[:name]} の照合の鍵が空です" if key.to_s.empty?
+        raise Ginseng::ValidateError, "#{FILE}: #{entry[:name]} は同じ曲の行が 2 つあります" if result.key?(key)
+        result[key] = entry[:url]
       end
       return @urls
     end

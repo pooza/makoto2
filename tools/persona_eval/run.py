@@ -70,12 +70,13 @@ JUDGES = {
 # 「unsure を減らせ」と指示すると、空の応答を「何か返している」と読むなど、自信のある誤りに変わった。
 DEFAULT_JUDGES = 'opus'
 
-# 単価（USD / 100 万トークン・2026-10 時点）。⚠ Batch はこの半額。
-# ⚠ キャッシュの読み出しは入力の 0.05 倍（5.5 系・Opus と Sonnet で額が違う）。書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
+# 単価（USD / 100 万トークン・2026-10-06 時点の公式の価格表で確かめた・#561）。⚠ Batch はこの半額。
+# ⚠ キャッシュの読み出しは Opus 5.5・Sonnet 5.5 とも 0.20（⚠ 入力の倍率ではない — Sonnet は入力の 0.1 倍）。
+# 書き込みは 5 分 TTL の 1.25 倍。Batch のキャッシュは当たる保証が無いので、
 # 見積もりは「当たらない・毎回書き込む」で引く（上振れ側）。
 PRICES = {
   'claude-opus-5-5': {'input': 4.0, 'output': 20.0, 'cache_read': 0.2, 'cache_write': 5.0},
-  'claude-sonnet-5-5': {'input': 2.0, 'output': 10.0, 'cache_read': 0.1, 'cache_write': 2.5},
+  'claude-sonnet-5-5': {'input': 2.0, 'output': 10.0, 'cache_read': 0.2, 'cache_write': 2.5},
 }
 BATCH_DISCOUNT = 0.5
 
@@ -302,7 +303,9 @@ def parse_custom_id(value):
 # --- API ---
 
 def client():
-  config = yaml.safe_load((ROOT / 'config' / 'local.yaml').read_text()) or {}
+  # ⚠ local.yaml が無ければ SDK の既定に任せる（docstring のとおり・#561）。
+  path = ROOT / 'config' / 'local.yaml'
+  config = (yaml.safe_load(path.read_text()) if path.exists() else None) or {}
   section = config.get('anthropic') or {}
   options = {}
   # ⚠ キーが無ければ SDK の既定（ANTHROPIC_API_KEY など）に任せる。

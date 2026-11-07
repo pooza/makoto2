@@ -177,12 +177,21 @@ module Makoto
     # 🔴 **語りのトラックの表**（#298）。⚠⚠ **呼ぶたびに作り直す**（#275 — メモすると
     # 常駐が起動したときの表のまま凍る）。⚠ **YAML を 1 日 3 回読むだけ。**
     def spoken_tracks
-      return SpokenTracks.new
+      return SpokenTracks.new(track_dir)
     end
 
     # 🔴 **MV の表**（#498）。⚠⚠ **呼ぶたびに作り直す**（#275・語りの表と同じ）。
     def music_videos
-      return MusicVideos.new
+      return MusicVideos.new(track_dir)
+    end
+
+    # 🔴 **表の置き場は起動時に 1 回だけ設定から読む**（#561）。⚠⚠ **表を作るのは fail-open な `rescue` の内側**
+    # （`SongSource#spoken?` / `#video_url`）なので、そこで設定を読むと、設定パスの typo が「表が読めない」に
+    # 飲まれて毎枠 warn するだけになる（→ docs/CLAUDE.md「fail-open な `rescue` の内側で設定値を読まない」）。
+    # ⚠ **メモするのはパスだけ**で、表の中身は呼ぶたびに読み直す（#275）。
+    def track_dir
+      @track_dir ||= File.join(Environment.dir, config['/track/dir'])
+      return @track_dir
     end
 
     def source
@@ -214,6 +223,7 @@ module Makoto
     end
 
     def validate
+      track_dir
       validate_kind_types
       validate_type
       validate_quiet_types

@@ -11,7 +11,7 @@ hosts=("$@")
 status=0
 for name in "${hosts[@]}"; do
   echo "== $name"
-  # ⚠ Host 行は FQDN（bydo.b-shock.local）なので前方一致で引く。完全一致に「直さない」（→ docs/CLAUDE.md）。
+  # ⚠ Host 行は FQDN（短い名前 ＋ 内部のドメイン）なので前方一致で引く。完全一致に「直さない」（→ docs/CLAUDE.md）。
   fqdn=$(awk -v h="$name" 'tolower($1) == "host" && index($2, h) == 1 {print $2; exit}' ~/.ssh/config 2>/dev/null)
   if [ -z "$fqdn" ]; then
     echo "⚠ ~/.ssh/config に $name の Host 行が無い。判定できない"

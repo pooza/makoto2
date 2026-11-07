@@ -57,6 +57,30 @@ module Makoto
       end
     end
 
+    # 🔴 **同じ曲の行が 2 つあれば落とす**（#561）。⚠ **表記ゆれでも同じ鍵なら同じ曲。**
+    def test_rejects_the_same_track_twice
+      with_table([entry('ねこざかなダンシング'), entry('ねこざかな　ダンシング♪', url: "#{URL}&x=1")]) do |subject|
+        error = assert_raise(Ginseng::ValidateError) {subject.url_for(track('ねこざかなダンシング'))}
+        assert_include(error.message, '同じ曲の行が 2 つ')
+      end
+    end
+
+    # ⚠ **鍵が空になる名前の行も落とす**（記号だけの名前など）。
+    def test_rejects_a_name_without_a_key
+      with_table([entry('♪♪')]) do |subject|
+        error = assert_raise(Ginseng::ValidateError) {subject.url_for(track('ねこざかなダンシング'))}
+        assert_include(error.message, '照合の鍵が空')
+      end
+    end
+
+    # 🔴 **鍵が空の曲には当てない**（#561）。
+    def test_does_not_match_a_track_without_a_key
+      with_table([entry('ねこざかなダンシング')]) do |subject|
+        assert_nil(subject.url_for({dedupe_key: ''}))
+        assert_nil(subject.url_for({dedupe_key: nil}))
+      end
+    end
+
     # 🔴 **取り込みと同じ許可リスト**（#283）。⚠⚠ **手で書いた表だけ素通しにしない。**
     def test_a_url_outside_the_allowed_hosts_is_an_error
       ['http://music.apple.com/jp/music-video/test/1', 'https://example.test/mv/1', ''].each do |url|
