@@ -36,6 +36,8 @@ gh pr list --repo pooza/makoto-scripts --state open   # 原稿の正本（privat
 
 見るのは 3 つ: **置いてあるもの**（チェックアウト）・**動いているもの**（`bin/makoto status` の `revision` ＝ 常駐が起動時に読んだもの）・**その版の枠の本数**（`jobs: 7`）。⚠ `DropInPaths` は空であること（#174）。
 
+- 🔴 **`makoto status` の `error:` 行が出たら 🔴 で終了コード 1**（#559 — 生きていても、投稿の見送りや heartbeat の古さは error で出る）。⚠ `warning:` 行は ⚠ を出すだけ
+
 - 🔴 **`revision` とチェックアウトが違えば、次に見るのは差分の中身**（`git log <revision>..<checkout> --name-only`）。⚠⚠ **再起動を省いてよいのは差分が `docs/` / `tools/` / `README.md` に閉じているときだけ**（常駐が読まないと確かめたもの。`config/` / `Gemfile*` / `bin/` / `seed/` は起動時に読む）
 - ⚠⚠ **PR をマージしても実機は動かない。**レシピ（chubo2 の `bin/chubo --nodes=bydo --recipes=makoto2`）を当てて初めて置き換わり、⚠ **レシピは常駐を起こし直さない** — `systemctl restart makoto2` が別に要る
 - 🔴 **「モンキーテスト待ちで open」の Issue があったら、実機がその版で動いているかを見る**（待っている対象が動いていなければ、何日待っても結果は出ない）
