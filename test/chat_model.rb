@@ -67,7 +67,7 @@ module Makoto
         assert_no_match(/<!--/, body['system'].map {|block| block['text']}.join)
         # 🔴 **キャッシュの印は最後の指示書の塊だけ**（会話には付けない・2026-11-08 オーナー）。
         assert_nil(body['system'][0]['cache_control'])
-        assert_equal({'type' => 'ephemeral', 'ttl' => '5m'}, body['system'][1]['cache_control'])
+        assert_equal({'type' => 'ephemeral', 'ttl' => '1h'}, body['system'][1]['cache_control'])
         assert_false(body.key?('cache_control'))
         assert_equal([{'role' => 'user', 'content' => 'おはよう！'}], body['messages'])
         assert_false(body.key?('fallbacks'))
@@ -166,6 +166,8 @@ module Makoto
     # ⚠ キャッシュから読んだ分・書いた分は別の単価（書き込みは TTL で違う）。
     def test_cost_with_the_cache
       usage = {input_tokens: 300, output_tokens: 60, cache_read: 5700}
+
+      config['/chat/model/cache_ttl'] = '5m'
 
       assert_in_delta(0.00354, @model.cost(usage), 0.00001)
       assert_in_delta(0.0309, @model.cost(usage.merge(cache_read: 0, cache_write: 5700)), 0.00001)
