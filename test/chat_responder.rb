@@ -173,7 +173,9 @@ module Makoto
       assert_equal(1, @repository.penalty('1')[:marks])
       owner = @service.posts.find {|post| post[:visibility] == 'direct'}
 
-      assert_match(/\A@pooza @user1 に印が付きました（舞台裏を繰り返し訊いた・1 回目/, owner[:text])
+      assert_match(/\A@pooza user1 に印が付きました（舞台裏を繰り返し訊いた・1 回目/, owner[:text])
+      # 🔴 **相手をメンションしない**（DM が相手にも届く・PR #589 の Codex の P1）。
+      assert_equal(['@pooza'], owner[:text].scan(%r{(?<![\w/])@[\w.@-]+}))
     end
 
     # 🔴 **言わせようとしたら印を付け、オーナーへ知らせる**（返事はする）。
@@ -185,7 +187,7 @@ module Makoto
 
       texts = @service.posts.map {|post| post[:text]}
 
-      assert_equal(['@pooza @user1 さんが言わせようとしたみたい。1 回目です。https://st2.precure.ml/@user1/9',
+      assert_equal(['@pooza user1 さんが言わせようとしたみたい。1 回目です。https://st2.precure.ml/@user1/9',
         '@user1 そういうのは、ちょっと。'], texts)
       assert_true(@gate.penalized?('1'))
       assert_false(@repository.closed_thread?('9'))

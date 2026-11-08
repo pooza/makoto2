@@ -176,9 +176,13 @@ module Makoto
     end
 
     # 🔴 **オーナーへ DM で知らせる**（#510）。⚠ モデレーションの判断に足りる材料を載せる。
+    #
+    # 🔴🔴 **相手をメンションしない**（PR #589 の Codex の P1）。⚠⚠ **DM は本文でメンションした全員に
+    # 届く**ので、`@相手` と書くと、オーナーだけへの知らせ（理由・回数・期限）が当の相手にも届く。
+    # ⚠ `{acct}` は先頭の `@` を外す（`user@host` は `@` の前が文字なのでメンションにならない）。
     def notify_owner(account, status, penalty, reasons)
       values = {
-        acct: "@#{account['acct']}",
+        acct: account['acct'].to_s.delete_prefix('@'),
         url: status['url'].to_s,
         marks: penalty[:marks].to_s,
         until: penalty[:until_at]&.strftime('%Y-%m-%d %H:%M').to_s,
