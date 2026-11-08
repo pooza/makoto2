@@ -4837,7 +4837,7 @@ gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: fals
 
 - 🔴 **返事をする配線は `Makoto::ChatResponder`**（受信の口の `handler`・2026-11-08）。門 → 前のやりとり（`ChatThread`・祖先は新しい側から `/chat/thread/max_statuses` 件）→ 打ち切った会話なら黙る → LLM → 印 → 投稿
   - 🔴 **公開の投稿には未収載で返す**（未収載・フォロワー限定・DM はそのまま）。⚠ 同じ通知には 2 度返さない（`Idempotency-Key` ＝ 投稿の ID）
-  - 🔴 **印の扱い**: `provoke` は印（返事はする）／`backstage` はそのスレッドを打ち切り、⚠ **`/chat/backstage/window`（30 日）の中の 2 回目から印**／`impersonate` は打ち切り・印（返事は空）。印が付いたらペナルティ（`/chat/penalty`）とオーナー（`/chat/owner`）への DM
+  - 🔴 **印の扱い**: `provoke` は返事をして、⚠ **`/chat/grace/window`（30 日）の中の 2 回目から印**（言葉遊びもあるので・2026-11-08 オーナー）／`backstage` はそのスレッドを打ち切り、⚠ **同じく 2 回目から印**／`impersonate` は打ち切り・印（返事は空）。印が付いたらペナルティ（`/chat/penalty`）とオーナー（`/chat/owner`）への DM
   - ⚠ **LLM を呼んだぶんは回数に数える**（空の返事も）。失敗は数えない
   - ⚠ **LLM は数秒かかる**ので、受信のスレッドでは待たない（別のスレッド `makoto-chat` で 1 本ずつ・溜まるのは 50 通まで）
   - 🔴 **止め方は `/chat/enabled: false` ＋ 再起動**（受信は続く）。⚠ キーが無ければ `true` でも返さず、`makoto status` が警告する。⚠ **キーが通らなくなったら（401 / 403）`warning: chat API key was rejected at …`** — ⚠ 再起動では直らないので `errors` ではなく `warnings`（Sentry の警告と同じ理由）。次に 1 回通れば消える

@@ -525,7 +525,7 @@ properties:
             minimum: 0
         required:
           - max_statuses
-      backstage:
+      grace:
         type: object
         properties:
           window:
@@ -577,7 +577,7 @@ properties:
       - enabled
       - owner
       - thread
-      - backstage
+      - grace
   # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
   # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。
   anthropic:

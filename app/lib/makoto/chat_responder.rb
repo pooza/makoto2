@@ -13,11 +13,13 @@ module Makoto
   #
   # | 印 | 会話 | ペナルティ（`ChatGate#mark`）とオーナーへの DM |
   # | --- | --- | --- |
-  # | `provoke`（言わせようとした） | 続ける | 付ける |
+  # | `provoke`（言わせようとした） | 続ける | ⚠ **1 回目は付けない**（下記） |
   # | `backstage`（舞台裏を訊いた） | 🔴 **打ち切る** | ⚠ **1 回目は付けない**（下記） |
   # | `impersonate`（運営を名乗った） | 打ち切る | 付ける（🔴 しばらく無視する ＝ ペナルティ） |
   #
-  # ⚠ `backstage` は小さな子が素朴に訊くこともあるので、`/chat/backstage/window` の中の 2 回目から付ける。
+  # 🔴 **`provoke` と `backstage` は、`/chat/grace/window` の中の 2 回目から付ける**（種類ごとに数える）。
+  # ⚠ 小さな子が素朴に訊く・言葉遊びをすることもある（しりとりの「おしっこ」など・2026-11-08 オーナー）。
+  # 1 回の悪ふざけは真琴がかわせば済む。⚠ `impersonate` は 1 回目から付ける。
   # ⚠ **オーナーへの連絡は知らせるだけ**（フォローを外すのはオーナー・A から始める）。
   #
   # ## 🔴 受信を止めない
@@ -46,9 +48,12 @@ module Makoto
     NOTICE_TYPES = {ask_follow: 'chat_ask_follow', limit_notice: 'chat_limit_notice'}.freeze
     OWNER_NOTICE_TYPE = 'chat_owner_notice'.freeze
 
+    # 🔴 **1 回目はペナルティにしない印**（→ クラスの冒頭）。
+    GRACE_MARKS = ['provoke', 'backstage'].freeze
+
     # オーナーへの DM に入れる印の言い方。⚠ 真琴の口調の文ではない（原稿の `{reason}` に入る）。
     REASONS = {
-      'provoke' => '言わせようとした',
+      'provoke' => '繰り返し言わせようとした',
       'backstage' => '舞台裏を繰り返し訊いた',
       'impersonate' => '運営を名乗った',
     }.freeze
@@ -160,19 +165,20 @@ module Makoto
     def handle_marks(account, status, thread, marks)
       closing = marks & ['backstage', 'impersonate']
       repository.close_thread(thread.root_id, account['id'], closing.join(',')) if closing.any?
-      reasons = marks & ['provoke', 'impersonate']
-      if marks.include?('backstage')
-        reasons.push('backstage') if backstage_before?(account)
-        repository.record(account['id'], account['acct'], :backstage)
+      reasons = marks & ['impersonate']
+      (marks & GRACE_MARKS).each do |mark|
+        reasons.push(mark) if marked_before?(account, mark)
+        repository.record(account['id'], account['acct'], mark)
       end
       return if reasons.empty?
       penalty = gate.mark(account, reason: reasons.join(','), status_url: status['url'])
       notify_owner(account, status, penalty, reasons)
     end
 
-    def backstage_before?(account)
-      since = Time.now - duration(config['/chat/backstage/window'])
-      return repository.count(:backstage, since, account_id: account['id']).positive?
+    # ⚠ その種類の印が、猶予の期間の中で前にも付いていたか（今回のぶんを記録する前に見る）。
+    def marked_before?(account, mark)
+      since = Time.now - duration(config['/chat/grace/window'])
+      return repository.count(mark, since, account_id: account['id']).positive?
     end
 
     # 🔴 **オーナーへ DM で知らせる**（#510）。⚠ モデレーションの判断に足りる材料を載せる。
@@ -276,7 +282,7 @@ module Makoto
 
     def duration(value)
       seconds = Fugit::Duration.parse(value.to_s)&.to_sec
-      raise Ginseng::ConfigError, "chat: bad backstage window '#{value}'" unless seconds&.positive?
+      raise Ginseng::ConfigError, "chat: bad grace window '#{value}'" unless seconds&.positive?
       return seconds
     end
   end

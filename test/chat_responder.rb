@@ -178,19 +178,35 @@ module Makoto
       assert_equal(['@pooza'], owner[:text].scan(%r{(?<![\w/])@[\w.@-]+}))
     end
 
-    # 🔴 **言わせようとしたら印を付け、オーナーへ知らせる**（返事はする）。
-    def test_provoke_marks_and_tells_the_owner_with_the_script
+    # 🔴 **言わせようとしたら、1 回目は数えるだけ**（返事はする・言葉遊びもある・2026-11-08 オーナー）。
+    # 猶予の期間の中の 2 回目で印を付け、オーナーへ知らせる。
+    def test_provoke_marks_only_the_second_time_and_tells_the_owner
       script('chat_owner_notice', '{acct} さんが{reason}みたい。{marks} 回目です。{url}', 'chat-owner-01')
       @model.reply = reply('そういうのは、ちょっと。', ['provoke'])
+      subject = responder
 
-      assert_equal(:respond, responder.handle(notification))
+      assert_equal(:respond, subject.handle(notification(id: '9')))
+      assert_equal(['@user1 そういうのは、ちょっと。'], @service.posts.map {|post| post[:text]})
+      assert_false(@gate.penalized?('1'))
 
-      texts = @service.posts.map {|post| post[:text]}
+      assert_equal(:respond, subject.handle(notification(id: '10')))
+      texts = @service.posts.drop(1).map {|post| post[:text]}
 
-      assert_equal(['@pooza user1 さんが言わせようとしたみたい。1 回目です。https://st2.precure.ml/@user1/9',
+      assert_equal(['@pooza user1 さんが繰り返し言わせようとしたみたい。1 回目です。https://st2.precure.ml/@user1/10',
         '@user1 そういうのは、ちょっと。'], texts)
       assert_true(@gate.penalized?('1'))
       assert_false(@repository.closed_thread?('9'))
+    end
+
+    # ⚠ **猶予は種類ごと**（舞台裏の 1 回目のあとの、言わせようとした 1 回目は印にしない）。
+    def test_grace_is_counted_per_kind
+      subject = responder
+      @model.reply = reply('このアカウントの真琴は、AI が演じています。', ['backstage'])
+      subject.handle(notification(id: '9'))
+      @model.reply = reply('そういうのは、ちょっと。', ['provoke'])
+      subject.handle(notification(id: '10'))
+
+      assert_nil(@repository.penalty('1'))
     end
 
     # 🔴 **運営を名乗ったら、返事をせず・打ち切り・印**。
