@@ -22,6 +22,27 @@ module Makoto
       exit 1
     end
 
+    # 🔴 **投稿しない。**LLM に返事を作らせて表示するだけ（#18・ステージングでの確かめ・指示書の手直し）。
+    # ⚠ **課金がある**（1 回 約 $0.015）。⚠ 門（`ChatGate`）も通らない（回数に数えない）。
+    desc 'try TEXT', '返事を作らせて表示する（投稿しない・課金あり）'
+    option :thread, type: :string, desc: '前のやりとり（YAML の配列・各要素は role と content）'
+    def try(text)
+      unless ChatModel.enabled?
+        warn 'API キーがありません（config/local.yaml の /anthropic/api_key）'
+        exit 1
+      end
+      model = ChatModel.new
+      reply = model.respond(thread_messages + [{role: 'user', content: text}])
+      unless reply
+        warn '返事を作れませんでした（ログを見てください）'
+        exit 1
+      end
+      puts reply.silent? ? '(返事をしない)' : reply.text
+      puts "marks: #{reply.marks.join(', ')}" unless reply.marks.empty?
+      usage = reply.usage
+      puts "tokens: #{usage[:input_tokens]} / #{usage[:output_tokens]} (約 $#{model.cost(usage)})"
+    end
+
     # ⚠ **印の回数も 0 に戻す**（オーナーが「間違いだった」と判断したとき）。
     desc 'forgive ACCT', '相手のペナルティと印を消す（判定の間違いを直す）'
     def forgive(acct)
@@ -33,6 +54,15 @@ module Makoto
       end
       repository.forgive(row[:account_id])
       puts "forgiven: @#{row[:acct]} (marks: #{row[:marks]})"
+    end
+
+    private
+
+    def thread_messages
+      return [] unless options[:thread]
+      return YAML.load_file(options[:thread]).map do |entry|
+        {role: entry.fetch('role'), content: entry.fetch('content')}
+      end
     end
   end
 end

@@ -301,7 +301,8 @@ map $http_x_mulukhiya $mulukhiya_backend {
 - 🔴🔴 **フォロワーかは、MAKOTO が手元に持つフォロワーの一覧で見る**（`FollowerRoster`・2026-11-07・オーナー判断）。⚠⚠ **相手ごとに聞く API（`/api/v1/accounts/relationships`）は `read:follows` が要り、いまのトークン（`read:accounts read:notifications write:statuses write:media`）では 403**（実測・PR #587 の Codex の P2）。**スコープは発行後に足せず、トークンの作り直しは重い**ので、`read:accounts` で引ける自分のフォロワー一覧を使う
   - 🔴 **新しいフォローは、受信の口（#29）に届くフォローの通知ですぐ足す**（フォローしてすぐ話しかけてくれた人を待たせない）
   - ⚠ **フォローを外したことは通知されない**ので、`/chat/followers/refresh`（1 時間）ごとに全部引き直して拾う。⚠ 外した直後のその間だけは返事をしうる（実害は小さい）
-  - ⚠ `write:follows`（フォローを外す）が要るのは、外すのを自動にする日だけ。**そのときに発行し直すかを決める**（それまではオーナーに知らせるだけ）
+  - ⚠ `write:follows`（フォローを外す）が要るのは、外すのを自動にする日だけ（それまではオーナーに知らせるだけ）
+  - ✅ **2026-11-08 にトークンを作り直す側へ決めた**（#18 で返信の祖先を引く `read:statuses` が要るため・オーナー）。スコープは `read:accounts read:notifications read:statuses read:follows write:statuses write:media write:follows` の 7 つ。🔴 **ステージング（dev25 → bydo）は 2026-11-08 に差し替え済み**・⚠ **本番（gomander → rubicon）は `1.0` のリリース直前に作り直す**（記録は chubo2 の infra-servers / infra-history）。⚠ `read:follows` が入ったので、門を `relationships` に戻すかは別に決める
 - ⚠ **フォロワーの一覧が一度も引けていなければ黙る**（「フォロワーでない」に倒すと、Mastodon の不調のたびにフォロワーへ「フォローしてくれたら」を返す）
 - ⚠ **決まった文の正本は makoto-scripts**（オーナーのレビュー）。🔴 **投稿する配線は #18 と一緒に入れる** — 先に入れると、フォロワーには何も返さないのに、フォロワー以外にだけ返す形になる
 
@@ -4792,7 +4793,7 @@ gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: fals
 | --- | --- | --- |
 | 🔴 **モデル** | **`claude-opus-5-5`**（effort `low`） | 3 回とも最も安定。Sonnet 5.5 は指示書の手直しで追いついたが、設定の作り込み（「王女様が国を治めていた」「春のプリキュア」など）と問い返しの口癖（応答の約 3 分の 2）が残る |
 | 🔴 **同梱する台詞** | ⚠⚠ **0 件**（指示書だけ） | 561 件・150 件・0 件で質がほぼ変わらない（判定役 2 つとも）。⚠ **同梱すると一人称が「わたし」に戻る**（コーパスは文字起こしの「わたし」） |
-| 🔴 **指示書** | [tools/persona_eval/persona_prompt.md](../tools/persona_eval/persona_prompt.md) が下書き | ⚠ **「なぜそうするか」の理由づけを書かない**（脚本家の目の説明が応答に漏れる → [makoto-persona.md](makoto-persona.md)「脚本家の目で説明しない」） |
+| 🔴 **指示書** | [config/chat/persona.md](../config/chat/persona.md)（2026-11-08 に `tools/persona_eval/` から移した・本番の #18 と評価の道具が同じものを読む） | ⚠ **「なぜそうするか」の理由づけを書かない**（脚本家の目の説明が応答に漏れる → [makoto-persona.md](makoto-persona.md)「脚本家の目で説明しない」） |
 | 🔴 **費用** | ⚠ **その場で呼んで 1 応答 約 $0.015**（入力 約 3,500 トークン・出力 約 160 トークン・キャッシュ無し） | **月 $10 の目安で 1 日 20 回強**。⚠ 下記「予算の目安」の 3 案はどれも 561 件同梱が前提で、置き換えた |
 | ⚠ **判定役の LLM** | **補助に留める。最後はオーナーの判断が正解** | Opus 判定と Sonnet 判定の一致は 2 回目で低く、注意（較正）を足した 3 回目で 76%。⚠ **本編の固有名詞を知らない**（「エースティー」を作り話と採点）・**見逃しもある**（孤児院で歌う役目をもらった） |
 | 🔴 **判定役は Opus 5.5 だけ**（2026-10-23・#508） | `run.py` の既定を `opus` にした。正解集 [gold.yaml](../tools/persona_eval/gold.yaml)（オーナーの判定 23 本）との一致は **Opus 100% / Sonnet 87%**（合格の形にオーナーの判定を入れた後） | ⚠ **Sonnet に「unsure を減らせ」と指示すると、保留 3 本が外れに変わり、2 本は明らかな誤り**（空の応答を「何か返している」・理由で合格と書いて fail）。⚠ **正解集と合格の形は同じ判定から作っているので、一致率は割り引いて読む**（新しい応答で測るのが本当の試験）。🔴 **オーナーが判定したら `gold.yaml` に足し、`run.py agree` で測る** |
@@ -4818,8 +4819,24 @@ gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: fals
 - ⚠ **Ruby SDK は `system_:`（末尾アンダースコア）** — `Kernel#system` との衝突を避けるため。`system:` ではない
 - ⚠ **レスポンスの `.type` は Symbol**（`:text` であって `"text"` ではない）
 - ⚠ **`stop_reason` が `:refusal` のことがある。`content` を読む前に必ず分岐する。** 安全性の分類器が働くと HTTP 200 で本文が空になるので、`content[0]` を無条件に読むコードは壊れる。**MAKOTO は無人で投稿し続けるので、拒否されたら定型文にフォールバックして黙って落ちないようにする**
-- サーバー側フォールバック（`fallbacks: "default"`）を既定で有効にする
+- ~~サーバー側フォールバック（`fallbacks: "default"`）を既定で有効にする~~ → 🔴 **付けない**（2026-11-08・#18）。拒否されたら別のモデルが真琴として答える形になり、「全機能で同じモデル」と「LLM が失敗したら黙る」（下記「チャットボットの返事を作る口」）の両方に反する
 - **API キーは `config/local.yaml`（gitignore）に置き、ログの scrub 対象に入れる**
+
+### チャットボットの返事を作る口（2026-11-08・#18）
+
+**`Makoto::ChatModel`**。⚠ **呼ぶかどうか（門）と投稿は持たない** — 返事の本文と悪戯の印を返すだけ。
+
+| 決めたこと | 中身 |
+| --- | --- |
+| 🔴 **返事と印を 1 回で受ける**（オーナー） | structured outputs で `{reply, marks}`。印は `provoke`（言わせようとした）・`backstage`（舞台裏を本気で訊いた）・`impersonate`（運営を名乗った）。⚠⚠ **印のために呼び出しを増やさない**（#510） |
+| 🔴 **指示書は 2 つ** | 人柄の [config/chat/persona.md](../config/chat/persona.md) と、出力の形の [config/chat/reply_format.md](../config/chat/reply_format.md)。🔴 **評価の道具（`run.py --reply-format json`・既定）も同じ 2 つを読む** — 本番と評価で指示書をずらさない。⚠ 起動時に読むので、書き換えたら再起動 |
+| 🔴 **失敗したら黙る**（オーナー） | API の失敗・時間切れ・拒否・上限での打ち切り・読めない JSON は、どれも何も投稿しない（ログと Sentry に残す）。⚠ **空の返事は失敗ではない**（「返事をしない」を選んだ） |
+| ⚠ **費用の見積もりを直した** | 指示書が育ったので、**入力は 1 応答 約 5,750 トークン**（JSON の形で 約 580 増えた分を含む・2026-11-08 の `run.py estimate`）。**1 応答 約 $0.026**（上の表の 約 $0.015 は 2026-10-20 時点）。⚠ **全体の 1 日の上限 100 回で 1 日最大 約 $2.6** |
+| ⚠ **キー** | `config/local.yaml` の `/anthropic/api_key`（無ければチャットボットは応答しない・受信は続く）。⚠ ワークスペースに紐づいていないキーは `/anthropic/workspace_id` |
+| 🔴 **キーの期限は 2027-05-04**（2026-11-08 発行・6 か月・オーナー） | `makoto2-staging`（bydo）と `makoto2-production`（rubicon）の 2 本を同じ日に作り、2026-11-08 に両方の `local.yaml` へ入れた（rubicon は `1.0` を当てた日から使われる）。🔴 **Google カレンダーに 2027-04-20（2 週間前）と 2027-05-01（3 日前）の知らせを入れた。**⚠ 作り直したら、この行と知らせの日付を直す。⚠ 期限が切れても投稿は暴れない（黙る）が、気付けるように `makoto status` に出す（#18 の配線の PR） |
+
+- **試すのは `bin/makoto chat try TEXT [--thread FILE]`**（投稿しない・門も通らない・⚠ **課金あり**）
+- ⚠ **Ruby SDK の出力形式の属性名は `format_`**（`api_name: :format`）。⚠ ハッシュの `format:` が API の `format` に乗ることは、webmock で本文を見るテストで確かめてある（`test/chat_model.rb`）
 
 ### ⚠ Claude Max の契約枠では API は使えない
 

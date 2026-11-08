@@ -666,6 +666,20 @@ chat:
     - 1d
     - 3d
     - 7d
+  # 🔴 **返事を作る LLM**（#18・→ `ChatModel`）。⚠⚠ **全機能で同じモデル**（docs「LLM プロバイダとモデル」）。
+  # ⚠ effort `low` は #19 の評価で決めた値。⚠ 書き換えたら評価を回し直す（`tools/persona_eval/run.py`）。
+  model:
+    name: claude-opus-5-5
+    effort: low
+    # ⚠ 思考を含む上限（評価の道具と同じ）。⚠ 返事は 100 字前後なので、届くのは思考が膨らんだときだけ。
+    max_tokens: 8000
+    # ⚠ **1 回あたりの待ちの上限。**⚠ 時間切れも再試行されるので、最長は timeout × (max_retries + 1)。
+    timeout: 60s
+    max_retries: 1
+    # 単価（USD / 100 万トークン）。⚠ ログの見積もり（`cost`）にだけ使う。請求額の正本は Console。
+    price:
+      input: 4.0
+      output: 20.0
 # メンションの受信（#29）。⚠ **Mastodon の Streaming API を SSE で読む**（WebSocket ではない・
 # 2026-11-07 オーナー判断 → `MentionListener`）。⚠ **いまは受けてログに出すだけ**（応答は #18）。
 streaming:
