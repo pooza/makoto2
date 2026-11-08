@@ -31,7 +31,7 @@ module Makoto
   class ChatResponder
     include Package
 
-    # ⚠ 溜まった通知の上限。⚠ 門の全体の上限（1 日 100 回）より十分小さければよい。
+    # ⚠ 溜まった通知の上限。⚠ 門の全体の上限（1 日 150 回）より十分小さければよい。
     QUEUE_MAX = 50
     SEEN_MAX = 500
     JOIN_TIMEOUT = 5
