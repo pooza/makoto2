@@ -54,9 +54,9 @@ module Makoto
       assert_equal([:silent, :bot], [decision.action, decision.reason])
     end
 
-    # 🔴 **相手ごとの上限: 1 時間に 3 回**。⚠ 届いたら決まった文を 1 回だけ、あとは黙る。
+    # 🔴 **相手ごとの上限: 1 時間**。⚠ 届いたら決まった文を 1 回だけ、あとは黙る。
     def test_the_hourly_limit
-      respond_times(3)
+      respond_times(config['/chat/limit/account/hour'])
       first = gate.decide(account, now: now)
       gate.record(account, first, now: now)
       second = gate.decide(account, now: now + 60)
@@ -67,9 +67,9 @@ module Makoto
       assert_true(gate.decide(account, now: now + ChatGate::HOUR).respond?)
     end
 
-    # 🔴 **1 日に 10 回。**⚠⚠ 時間の窓が空いても、日の窓で伝えたら翌日まで黙る。
+    # 🔴 **1 日。**⚠⚠ 時間の窓が空いても、日の窓で伝えたら翌日まで黙る。
     def test_the_daily_limit
-      respond_times(10, at: now - (5 * ChatGate::HOUR))
+      respond_times(config['/chat/limit/account/day'], at: now - (5 * ChatGate::HOUR))
       first = gate.decide(account, now: now)
       gate.record(account, first, now: now)
 
