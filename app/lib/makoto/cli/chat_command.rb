@@ -40,7 +40,8 @@ module Makoto
       puts reply.silent? ? '(返事をしない)' : reply.text
       puts "marks: #{reply.marks.join(', ')}" unless reply.marks.empty?
       usage = reply.usage
-      puts "tokens: #{usage[:input_tokens]} / #{usage[:output_tokens]} (約 $#{model.cost(usage)})"
+      puts "tokens: #{usage[:input_tokens]} / #{usage[:output_tokens]}" \
+        " (cache read #{usage[:cache_read]} / write #{usage[:cache_write]}・約 $#{model.cost(usage)})"
     end
 
     # ⚠ **印の回数も 0 に戻す**（オーナーが「間違いだった」と判断したとき）。

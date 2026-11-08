@@ -20,6 +20,13 @@ module Makoto
   # ⚠ **サーバー側のフォールバック（`fallbacks`）は付けない。**拒否されたら別のモデルが真琴として答える
   # 形になり、「全機能で同じモデル」（docs「LLM プロバイダとモデル」）と「失敗したら黙る」の両方に反する。
   #
+  # ## 🔴 指示書をキャッシュする（2026-11-08・オーナー）
+  #
+  # 入力の大半（約 5,700 / 6,000 トークン）は誰へも同じ指示書なので、**最後の指示書の塊に印を付ける**
+  # （`/chat/model/cache_ttl`）。⚠⚠ **印は会話の末尾に置かない** — 相手ごとに違う部分まで書き込んで、
+  # 別の相手が読めなくなる。⚠ **指示書に時刻や相手の名前を混ぜない**（混ぜた所から先は毎回書き直し）。
+  # ⚠ 効いているかはログの `cache_read` / `cache_write` で見る（指示書が短すぎると黙って効かない）。
+  #
   # ⚠⚠ **相手の本文も返事の本文もログに出さない**（長さと印と使用量だけ）。
   class ChatModel
     include Package
@@ -92,22 +99,37 @@ module Makoto
     end
 
     # ⚠ **起動時に一度だけ読む**（書き換えたら再起動）。⚠ HTML のコメントは渡さない（書き手向けの注記）。
+    # 🔴 **最後の塊にキャッシュの印を付ける**（→ クラスの冒頭）。
     def system_blocks
-      @system_blocks ||= PROMPT_FILES.map do |path|
+      return @system_blocks if @system_blocks
+      blocks = PROMPT_FILES.map do |path|
         text = File.read(File.join(Environment.dir, path))
         {type: 'text', text: text.gsub(/<!--.*?-->\s*/m, '').strip}
       end
+      blocks.last[:cache_control] = cache_control
+      @system_blocks = blocks
       return @system_blocks
     end
 
     # 使用量の見積もり（USD）。⚠ ログで見直すための目安で、請求額ではない。
+    # ⚠ `input_tokens` はキャッシュから読んだ分・書いた分を含まない（別に数える）。
     def cost(usage)
-      input = usage[:input_tokens].to_i * setting('price/input').to_f
-      output = usage[:output_tokens].to_i * setting('price/output').to_f
-      return ((input + output) / 1_000_000).round(5)
+      total = [
+        usage[:input_tokens].to_i * setting('price/input').to_f,
+        usage[:output_tokens].to_i * setting('price/output').to_f,
+        usage[:cache_read].to_i * setting('price/cache_read').to_f,
+        usage[:cache_write].to_i * setting("price/cache_write/#{setting('cache_ttl')}").to_f,
+      ].sum
+      return (total / 1_000_000).round(5)
     end
 
     private
+
+    def cache_control
+      ttl = setting('cache_ttl').to_s
+      raise Ginseng::ConfigError, "chat: bad cache ttl '#{ttl}'" unless ['5m', '1h'].include?(ttl)
+      return {type: 'ephemeral', ttl: ttl}
+    end
 
     def client
       @client ||= Anthropic::Client.new(
@@ -155,6 +177,8 @@ module Makoto
       return {
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
+        cache_read: usage.cache_read_input_tokens.to_i,
+        cache_write: usage.cache_creation_input_tokens.to_i,
         model: response.model.to_s,
       }
     end
