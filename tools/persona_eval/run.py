@@ -580,18 +580,19 @@ def cmd_report(args):
 
   out = [f'# 評価の報告 {args.run}', '']
   out.append(f"- 条件: モデル {state['models']} × 台詞 {state['corpus']}・effort {state['respond_effort']}・返事の形 {state.get('reply_format', 'text')}")
-  out.append(f"- 判定役: {'・'.join(judges) or '（未実施）'}。条件は見せていない。pass / fail / unsure は判定役ごとに「{' / '.join(judges)}」の順")
+  out.append(f"- 判定役: {'・'.join(judges) or '（未実施）'}。条件は見せていない。pass / fail / unsure / 判定役の失敗は判定役ごとに「{' / '.join(judges)}」の順")
+  out.append('- ⚠ 判定役の失敗（途中で切れた・JSON として読めない・verdict が無い）は unsure に数えない。理由は質問ごとの表にある')
   out.append('- 🔴 目印（機械）は外れの検出だけ。当たらなくても合格とは限らない')
   out.append('')
   out.append('## 条件ごとのまとめ')
   out.append('')
-  out.append('| 条件 | 本数 | pass | fail | unsure | 目印あり | 平均の長さ | 拒否・失敗 | 応答の費用（USD） |')
-  out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+  out.append('| 条件 | 本数 | pass | fail | unsure | 判定役の失敗 | 目印あり | 平均の長さ | 拒否・失敗 | 応答の費用（USD） |')
+  out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
   for model_key, corpus_key in conds:
     keys = [k for k in rows if parse_custom_id(k)[1:] == (model_key, corpus_key)]
     counts = {v: ' / '.join(
       str(sum(1 for k in keys if rows[k]['verdicts'].get(j, {}).get('verdict') == v)) for j in judges
-    ) for v in ('pass', 'fail', 'unsure')}
+    ) for v in ('pass', 'fail', 'unsure', 'broken')}
     texts = [rows[k]['entry'].get('text', '') for k in keys]
     broken = sum(1 for k in keys if failed(rows[k]['entry']))
     spent = sum(cost(MODELS[model_key], rows[k]['entry']['usage']) for k in keys if 'usage' in rows[k]['entry'])
@@ -599,7 +600,7 @@ def cmd_report(args):
     avg = sum(len(t) for t in texts) / len(texts) if texts else 0
     out.append(
       f"| {model_key} × {corpus_key} | {len(keys)} | {counts['pass']} | {counts['fail']} "
-      f"| {counts['unsure']} | {flagged} | {avg:.0f} 字 | {broken} | {spent:.2f} |"
+      f"| {counts['unsure']} | {counts['broken']} | {flagged} | {avg:.0f} 字 | {broken} | {spent:.2f} |"
     )
   out.append('')
   for judge_key in judges:
@@ -642,7 +643,8 @@ def cmd_report(args):
       cells = []
       for judge_key in judges:
         verdict = row['verdicts'].get(judge_key)
-        cells.append(cell(f"**{verdict['verdict']}** {verdict['reason']}" if verdict else ''))
+        label = '判定役の失敗' if verdict and verdict['verdict'] == 'broken' else (verdict or {}).get('verdict')
+        cells.append(cell(f"**{label}** {verdict['reason']}" if verdict else ''))
       out.append(f"| {model_key} × {corpus_key} | {cell(text)} | {cell('・'.join(row['flags']))} | " + ' | '.join(cells) + ' |')
   (run_dir / 'report.md').write_text('\n'.join(out) + '\n')
   print(run_dir / 'report.md')
@@ -670,10 +672,10 @@ def cmd_agree(args):
   readers = {}
   for run in args.runs:
     readers[read_json(OUT_DIR / run / 'state.json').get('source', run)] = run
-  out = ['| 判定役 | 本数 | 一致 | 食い違い | unsure | 判定なし |', '| --- | --- | --- | --- | --- | --- |']
+  out = ['| 判定役 | 本数 | 一致 | 食い違い | unsure | 判定役の失敗 | 判定なし |', '| --- | --- | --- | --- | --- | --- | --- |']
   details = []
   for judge_key in JUDGES:
-    counts = {'agree': 0, 'differ': 0, 'unsure': 0, 'missing': 0}
+    counts = {'agree': 0, 'differ': 0, 'unsure': 0, 'broken': 0, 'missing': 0}
     for item in gold:
       run = readers.get(item['run'], item['run'])
       path = OUT_DIR / run / f'judge-{judge_key}.json'
@@ -681,6 +683,11 @@ def cmd_agree(args):
       verdict = parse_verdict(read_json(path).get(key) if path.exists() else None)
       if not verdict:
         counts['missing'] += 1
+        continue
+      # ⚠ 正解が unsure でも、壊れた判定を一致に数えない（#579）。本数と一致率の分母からも外す。
+      if verdict['verdict'] == 'broken':
+        counts['broken'] += 1
+        details.append(f"- {judge_key} `{run}` {item['case']}: 判定役の失敗 — {verdict['reason']}")
         continue
       if verdict['verdict'] == item['verdict']:
         counts['agree'] += 1
@@ -691,14 +698,16 @@ def cmd_agree(args):
         f"- {judge_key} `{run}` {item['case']}: 正解 **{item['verdict']}**{minor} / 判定 **{verdict['verdict']}**\n"
         f"  - 正解の理由: {item['note']}\n  - 判定の理由: {verdict['reason']}"
       )
-    judged = len(gold) - counts['missing']
-    if not judged:
+    judged = len(gold) - counts['missing'] - counts['broken']
+    if not judged and not counts['broken']:
       continue
     rate = f"{counts['agree']}（{counts['agree'] / judged:.0%}）" if judged else '0'
-    out.append(f"| {judge_key} | {judged} | {rate} | {counts['differ']} | {counts['unsure']} | {counts['missing']} |")
+    out.append(
+      f"| {judge_key} | {judged} | {rate} | {counts['differ']} | {counts['unsure']} | {counts['broken']} | {counts['missing']} |"
+    )
   print('\n'.join(out))
   if details:
-    print('\n## 食い違い\n')
+    print('\n## 食い違い・判定役の失敗\n')
     print('\n'.join(details))
 
 
@@ -710,7 +719,10 @@ def cell(text):
 
 # 判定役の応答 1 本を {'verdict', 'reason'} に。⚠ 応答が無ければ None（判定なし）。
 #
-# 🔴 途中で切れた応答は unsure として数える（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
+# 🔴 判定役が壊れた回は verdict を 'broken' にする（#579）。本物の unsure に混ぜると、判定役への指示を直して
+# 一致率を比べるとき（#508）に、道具の失敗が「unsure が増えた」に見える。report と agree は別の列で数える。
+#
+# 🔴 途中で切れた応答も 1 本として残す（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
 # 終わると text が途中で切れた JSON になり、json.loads が落ちて報告がまるごと書けなかった。
 # ⚠ 課金済みの結果は残るので、失うのはその 1 本の判定だけにする。
 #
@@ -721,15 +733,15 @@ def parse_verdict(found):
     return None
   stop = found.get('stop_reason')
   if stop in ('max_tokens', 'refusal'):
-    return {'verdict': 'unsure', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
+    return {'verdict': 'broken', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
   if not found.get('text'):
     return None
   try:
     verdict = json.loads(found['text'])
   except json.JSONDecodeError:
-    return {'verdict': 'unsure', 'reason': f'（判定役の応答を JSON として読めない: stop_reason {stop}）'}
+    return {'verdict': 'broken', 'reason': f'（判定役の応答を JSON として読めない: stop_reason {stop}）'}
   if not isinstance(verdict, dict) or verdict.get('verdict') not in ('pass', 'fail', 'unsure'):
-    return {'verdict': 'unsure', 'reason': f'（判定役の応答に verdict が無い: stop_reason {stop}）'}
+    return {'verdict': 'broken', 'reason': f'（判定役の応答に verdict が無い: stop_reason {stop}）'}
   verdict.setdefault('reason', '')
   return verdict
 
