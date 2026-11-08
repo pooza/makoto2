@@ -274,6 +274,16 @@ def respond_params(model, system, case, reply_format='text'):
   }
 
 
+def failed(entry):
+  # 本番（Makoto::ChatModel）が黙る応答。🔴 判定に回さない — 本番が投稿しないものを採点しない
+  # （PR #588 の Codex の P2）。⚠ json の回は end_turn 以外（打ち切り）と読めない JSON も黙る。
+  if entry['type'] != 'succeeded' or entry.get('stop_reason') == 'refusal':
+    return True
+  if 'raw' in entry or entry.get('unreadable'):
+    return entry.get('unreadable', False) or entry.get('stop_reason') != 'end_turn'
+  return False
+
+
 def split_reply(entry):
   # json の回の応答を、返事の文と印に分ける。⚠ 判定役と報告は `text`（返事の文）を読む。
   raw = entry.get('text', '')
@@ -531,7 +541,7 @@ def cmd_judge(args):
       continue
     requests = []
     for key, entry in responses.items():
-      if entry['type'] != 'succeeded' or entry['stop_reason'] == 'refusal':
+      if failed(entry):
         continue
       case_id, _, _ = parse_custom_id(key)
       # 🔴 判定役には条件（モデル・台詞の件数）を見せない。
@@ -583,7 +593,7 @@ def cmd_report(args):
       str(sum(1 for k in keys if rows[k]['verdicts'].get(j, {}).get('verdict') == v)) for j in judges
     ) for v in ('pass', 'fail', 'unsure')}
     texts = [rows[k]['entry'].get('text', '') for k in keys]
-    broken = sum(1 for k in keys if rows[k]['entry']['type'] != 'succeeded' or rows[k]['entry'].get('stop_reason') == 'refusal')
+    broken = sum(1 for k in keys if failed(rows[k]['entry']))
     spent = sum(cost(MODELS[model_key], rows[k]['entry']['usage']) for k in keys if 'usage' in rows[k]['entry'])
     flagged = sum(1 for k in keys if rows[k]['flags'])
     avg = sum(len(t) for t in texts) / len(texts) if texts else 0
@@ -623,8 +633,8 @@ def cmd_report(args):
         text = f"（{entry['type']}: {entry.get('error', '')}）"
       elif entry['stop_reason'] == 'refusal':
         text = f"（拒否: {entry.get('refusal')}）"
-      elif entry.get('unreadable'):
-        text = f"（JSON として読めない）{entry['text']}"
+      elif failed(entry):
+        text = f"（本番では黙る: {entry.get('stop_reason')}・{'JSON として読めない' if entry.get('unreadable') else '打ち切り'}）"
       else:
         text = entry['text'] or '（返事をしない）'
         if entry.get('marks'):
