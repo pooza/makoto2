@@ -4833,6 +4833,7 @@ gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: fals
 | 🔴 **失敗したら黙る**（オーナー） | API の失敗・時間切れ・拒否・上限での打ち切り・読めない JSON は、どれも何も投稿しない（ログと Sentry に残す）。⚠ **空の返事は失敗ではない**（「返事をしない」を選んだ） |
 | ⚠ **費用の見積もりを直した** | 指示書が育ったので、**入力は 1 応答 約 5,750 トークン**（JSON の形で 約 580 増えた分を含む・2026-11-08 の `run.py estimate`）。**1 応答 約 $0.026**（上の表の 約 $0.015 は 2026-10-20 時点）。⚠ **全体の 1 日の上限 100 回で 1 日最大 約 $2.6** |
 | ⚠ **キー** | `config/local.yaml` の `/anthropic/api_key`（無ければチャットボットは応答しない・受信は続く）。⚠ ワークスペースに紐づいていないキーは `/anthropic/workspace_id` |
+| 🔴 **キーの期限は 2027-05-04**（2026-11-08 発行・6 か月・オーナー） | `makoto2-staging`（bydo）と `makoto2-production`（rubicon）の 2 本を同じ日に作り、2026-11-08 に両方の `local.yaml` へ入れた（rubicon は `1.0` を当てた日から使われる）。🔴 **Google カレンダーに 2027-04-20（2 週間前）と 2027-05-01（3 日前）の知らせを入れた。**⚠ 作り直したら、この行と知らせの日付を直す。⚠ 期限が切れても投稿は暴れない（黙る）が、気付けるように `makoto status` に出す（#18 の配線の PR） |
 
 - **試すのは `bin/makoto chat try TEXT [--thread FILE]`**（投稿しない・門も通らない・⚠ **課金あり**）
 - ⚠ **Ruby SDK の出力形式の属性名は `format_`**（`api_name: :format`）。⚠ ハッシュの `format:` が API の `format` に乗ることは、webmock で本文を見るテストで確かめてある（`test/chat_model.rb`）
