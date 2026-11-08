@@ -552,6 +552,11 @@ properties:
           max_retries:
             type: integer
             minimum: 0
+          cache_ttl:
+            type: string
+            enum:
+              - 5m
+              - 1h
           price:
             type: object
             properties:
@@ -559,15 +564,30 @@ properties:
                 type: number
               output:
                 type: number
+              cache_read:
+                type: number
+              cache_write:
+                type: object
+                properties:
+                  5m:
+                    type: number
+                  1h:
+                    type: number
+                required:
+                  - 5m
+                  - 1h
             required:
               - input
               - output
+              - cache_read
+              - cache_write
         required:
           - name
           - effort
           - max_tokens
           - timeout
           - max_retries
+          - cache_ttl
           - price
     required:
       - limit

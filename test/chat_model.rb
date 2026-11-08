@@ -19,7 +19,12 @@ module Makoto
         content: [{type: 'text', text: reply}],
         stop_reason: stop_reason,
         stop_sequence: nil,
-        usage: {input_tokens: 3500, output_tokens: 160},
+        usage: {
+          input_tokens: 300,
+          output_tokens: 160,
+          cache_read_input_tokens: 5700,
+          cache_creation_input_tokens: 0,
+        },
       }
       body[:stop_details] = stop_details if stop_details
       return body.to_json
@@ -37,7 +42,8 @@ module Makoto
       assert_equal('そういうお話には、乗れません。', reply.text)
       assert_equal(['provoke'], reply.marks)
       assert_false(reply.silent?)
-      assert_equal({input_tokens: 3500, output_tokens: 160, model: 'claude-opus-5-5'}, reply.usage)
+      assert_equal({input_tokens: 300, output_tokens: 160, cache_read: 5700, cache_write: 0,
+        model: 'claude-opus-5-5'}, reply.usage)
     end
 
     # 🔴 **送る形を本物の SDK で確かめる**（Ruby の属性名は `format_` なので、ハッシュの `format:` が
@@ -59,6 +65,10 @@ module Makoto
         assert_match(/`impersonate`/, body['system'][1]['text'])
         # ⚠ 書き手向けの注記（HTML のコメント）は渡さない。
         assert_no_match(/<!--/, body['system'].map {|block| block['text']}.join)
+        # 🔴 **キャッシュの印は最後の指示書の塊だけ**（会話には付けない・2026-11-08 オーナー）。
+        assert_nil(body['system'][0]['cache_control'])
+        assert_equal({'type' => 'ephemeral', 'ttl' => '5m'}, body['system'][1]['cache_control'])
+        assert_false(body.key?('cache_control'))
         assert_equal([{'role' => 'user', 'content' => 'おはよう！'}], body['messages'])
         assert_false(body.key?('fallbacks'))
         true
@@ -151,6 +161,23 @@ module Makoto
 
     def test_cost
       assert_in_delta(0.0172, @model.cost({input_tokens: 3500, output_tokens: 160}), 0.00001)
+    end
+
+    # ⚠ キャッシュから読んだ分・書いた分は別の単価（書き込みは TTL で違う）。
+    def test_cost_with_the_cache
+      usage = {input_tokens: 300, output_tokens: 60, cache_read: 5700}
+
+      assert_in_delta(0.00354, @model.cost(usage), 0.00001)
+      assert_in_delta(0.0309, @model.cost(usage.merge(cache_read: 0, cache_write: 5700)), 0.00001)
+      config['/chat/model/cache_ttl'] = '1h'
+
+      assert_in_delta(0.048, @model.cost(usage.merge(cache_read: 0, cache_write: 5700)), 0.00001)
+    end
+
+    def test_a_bad_cache_ttl_is_a_config_error
+      config['/chat/model/cache_ttl'] = '10m'
+
+      assert_raises(Ginseng::ConfigError) {@model.system_blocks}
     end
   end
 end
