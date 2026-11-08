@@ -113,6 +113,9 @@ module Makoto
       # 🔴 **メンションの受信の痕跡**（#29 → `HeartbeatStream`）。
       include HeartbeatStream
 
+      # 🔴 **チャットボットの API キーが通らないことの痕跡**（#18 → `HeartbeatChat`）。
+      include HeartbeatChat
+
       # ⚠ **テストは別のファイルに落とす。**`Environment.db` と同じ理由で、稼働中の
       # 痕跡をテストが書き換えると `makoto status` が嘘をつく。
       def path

@@ -94,6 +94,8 @@ module Makoto
       verify_max_length
       # 🔴 **メンションの受信は別スレッド**（#29）。⚠⚠ **`Scheduler#exec` は戻らない**ので、その前に。
       # ⚠ **繋がらなくても常駐は止めない**（→ `MentionListener`）。
+      # 🔴 **返事は受信とは別のスレッド**（#18 → `ChatResponder`）。⚠ キーが無い・切ってあるなら起こさない。
+      chat_responder&.start
       mention_listener.start
       Scheduler.instance.exec
     rescue => e
@@ -111,6 +113,7 @@ module Makoto
       monitor_server.stop
       # ⚠ **受信のスレッドも畳む**（#29・孤児を残さない）。
       mention_listener.stop
+      chat_responder&.stop
       Scheduler.instance.shutdown
     end
 
@@ -120,8 +123,15 @@ module Makoto
     end
 
     def mention_listener
-      @mention_listener ||= MentionListener.new
+      @mention_listener ||= MentionListener.new(handler: chat_responder)
       return @mention_listener
+    end
+
+    # ⚠ **返事をしないなら nil**（受信はログに出すだけ・#29 の形）。
+    def chat_responder
+      return nil unless ChatResponder.enabled?
+      @chat_responder ||= ChatResponder.new
+      return @chat_responder
     end
 
     # 常駐が回す投稿を並べる。

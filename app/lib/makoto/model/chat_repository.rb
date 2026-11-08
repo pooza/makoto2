@@ -50,6 +50,21 @@ module Makoto
       return penalties.where(account_id: account_id.to_s).delete
     end
 
+    def threads
+      return @db[:chat_thread]
+    end
+
+    # その会話にはもう返事をしない（#18）。⚠ **先に閉じた理由を上書きしない。**
+    def close_thread(root_id, account_id, reason, at = Time.now)
+      return nil if closed_thread?(root_id)
+      return threads.insert(root_id: root_id.to_s, account_id: account_id.to_s, reason: reason.to_s,
+        closed_at: local(at))
+    end
+
+    def closed_thread?(root_id)
+      return !threads.where(root_id: root_id.to_s).empty?
+    end
+
     def find_penalty_by_acct(acct)
       return penalties.where(acct: acct.to_s.delete_prefix('@')).first
     end

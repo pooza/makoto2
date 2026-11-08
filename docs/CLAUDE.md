@@ -304,7 +304,7 @@ map $http_x_mulukhiya $mulukhiya_backend {
   - ⚠ `write:follows`（フォローを外す）が要るのは、外すのを自動にする日だけ（それまではオーナーに知らせるだけ）
   - ✅ **2026-11-08 にトークンを作り直す側へ決めた**（#18 で返信の祖先を引く `read:statuses` が要るため・オーナー）。スコープは `read:accounts read:notifications read:statuses read:follows write:statuses write:media write:follows` の 7 つ。🔴 **ステージング（dev25 → bydo）は 2026-11-08 に差し替え済み**・⚠ **本番（gomander → rubicon）は `1.0` のリリース直前に作り直す**（記録は chubo2 の infra-servers / infra-history）。⚠ `read:follows` が入ったので、門を `relationships` に戻すかは別に決める
 - ⚠ **フォロワーの一覧が一度も引けていなければ黙る**（「フォロワーでない」に倒すと、Mastodon の不調のたびにフォロワーへ「フォローしてくれたら」を返す）
-- ⚠ **決まった文の正本は makoto-scripts**（オーナーのレビュー）。🔴 **投稿する配線は #18 と一緒に入れる** — 先に入れると、フォロワーには何も返さないのに、フォロワー以外にだけ返す形になる
+- ⚠ **決まった文の正本は makoto-scripts の `chat.yaml`**（オーナーのレビュー・type は `chat_ask_follow` / `chat_limit_notice` / `chat_owner_notice`）。🔴 **投稿する配線は #18 と一緒に入れた**（2026-11-08・`ChatResponder`）。⚠ **原稿が無ければ決まった文は黙る**（オーナーへの DM だけは、原稿が無くても平文で送る）
 
 ### プロセスの寿命を設計に含める
 
@@ -4835,6 +4835,13 @@ gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: fals
 | ⚠ **キー** | `config/local.yaml` の `/anthropic/api_key`（無ければチャットボットは応答しない・受信は続く）。⚠ ワークスペースに紐づいていないキーは `/anthropic/workspace_id` |
 | 🔴 **キーの期限は 2027-05-04**（2026-11-08 発行・6 か月・オーナー） | `makoto2-staging`（bydo）と `makoto2-production`（rubicon）の 2 本を同じ日に作り、2026-11-08 に両方の `local.yaml` へ入れた（rubicon は `1.0` を当てた日から使われる）。🔴 **Google カレンダーに 2027-04-20（2 週間前）と 2027-05-01（3 日前）の知らせを入れた。**⚠ 作り直したら、この行と知らせの日付を直す。⚠ 期限が切れても投稿は暴れない（黙る）が、気付けるように `makoto status` に出す（#18 の配線の PR） |
 
+- 🔴 **返事をする配線は `Makoto::ChatResponder`**（受信の口の `handler`・2026-11-08）。門 → 前のやりとり（`ChatThread`・祖先は新しい側から `/chat/thread/max_statuses` 件）→ 打ち切った会話なら黙る → LLM → 印 → 投稿
+  - 🔴 **公開の投稿には未収載で返す**（未収載・フォロワー限定・DM はそのまま）。⚠ 同じ通知には 2 度返さない（`Idempotency-Key` ＝ 投稿の ID）
+  - 🔴 **印の扱い**: `provoke` は印（返事はする）／`backstage` はそのスレッドを打ち切り、⚠ **`/chat/backstage/window`（30 日）の中の 2 回目から印**／`impersonate` は打ち切り・印（返事は空）。印が付いたらペナルティ（`/chat/penalty`）とオーナー（`/chat/owner`）への DM
+  - ⚠ **LLM を呼んだぶんは回数に数える**（空の返事も）。失敗は数えない
+  - ⚠ **LLM は数秒かかる**ので、受信のスレッドでは待たない（別のスレッド `makoto-chat` で 1 本ずつ・溜まるのは 50 通まで）
+  - 🔴 **止め方は `/chat/enabled: false` ＋ 再起動**（受信は続く）。⚠ キーが無ければ `true` でも返さず、`makoto status` が警告する。⚠ **キーが通らなくなったら（401 / 403）`warning: chat API key was rejected at …`** — ⚠ 再起動では直らないので `errors` ではなく `warnings`（Sentry の警告と同じ理由）。次に 1 回通れば消える
+- 🔴 **`1.0` のリリースの前にやること**（チャットボットを本番で始める日）: ① 本番のトークンを 7 スコープで作り直す（→ 上の「フォロワーかは」の節）② プロフィールに「お返事は AI が作っています」を足す（#18・2026-10-20）③ makoto-scripts の `chat.yaml` を本番に入れる（レシピの `message import`）④ ステージングで本物のメンションに返事が付くのを見る
 - **試すのは `bin/makoto chat try TEXT [--thread FILE]`**（投稿しない・門も通らない・⚠ **課金あり**）
 - ⚠ **Ruby SDK の出力形式の属性名は `format_`**（`api_name: :format`）。⚠ ハッシュの `format:` が API の `format` に乗ることは、webmock で本文を見るテストで確かめてある（`test/chat_model.rb`）
 
