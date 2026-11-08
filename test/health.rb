@@ -157,6 +157,31 @@ module Makoto
       assert_empty(health(pid: Process.pid).stream_warnings)
     end
 
+    # 🔴 **キーが通らなくなったら言う**（#18）。⚠ 次に 1 回通れば消える。⚠ 返事を切っていれば言わない。
+    def test_a_rejected_chat_key_is_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = 'sk-ant-test'
+      beat
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+      Heartbeat.record_chat_auth_failure(now: now)
+
+      assert_match(/\Achat API key was rejected at /, health(pid: Process.pid).chat_warnings.first)
+      Heartbeat.clear_chat_auth_failure
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
+    def test_chat_without_a_key_is_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = ''
+
+      assert_equal(['chat is enabled but there is no API key'], health(pid: Process.pid).chat_warnings)
+      config['/chat/enabled'] = false
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
     def test_healthy
       beat
 
@@ -609,6 +634,7 @@ module Makoto
     def with_config_errors(found)
       config.define_singleton_method(:errors) {found}
       config.reload
+      quiet_chat
       return yield
     ensure
       config.singleton_class.remove_method(:errors)

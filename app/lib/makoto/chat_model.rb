@@ -62,7 +62,15 @@ module Makoto
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
       response = client.messages.create(**params(messages), request_options: request_options)
+      Heartbeat.clear_chat_auth_failure
       return parse(response)
+    rescue Anthropic::Errors::AuthenticationError, Anthropic::Errors::PermissionDeniedError => e
+      # 🔴 **キーの期限切れ・取り消し**（→ `HeartbeatChat`）。⚠ 再試行しても直らないので、痕跡に残して黙る。
+      Heartbeat.record_chat_auth_failure
+      logger.error(chat: 'model', message: 'api key is not valid', status: e.status,
+        error_class: e.class.name)
+      report_error(e, chat: 'model')
+      return nil
     rescue Anthropic::Errors::APIError => e
       logger.error(chat: 'model', message: 'request failed', error_class: e.class.name,
         status: e.respond_to?(:status) ? e.status : nil, error: e)

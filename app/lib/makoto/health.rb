@@ -213,6 +213,7 @@ module Makoto
       results.push(*posting_warnings) if alive?
       results.push(*sentry_warnings) if alive?
       results.push(*stream_warnings) if alive?
+      results.push(*chat_warnings) if alive?
       results.push(*orphan_warnings)
       return results
     end
@@ -229,6 +230,19 @@ module Makoto
       return [] unless MentionListener.enabled? && own_heartbeat?
       return [] unless Heartbeat.stream_stale?(now)
       return ["mention stream is stale (limit #{Heartbeat.stream_limit.round}s)"]
+    end
+
+    # 🔴 **チャットボットが返事を作れない状態**（#18）。⚠⚠ **チャットボットは失敗したら黙る**ので、
+    # ここが言わないと、キーの期限切れが外から何も起きていないように見える（2026-11-08・オーナー）。
+    #
+    # ⚠ **`errors` には置かない** — 再起動してもキーは直らない（→ `sentry_warnings` と同じ理由）。
+    # ⚠ **起動の前に書かれたものも言う** — 再起動してもキーは直らない。⚠ 消えるのは次に 1 回通ったとき。
+    def chat_warnings
+      return [] unless ChatResponder.configured?
+      return ['chat is enabled but there is no API key'] unless ChatModel.enabled?
+      failed_at = Heartbeat.chat_auth_failed_at
+      return [] unless failed_at
+      return ["chat API key was rejected at #{failed_at.getlocal.iso8601}"]
     end
 
     # 最後にメンションの受信で何かが届いた時刻（#29）。⚠ **一度も無ければ nil。**

@@ -6,6 +6,33 @@ module Makoto
       @url = "#{config['/mastodon/url']}/api/v1/statuses"
     end
 
+    # 返信の祖先（#18）。⚠ トークンを付けて直で聞く。
+    def test_status_ancestors
+      url = "#{config['/mastodon/url']}/api/v1/statuses/9/context"
+      body = {ancestors: [{id: '1'}, {id: '2'}], descendants: []}.to_json
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: body)
+
+      assert_equal(['1', '2'], @service.status_ancestors('9').map {|status| status['id']})
+      assert_requested(:get, url, headers: {'X-Mulukhiya' => Package.full_name})
+    end
+
+    def test_status_ancestors_raises_on_a_bad_shape
+      url = "#{config['/mastodon/url']}/api/v1/statuses/9/context"
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '[]')
+
+      assert_raise(Ginseng::GatewayError) {@service.status_ancestors('9')}
+    end
+
+    def test_post_status_in_reply_to
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {
+          id: '2', url: "#{config['/mastodon/url']}/@test/2", visibility: 'unlisted'
+        }.to_json)
+      @service.post_status('@user1 はい', visibility: 'unlisted', in_reply_to_id: '9')
+
+      assert_requested(:post, @url) {|request| JSON.parse(request.body)['in_reply_to_id'] == '9'}
+    end
+
     def test_post_status
       stub_request(:post, @url)
         .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {

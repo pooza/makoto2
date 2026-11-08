@@ -512,6 +512,26 @@ properties:
         minItems: 1
         items:
           type: string
+      enabled:
+        type: boolean
+      owner:
+        type: string
+        minLength: 1
+      thread:
+        type: object
+        properties:
+          max_statuses:
+            type: integer
+            minimum: 0
+        required:
+          - max_statuses
+      grace:
+        type: object
+        properties:
+          window:
+            type: string
+        required:
+          - window
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object
@@ -554,6 +574,10 @@ properties:
       - followers
       - penalty
       - model
+      - enabled
+      - owner
+      - thread
+      - grace
   # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
   # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。
   anthropic:

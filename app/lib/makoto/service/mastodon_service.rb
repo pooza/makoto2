@@ -140,6 +140,24 @@ module Makoto
       raise classify(e)
     end
 
+    # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
+    #
+    # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の
+    # 投稿は引けるが、フォロワー限定と DM の会話が見えない。⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
+    def status_ancestors(id)
+      path = "/api/v1/statuses/#{URI.encode_www_form_component(id.to_s)}/context"
+      response = http.get(path, {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Hash) && body['ancestors'].is_a?(Array)
+      return body['ancestors']
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
     # メンションを受ける SSE の口（#29）。⚠ **トークンは載せない**（→ `streaming_headers`）。
     #
     # 🔴 **ホストは投稿先が申告する `urls.streaming_api` から引く** — ⚠ **Streaming API は
@@ -170,9 +188,12 @@ module Makoto
     # `idempotency_key` は再送で使い回すもの。既定では 1 回の呼び出しにつき 1 つ作る。
     # 呼び出し側が「同じ予定の投稿」を識別できるなら（スケジューラの再実行など）、
     # その識別子を渡せばプロセスをまたいだ重複も畳める。
-    def post_status(text, visibility: nil, idempotency_key: SecureRandom.uuid)
+    #
+    # ⚠ `in_reply_to_id` はチャットボットの返事（#18）。
+    def post_status(text, visibility: nil, in_reply_to_id: nil, idempotency_key: SecureRandom.uuid)
       body = {status: text.to_s}
       body[:visibility] = visibility.to_s if visibility
+      body[:in_reply_to_id] = in_reply_to_id.to_s if in_reply_to_id
       response = post(body, {headers: {'Idempotency-Key' => idempotency_key}})
       status = validate_status(response)
       logger.info(

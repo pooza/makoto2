@@ -115,6 +115,25 @@ module Makoto
       assert_nil(ChatModel.new.respond(MESSAGES))
     end
 
+    # 🔴 **キーが通らなくなったら痕跡に残す**（→ `Health#chat_warnings`）。⚠ 次に通れば消える。
+    def test_a_rejected_key_is_recorded_and_cleared
+      FileUtils.rm_f(Heartbeat.path)
+      body = {type: 'error', error: {type: 'authentication_error', message: 'invalid x-api-key'}}.to_json
+      headers = {'Content-Type' => 'application/json'}
+      stub_request(:post, URL).to_return(status: 401, body: body, headers: headers)
+
+      assert_nil(@model.respond(MESSAGES))
+      assert_not_nil(Heartbeat.chat_auth_failed_at)
+
+      WebMock.reset!
+      stub_model
+      @model.respond(MESSAGES)
+
+      assert_nil(Heartbeat.chat_auth_failed_at)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
     # 🔴 **ワークスペースに紐づいていないキーは、ヘッダーで名指しする**。
     def test_the_workspace_is_named_when_configured
       config['/anthropic/workspace_id'] = 'wrkspc_test'
