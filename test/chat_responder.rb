@@ -218,6 +218,7 @@ module Makoto
     end
 
     def test_it_is_enabled_only_with_a_key
+      config['/chat/enabled'] = true
       config['/anthropic/api_key'] = ''
 
       assert_false(ChatResponder.enabled?)

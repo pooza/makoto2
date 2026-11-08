@@ -634,6 +634,7 @@ module Makoto
     def with_config_errors(found)
       config.define_singleton_method(:errors) {found}
       config.reload
+      quiet_chat
       return yield
     ensure
       config.singleton_class.remove_method(:errors)
