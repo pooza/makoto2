@@ -26,8 +26,16 @@ case "${1:-}" in
       echo "🔴 出発時刻の形が違う（'$start'・例 '2027-11-04 11:58:00 +0900'）"
       exit 1
     fi
-    if ! [[ "$scale" =~ ^[0-9]+$ ]]; then
-      echo "🔴 倍率は整数で（'$scale'）"
+    # 🔴 上限は常駐と同じ `TimeTravel::MAX_SCALE` から引く（#580）。⚠⚠ 範囲の外を drop-in に書くと、
+    # 常駐は `ConfigError` で起動に落ち、`Restart=always` のもとで落ち続ける。⚠ 数字をここに
+    # 二重に書かない（上限は実測から引き直すもので、片方だけ動く）。
+    max=$(sed -n 's/^ *MAX_SCALE = \([0-9][0-9]*\)$/\1/p' "$(dirname "$0")/../../../../app/lib/makoto/time_travel.rb")
+    if [ -z "$max" ]; then
+      echo "🔴 MAX_SCALE が読めない（time_travel.rb の形が変わった）"
+      exit 1
+    fi
+    if ! [[ "$scale" =~ ^[1-9][0-9]*$ ]] || [ "$scale" -gt "$max" ]; then
+      echo "🔴 倍率は 1〜$max の整数で（'$scale'・上限は実測から引いた値 → TimeTravel::MAX_SCALE）"
       exit 1
     fi
     printf '[Service]\nEnvironment="MAKOTO_FAKE_TIME=%s"\nEnvironment=MAKOTO_TIME_SCALE=%s\n' "$start" "$scale" |
@@ -37,6 +45,12 @@ case "${1:-}" in
     ;;
   report)
     since=${2:?開始の時刻を指定する}
+    # 🔴 arm と同じ強さで形を検査する（#580）。⚠ リモートのシェル文字列に埋め込むので、`'` を
+    # 含む値を通すと bydo 上でコマンドが走る。日付と時:分（秒は省ける）だけを通す。
+    if ! [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\ [0-9]{2}:[0-9]{2}(:[0-9]{2})?)?$ ]]; then
+      echo "🔴 開始の時刻の形が違う（'$since'・例 '2026-11-05 10:00'）"
+      exit 1
+    fi
     ssh "$host" "sudo journalctl _SYSTEMD_UNIT=makoto2.service SYSLOG_IDENTIFIER=makoto2 --since '$since' -o cat --no-pager |
       sudo -u deploy -i bash -c 'cd ~/repos/makoto2 && bin/makoto rehearsal report'"
     ;;

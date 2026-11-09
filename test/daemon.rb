@@ -706,6 +706,26 @@ module Makoto
       assert_equal('Errno::EISDIR: Is a directory - x', @daemon.describe_rejection(Errno::EISDIR.new('x')))
     end
 
+    # ⚠ **`config:lint` の行は名前で始める。名前で始まる文には二重に付けない**（#561・#580）。
+    def test_lint_rejection
+      assert_equal('song: broken', @daemon.lint_rejection('song', Ginseng::ConfigError.new('song: broken')))
+      scheduler = Ginseng::ConfigError.new('scheduler: song (12:00) must avoid the commentary window (x)')
+
+      assert_equal(scheduler.message, @daemon.lint_rejection('song', scheduler))
+      commentary = Ginseng::ConfigError.new('commentary: nichiasa: finish must be after start')
+
+      assert_equal(
+        'song: commentary: nichiasa: finish must be after start',
+        @daemon.lint_rejection('song', commentary),
+      )
+      # ⚠ 前方が一致するだけの別の名前（`live` と `live-open`）には付ける。
+      assert_equal(
+        'live: live-open: broken',
+        @daemon.lint_rejection('live', Ginseng::ConfigError.new('live-open: broken')),
+      )
+      assert_equal('song: Errno::EISDIR: Is a directory - x', @daemon.lint_rejection('song', Errno::EISDIR.new('x')))
+    end
+
     # 🔴 **見送りの理由は `/healthz` の本文に出るので、ログと同じマスクを通す**（#423）。
     def test_describe_rejection_masks_urls
       error = RuntimeError.new('GET https://x.example/?access_token=SECRET')

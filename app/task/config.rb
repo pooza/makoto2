@@ -39,13 +39,8 @@ module Makoto
       if rejected.empty?
         puts "jobs: OK (#{jobs.size})"
       else
-        # ⚠ **投稿の名前で始まらない文には名前を付ける**（#561）。⚠⚠ **強い窓そのものが壊れていると、
-        # 全部の投稿が `commentary: <窓>: ...` の同じ文で落ち、どの投稿の行かが読めなかった。**
-        rejected.each do |name, e|
-          message = daemon.describe_rejection(e)
-          named = message.start_with?("#{name}:", "scheduler: #{name} ")
-          puts "jobs: #{named ? message : "#{name}: #{message}"}"
-        end
+        # ⚠ 名前の付け方は `MakotoDaemon#lint_rejection`（#561・テストは #580）。
+        rejected.each {|name, e| puts "jobs: #{daemon.lint_rejection(name, e)}"}
         exit 1
       end
     end
