@@ -51,6 +51,13 @@ module Makoto
       return merge(lead(statuses))
     end
 
+    # 🔴 **返事の本文の `@` をメンションにしない**（v1.0.0 のリリース前レビューの赤）。
+    # ⚠⚠ LLM が「@xxx さんによろしく」と頼まれたり、指示を差し込まれたりして第三者の `@` を書くと、その相手に
+    # 通知が届く（DM の会話なら DM として届く）。全角の `＠` に置き換える（読めるがメンションにならない）。
+    def self.unmention(text)
+      return text.to_s.gsub(/@(?=[[:word:]])/, '＠')
+    end
+
     def self.text_of(status)
       html = status['content'].to_s
       html = html.gsub(%r{<br\s*/?>}i, "\n").gsub(%r{</p>\s*<p[^>]*>}i, "\n\n")

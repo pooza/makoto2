@@ -112,13 +112,23 @@ module Makoto
       assert_equal(1, @service.posts.size)
     end
 
-    # 🔴 **失敗したら黙る**（何も投稿しない・数えない）。
-    def test_a_model_failure_is_silence
+    # 🔴 **失敗したら黙る**（何も投稿しない）。🔴 **ただし数える**（拒否・打ち切りも費用がかかる・
+    # v1.0.0 のリリース前レビュー）。
+    def test_a_model_failure_is_silence_but_counts
       @model.reply = nil
 
       assert_equal(:model_failed, responder.handle(notification))
       assert_empty(@service.posts)
-      assert_equal(0, @repository.count(:respond, Time.now - 60))
+      assert_equal(1, @repository.count(:respond, Time.now - 60))
+    end
+
+    # 🔴 **返事の中の第三者の `@` をメンションにしない**（v1.0.0 のリリース前レビューの赤）。
+    def test_mentions_in_a_reply_are_neutralized
+      @model.reply = reply('@someone さんにも、よろしく伝えてね。@foo@example.com にも。')
+      responder.handle(notification)
+
+      assert_equal(['@user1 ＠someone さんにも、よろしく伝えてね。＠foo＠example.com にも。'],
+        @service.posts.map {|post| post[:text]})
     end
 
     # ⚠ 空の返事は投稿しないが、LLM を呼んだぶんは数える。
@@ -192,9 +202,15 @@ module Makoto
       subject = responder
 
       assert_equal(:respond, subject.handle(notification(id: '9')))
-      assert_true(@repository.closed_thread?('9'))
+      assert_true(@repository.closed_thread?('9', '1'))
       assert_nil(@repository.penalty('1'))
       assert_equal(:closed_thread, subject.handle(notification(id: '10', reply_to: '9')))
+      # 🔴 **打ち切るのはその相手との会話だけ**（同じ投稿に返信した別の人には返す・リリース前レビューの赤）。
+      @followers.push('2')
+      @model.reply = reply('はい、届いています。')
+
+      assert_equal(:respond, subject.handle(notification(id: '12', account_id: '2', reply_to: '9')))
+      @model.reply = reply('このアカウントの真琴は、AI が演じています。', ['backstage'])
 
       assert_equal(:respond, subject.handle(notification(id: '11')))
       assert_equal(1, @repository.penalty('1')[:marks])
@@ -222,7 +238,7 @@ module Makoto
       assert_equal(['@pooza user1 さんが繰り返し言わせようとしたみたい。1 回目です。https://st2.precure.ml/@user1/10',
         '@user1 そういうのは、ちょっと。'], texts)
       assert_true(@gate.penalized?('1'))
-      assert_false(@repository.closed_thread?('9'))
+      assert_false(@repository.closed_thread?('9', '1'))
     end
 
     # ⚠ **猶予は種類ごと**（舞台裏の 1 回目のあとの、言わせようとした 1 回目は印にしない）。
@@ -241,7 +257,7 @@ module Makoto
       @model.reply = reply('', ['impersonate'])
 
       assert_equal(:no_reply, responder.handle(notification))
-      assert_true(@repository.closed_thread?('9'))
+      assert_true(@repository.closed_thread?('9', '1'))
       assert_equal(1, @repository.penalty('1')[:marks])
       assert_equal(['direct'], @service.posts.map {|post| post[:visibility]})
     end

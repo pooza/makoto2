@@ -25,6 +25,7 @@ module Makoto
       @ids = nil
       @loaded_at = nil
       @mutex = Mutex.new
+      @refreshing = Mutex.new
     end
 
     def self.instance
@@ -40,8 +41,15 @@ module Makoto
     end
 
     # フォローの通知を受けた。⚠ **まだ一度も引けていなければ何もしない**（引けたときに入っている）。
+    #
+    # 🔴 **引き直しの最中に足したぶんも残す**（v1.0.0 のリリース前レビュー）。⚠⚠ 引き直しは引き終えた一覧で
+    # 丸ごと差し替えるので、引いている数秒のうちに来たフォローが消え、フォローしたばかりの人に
+    # 「フォローしてね」を返していた。
     def add(account_id)
-      @mutex.synchronize {@ids&.add(account_id.to_s)}
+      @mutex.synchronize do
+        @ids&.add(account_id.to_s)
+        @fetching&.add(account_id.to_s)
+      end
     end
 
     def size
@@ -53,20 +61,11 @@ module Makoto
       return @mutex.synchronize {@ids&.dup}
     end
 
+    # ⚠ **引き直しは 1 本ずつ**（PR #618 の Codex の P2）。⚠⚠ 返事のスレッド（`include?`）と突き合わせのスレッド
+    # （`FollowSync#sync`）が重なると、引き直しの最中に足したぶん（`@fetching`）を互いに上書き・消去する。
+    # ⚠ 一覧を引く間は `@mutex` を掴まない（`include?` / `add` を待たせない）。
     def refresh
-      ids = @fetcher.call.to_set(&:to_s)
-      @mutex.synchronize do
-        @ids = ids
-        @loaded_at = @clock.call
-      end
-      logger.info(chat: 'followers', count: ids.size)
-      return ids.size
-    rescue => e
-      # ⚠ 前の一覧があれば使い続ける。⚠⚠ **無ければ `include?` が例外にする**（→ クラスの冒頭）。
-      logger.warn(chat: 'followers', message: 'could not refresh', error_class: e.class.name,
-        error: e)
-      @mutex.synchronize {@loaded_at = @clock.call if @ids}
-      return nil
+      return @refreshing.synchronize {refresh_once}
     end
 
     def stale?
@@ -76,6 +75,27 @@ module Makoto
     end
 
     private
+
+    def refresh_once
+      @mutex.synchronize {@fetching = Set.new}
+      ids = @fetcher.call.to_set(&:to_s)
+      @mutex.synchronize do
+        @ids = ids | @fetching
+        @fetching = nil
+        @loaded_at = @clock.call
+      end
+      logger.info(chat: 'followers', count: ids.size)
+      return ids.size
+    rescue => e
+      # ⚠ 前の一覧があれば使い続ける。⚠⚠ **無ければ `include?` が例外にする**（→ クラスの冒頭）。
+      logger.warn(chat: 'followers', message: 'could not refresh', error_class: e.class.name,
+        error: e)
+      @mutex.synchronize do
+        @fetching = nil
+        @loaded_at = @clock.call if @ids
+      end
+      return nil
+    end
 
     def interval
       seconds = Fugit::Duration.parse(config['/chat/followers/refresh'].to_s)&.to_sec

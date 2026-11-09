@@ -1,8 +1,10 @@
 module Makoto
   # 足した設定の台帳（#526）を、チャットボットの指示書の 1 塊にする。
   #
-  # 🔴 **台帳の正本は makoto-scripts の `ledger.md`**（private）。⚠⚠ **投稿前の原稿から拾った設定は
-  # ネタバレになる**ので、public の makoto2 には置かない。実機では makoto-scripts のチェックアウトから読む。
+  # 🔴 **台帳の正本は makoto-scripts の `ledger.md`**（private）。⚠ 原稿の中身から拾った一覧なので、
+  # 原稿と同じ側（private）に置く。実機では makoto-scripts のチェックアウトから読む。
+  # ⚠ **まだ投稿していない原稿の設定も、チャットで答えてよい**（暮らしの話だけで、筋や発表前の情報は
+  # 入っていない・v1.0.0 のリリース前レビュー・2026-11-09 オーナー）。
   #
   # 🔴 **本人の記憶として渡す**（2026-11-09・オーナー）。⚠ 台帳は作品の外の見方（出どころ・根拠の slug）を
   # 持つが、渡すのは「中身」の列だけ。⚠ 「決まり」と「載せないと決めたもの」の節は渡さない。
@@ -27,12 +29,17 @@ module Makoto
       @path = path
     end
 
+    # ⚠ **設定は任意**（`optional_config`）。キーが無ければ nil で、台帳は渡さない。
     def path
-      @path ||= File.expand_path(config['/chat/ledger/path'].to_s, Environment.dir)
+      return @path if @path
+      value = optional_config('/chat/ledger/path')
+      return nil if value.to_s.empty?
+      @path = File.expand_path(value.to_s, Environment.dir)
       return @path
     end
 
     def exist?
+      return false unless path
       return File.file?(path)
     end
 

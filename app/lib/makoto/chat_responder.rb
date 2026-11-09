@@ -140,13 +140,16 @@ module Makoto
 
     def respond(account, status, decision, notification, received_at)
       thread = ChatThread.new(status, ancestors(status), own_id: own_id)
-      return done(:closed_thread, notification) if repository.closed_thread?(thread.root_id)
+      closed = repository.closed_thread?(thread.root_id, account['id'])
+      return done(:closed_thread, notification) if closed
       messages = thread.messages
       return done(:empty, notification) if messages.empty?
       reply = model.respond(messages)
-      return done(:model_failed, notification) unless reply
       # ⚠ **LLM を呼んだぶんは数える**（黙ると決めた返事も・費用がかかったので）。
+      # 🔴 **失敗も数える**（v1.0.0 のリリース前レビュー）。⚠⚠ 拒否・上限での打ち切り・読めない JSON も
+      # 費用はかかる。数えないと、拒否を引き出す文の繰り返しが回数の上限をすり抜ける。
       gate.record(account, decision)
+      return done(:model_failed, notification) unless reply
       handle_marks(account, status, thread, reply.marks)
       return done(:no_reply, notification, marks: reply.marks) if reply.silent?
       return done(:late_in_window, notification, marks: reply.marks) if gate.late?(received_at)
@@ -213,9 +216,10 @@ module Makoto
       end
     end
 
+    # 🔴 **本文の `@` はメンションにしない**（→ `ChatThread.unmention`）。⚠ 宛先の `@相手` だけをここで付ける。
     def post_reply(account, status, text)
       service.post_status(
-        "@#{account['acct']} #{text}",
+        "@#{account['acct']} #{ChatThread.unmention(text)}",
         visibility: reply_visibility(status),
         in_reply_to_id: status['id'],
         # ⚠ **同じ通知に 2 度返さない**（繋ぎ直しで同じ通知が届いても畳まれる）。

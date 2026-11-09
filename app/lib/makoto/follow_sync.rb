@@ -26,6 +26,7 @@ module Makoto
       @repository = repository
       @sleeper = sleeper || ->(seconds) {sleep(seconds)}
       @requested = Set.new
+      @mutex = Mutex.new
       @stopping = false
     end
 
@@ -89,14 +90,19 @@ module Makoto
 
     # 一覧を突き合わせる。⚠ **例外を上げない**（引けなければ何もしない・次の回にまた見る）。
     # @return [Hash, nil] 返した・外した ID。⚠ 引けなかったなら nil
+    #
+    # 🔴 **1 人の失敗で、その回を止めない**（v1.0.0 のリリース前レビューの赤）。⚠⚠ Mastodon は引っ越した相手・
+    # ブロック関係の相手に 403、凍結された相手に 404 を返す。一覧は毎回同じ順なので、1 人で止めると、
+    # その後ろの全員にずっと返せない。⚠ 失敗した相手は ID をログに出し、次の回にまた試す。
+    # ⚠ Sentry には送らない（恒久的に断られる相手がいると毎時鳴る）。
     def sync
       return nil unless roster.refresh
-      to_follow, to_unfollow = plan(roster.ids, service.following_ids.to_set(&:to_s))
+      following = service.following_ids.to_set(&:to_s)
+      # ⚠ **フォロワーの写しは、フォロー中の一覧を引いた後に取る**（リリース前レビュー）。先に取ると、
+      # その間に来たフォローを返した相手が「フォロー中なのにフォロワーでない」になり、すぐ外してしまう。
+      to_follow, to_unfollow = plan(roster.ids, following)
       to_unfollow = over_limit(to_unfollow) if to_unfollow.size > unfollow_limit
-      to_unfollow.each {|id| unfollow(id)}
-      to_follow.each {|id| follow(id)}
-      logger.info(follow: 'sync', followed: to_follow.size, unfollowed: to_unfollow.size)
-      return {followed: to_follow.to_a, unfollowed: to_unfollow.to_a}
+      return apply(to_follow, to_unfollow)
     rescue => e
       logger.warn(follow: 'sync', message: 'could not sync', error_class: e.class.name, error: e)
       return nil
@@ -109,19 +115,40 @@ module Makoto
       wanted = followers.reject {|id| stopped?(id)}.to_set
       # ⚠ **承認待ちも外す側に含める**（PR #608 の Codex の P2）。外す（`unfollow`）と承認待ちも取り消される。
       # 外しそびれると、対象でなくなった相手が後から承認して、次の突き合わせまでフォローが付く。
-      @requested.subtract(following)
-      return wanted - following - @requested, (following | @requested) - wanted
+      requested = @mutex.synchronize {@requested.subtract(following).dup}
+      return wanted - following - requested, (following | requested) - wanted
+    end
+
+    def apply(to_follow, to_unfollow)
+      unfollowed = to_unfollow.select {|id| attempt(:unfollow, id)}
+      followed = to_follow.select {|id| attempt(:follow, id)}
+      failed = (to_follow.size + to_unfollow.size) - (followed.size + unfollowed.size)
+      logger.info(follow: 'sync', followed: followed.size, unfollowed: unfollowed.size, failed:)
+      return {followed: followed.to_a, unfollowed: unfollowed.to_a}
+    end
+
+    # @return [Boolean] できたか。⚠ 例外を上げない（→ `sync`）
+    def attempt(action, id)
+      send(action, id)
+      return true
+    rescue => e
+      logger.warn(follow: action.to_s, account_id: id.to_s, message: 'failed',
+        error_class: e.class.name, error: e)
+      return false
     end
 
     def follow(id, acct = nil)
       relationship = service.follow(id)
-      @requested.add(id.to_s) if relationship['requested'] && !relationship['following']
+      # ⚠ 受信のスレッド（`on_follow`）と突き合わせのスレッドの両方から来るので、鍵を掛ける。
+      if relationship['requested'] && !relationship['following']
+        @mutex.synchronize {@requested.add(id.to_s)}
+      end
       return log(:follow, id, acct, requested: relationship['requested'] == true)
     end
 
     def unfollow(id)
       service.unfollow(id)
-      @requested.delete(id.to_s)
+      @mutex.synchronize {@requested.delete(id.to_s)}
       return log(:unfollow, id)
     end
 

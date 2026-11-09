@@ -421,15 +421,21 @@ module Makoto
       return ids, next_page(response.headers['link'])
     end
 
-    # `Link` の `rel="next"` を、同じホストのパスとクエリにして返す。⚠ **無い・別ホストなら nil。**
+    # `Link` の `rel="next"` を、同じホストのパスとクエリにして返す。⚠ **無ければ nil（最後のページ）。**
+    #
+    # 🔴 **別ホスト・読めない `next` は例外にする**（v1.0.0 のリリース前レビュー）。⚠⚠ nil にすると
+    # 「最後のページ」と区別が付かず、途中までの一覧を全部として返す（門が 81 人目以降に「フォローしてね」を
+    # 返し、フォローの突き合わせが外しにかかる）。⚠ 別ホストは辿らない（トークンを渡さない）。
     def next_page(link)
       found = link.to_s.split(',').find {|part| part.include?('rel="next"')}
       return nil unless found
       uri = URI.parse(found[/<([^>]+)>/, 1].to_s)
-      return nil unless uri.host == http.base_uri.host
+      unless uri.host == http.base_uri.host
+        raise Ginseng::GatewayError, 'mastodon: next page on another host'
+      end
       return [uri.path, uri.query].compact.join('?')
     rescue URI::InvalidURIError
-      return nil
+      raise Ginseng::GatewayError, 'mastodon: unreadable next page'
     end
 
     # モロヘイヤを迂回して Mastodon 本体を直に叩くためのヘッダ。
