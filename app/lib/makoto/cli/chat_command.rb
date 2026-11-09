@@ -9,7 +9,7 @@ module Makoto
 
     desc 'penalties', '悪戯の印が付いた相手と、ペナルティの期限を表示する'
     def penalties
-      rows = ChatRepository.new.all_penalties
+      rows = repository.all_penalties
       return puts('(none)') if rows.empty?
       now = Time.now
       rows.each do |row|
@@ -47,7 +47,6 @@ module Makoto
     # ⚠ **印の回数も 0 に戻す**（オーナーが「間違いだった」と判断したとき）。
     desc 'forgive ACCT', '相手のペナルティと印を消す（判定の間違いを直す）'
     def forgive(acct)
-      repository = ChatRepository.new
       row = repository.find_penalty_by_acct(acct)
       unless row
         warn "ペナルティの記録がありません: #{acct}"
@@ -72,12 +71,11 @@ module Makoto
     desc 'block ACCT', '返事をしない相手に載せる（次のメンションに 1 回だけ伝えて、あとは黙る）'
     option :note, type: :string, desc: '載せた理由（オーナーの控え・相手には伝えない）'
     def block(acct)
-      found = MastodonService.new.lookup_account(acct)
+      found = mastodon.lookup_account(acct)
       unless found
         warn "アカウントが見つかりません: #{acct}"
         exit 1
       end
-      repository = ChatRepository.new
       if repository.blocked(found['id'])
         warn "もう載っています: @#{found['acct']}"
         exit 1
@@ -88,10 +86,9 @@ module Makoto
 
     desc 'unblock ACCT', '返事をしない相手から外す'
     def unblock(acct)
-      repository = ChatRepository.new
       # ⚠ 載せたときの acct（ローカルはホスト無し）で引けなければ、Mastodon で引き直して ID で探す。
       row = repository.find_block_by_acct(acct)
-      row ||= (found = MastodonService.new.lookup_account(acct)) && repository.blocked(found['id'])
+      row ||= (found = mastodon.lookup_account(acct)) && repository.blocked(found['id'])
       unless row
         warn "載っていません: #{acct}"
         exit 1
@@ -102,7 +99,7 @@ module Makoto
 
     desc 'blocks', '返事をしない相手の一覧'
     def blocks
-      rows = ChatRepository.new.all_blocks
+      rows = repository.all_blocks
       return puts('(none)') if rows.empty?
       rows.each do |row|
         puts ["@#{row[:acct]}", "since #{row[:blocked_at]}", row[:note]].compact.join(' ')
@@ -110,6 +107,17 @@ module Makoto
     end
 
     private
+
+    # ⚠ テストが差し替える（`@repository` / `@mastodon`）。
+    def repository
+      @repository ||= ChatRepository.new
+      return @repository
+    end
+
+    def mastodon
+      @mastodon ||= MastodonService.new
+      return @mastodon
+    end
 
     def thread_messages
       return [] unless options[:thread]
