@@ -79,6 +79,15 @@ module Makoto
       return update {|record| record.except(:follow_over_limit)}
     end
 
+    # 🔴 **承認待ちのフォロー**（#606・PR #632 の Codex の P2）。⚠ 再起動をまたぎ、CLI からも見えるように。
+    def record_follow_requested(ids)
+      return update {|record| record.merge(follow_requested: Array(ids).map(&:to_s))}
+    end
+
+    def follow_requested
+      return Array(stored[:follow_requested]).map(&:to_s)
+    end
+
     # @return [Hash, nil] `{count:, limit:, since: Time}`
     def follow_over_limit
       found = stored[:follow_over_limit]

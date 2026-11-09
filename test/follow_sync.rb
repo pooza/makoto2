@@ -31,7 +31,13 @@ module Makoto
       end
     end
 
+    # ⚠ 承認待ちは痕跡に残る（PR #632 の Codex の P2）ので、テストごとに消す。
+    teardown do
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
     def setup
+      FileUtils.rm_f(Heartbeat.path)
       @repository = ChatRepository.new(empty_db)
       @followers = ['1', '2', '3']
       @service = FakeService.new
@@ -73,6 +79,21 @@ module Makoto
 
       assert_equal(['3'], subject.sync[:unfollowed])
       assert_equal(['3'], @service.unfollowed)
+    end
+
+    # 🔴 **承認待ちは痕跡に残り、別のインスタンス（再起動・CLI）からも取り消せる**（PR #632 の Codex の P2）。
+    def test_pending_requests_survive_another_instance
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+      subject.sync
+
+      assert_equal(['3'], Heartbeat.follow_requested)
+      @followers = ['1', '2']
+      another = FollowSync.new(service: @service, roster: @roster, repository: @repository)
+
+      assert_equal(['3'], another.preview[1].to_a)
+      assert_equal(['3'], another.sync(force: true)[:unfollowed])
+      assert_empty(Heartbeat.follow_requested)
     end
 
     # ⚠ **返さない設定でも、一覧には足す**（#510 の門）。

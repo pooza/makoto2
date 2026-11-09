@@ -12,7 +12,8 @@ module Makoto
   #   **1 人も外さずに**エラーにする（ログと Sentry）。⚠ 返すほうは続ける。⚠⚠ **一覧が欠けたときに、まとめて外す事故を防ぐ。**
   #   ⚠ 一覧はどちらも「最後まで引けたときだけ」返る（→ `MastodonService#follower_ids`）
   # - ⚠ **鍵の掛かった相手へのフォローは承認待ちになり、フォロー中の一覧に出ない。**送り直さないように、
-  #   承認待ちになった相手を覚えておく（常駐が生きている間だけ）
+  #   承認待ちになった相手を覚えておく。🔴 **痕跡に残す**（PR #632 の Codex の P2）— 常駐のメモリだけだと、
+  #   再起動で忘れて取り消せなくなり、`makoto chat follow-sync`（別のプロセス）からも見えない
   class FollowSync
     include Package
 
@@ -28,7 +29,7 @@ module Makoto
       @roster = roster
       @repository = repository
       @sleeper = sleeper || ->(seconds) {sleep(seconds)}
-      @requested = Set.new
+      @requested = Heartbeat.follow_requested.to_set
       @mutex = Mutex.new
       @stopping = false
     end
@@ -133,7 +134,7 @@ module Makoto
       wanted = followers.reject {|id| stopped?(id)}.to_set
       # ⚠ **承認待ちも外す側に含める**（PR #608 の Codex の P2）。外す（`unfollow`）と承認待ちも取り消される。
       # 外しそびれると、対象でなくなった相手が後から承認して、次の突き合わせまでフォローが付く。
-      requested = @mutex.synchronize {@requested.subtract(following).dup}
+      requested = @mutex.synchronize {requested_change {@requested.subtract(following)}}
       return wanted - following - requested, (following | requested) - wanted
     end
 
@@ -159,14 +160,14 @@ module Makoto
       relationship = service.follow(id)
       # ⚠ 受信のスレッド（`on_follow`）と突き合わせのスレッドの両方から来るので、鍵を掛ける。
       if relationship['requested'] && !relationship['following']
-        @mutex.synchronize {@requested.add(id.to_s)}
+        @mutex.synchronize {requested_change {@requested.add(id.to_s)}}
       end
       return log(:follow, id, acct, requested: relationship['requested'] == true)
     end
 
     def unfollow(id)
       service.unfollow(id)
-      @mutex.synchronize {@requested.delete(id.to_s)}
+      @mutex.synchronize {requested_change {@requested.delete(id.to_s)}}
       return log(:unfollow, id)
     end
 
@@ -187,6 +188,15 @@ module Makoto
       trace(:record_follow_over_limit, to_unfollow.size, unfollow_limit)
       report_error(error, follow: 'sync') if first
       return Set.new
+    end
+
+    # 承認待ちを変えて、変わっていたら痕跡に書く。⚠ `@mutex` の中で呼ぶ。
+    # @return [Set] 変えたあとの写し
+    def requested_change
+      before = @requested.dup
+      yield
+      trace(:record_follow_requested, @requested.to_a.sort) unless before == @requested
+      return @requested.dup
     end
 
     # ⚠ **痕跡が書けなくても突き合わせは止めない**（観測のためのもの）。
