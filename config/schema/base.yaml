@@ -532,6 +532,14 @@ properties:
             type: string
         required:
           - window
+      # 実況の窓の中の返事（#599）。
+      commentary:
+        type: object
+        properties:
+          deadline:
+            type: string
+        required:
+          - deadline
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object
@@ -598,6 +606,7 @@ properties:
       - owner
       - thread
       - grace
+      - commentary
   # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
   # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。
   anthropic:

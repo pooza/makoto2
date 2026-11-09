@@ -8,6 +8,7 @@ module Makoto
   # 3. LLM に返事と印を作らせる（`ChatModel`）。🔴 **失敗したら黙る**
   # 4. 印を処理する（下記）
   # 5. 返事を投稿する。🔴 **公開の投稿には未収載で返す**（2026-11-08・オーナー）
+  #    🔴 **強い窓（日曜の朝）の中では、受けてから `/chat/commentary/deadline` を超えた返事を捨てる**（#599）
   #
   # ## 印の扱い（#510）
   #
@@ -83,8 +84,8 @@ module Makoto
     def start
       @thread ||= Thread.new do
         Thread.current.name = 'makoto-chat'
-        while (notification = @queue.pop)
-          handle_safely(notification)
+        while (item = @queue.pop)
+          handle_safely(*item)
         end
       end
       return @thread
@@ -106,13 +107,14 @@ module Makoto
         logger.warn(chat: 'queue', message: 'dropped', notification_id: notification['id'])
         return nil
       end
-      @queue.push(notification)
+      # ⚠ **受けた時刻を一緒に積む**（窓の中の締め切りは、待ち行列で待った時間も含めて測る → #599）。
+      @queue.push([notification, Time.now])
       return nil
     end
 
     # 1 通を処理する（⚠ テストはこちらを直に呼ぶ）。
     # @return [Symbol] 何をしたか（ログと同じ）
-    def handle(notification)
+    def handle(notification, received_at = Time.now)
       status = notification['status']
       account = notification['account']
       return done(:unreadable, notification) unless status.is_a?(Hash) && account.is_a?(Hash)
@@ -121,7 +123,7 @@ module Makoto
       decision = gate.decide(account)
       return done(decision.reason, notification) if decision.silent?
       return notice(account, status, decision, notification) if decision.notice?
-      return respond(account, status, decision, notification)
+      return respond(account, status, decision, notification, received_at)
     end
 
     def reply_visibility(status)
@@ -130,15 +132,15 @@ module Makoto
 
     private
 
-    def handle_safely(notification)
-      handle(notification)
+    def handle_safely(notification, received_at)
+      handle(notification, received_at)
     rescue => e
       # ⚠⚠ **1 通の失敗で処理のスレッドを止めない。**
       logger.error(chat: 'respond', notification_id: notification['id'], error: e)
       report_error(e, chat: 'respond')
     end
 
-    def respond(account, status, decision, notification)
+    def respond(account, status, decision, notification, received_at)
       thread = ChatThread.new(status, ancestors(status), own_id: own_id)
       return done(:closed_thread, notification) if repository.closed_thread?(thread.root_id)
       messages = thread.messages
@@ -149,6 +151,7 @@ module Makoto
       gate.record(account, decision)
       handle_marks(account, status, thread, reply.marks)
       return done(:no_reply, notification, marks: reply.marks) if reply.silent?
+      return done(:late_in_window, notification, marks: reply.marks) if gate.late?(received_at)
       post_reply(account, status, reply.text)
       return done(:respond, notification, marks: reply.marks)
     end
@@ -282,7 +285,7 @@ module Makoto
 
     def duration(value)
       seconds = Fugit::Duration.parse(value.to_s)&.to_sec
-      raise Ginseng::ConfigError, "chat: bad grace window '#{value}'" unless seconds&.positive?
+      raise Ginseng::ConfigError, "chat: bad duration '#{value}'" unless seconds&.positive?
       return seconds
     end
   end

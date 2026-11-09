@@ -93,6 +93,13 @@ module Makoto
       return until_at > now
     end
 
+    # 🔴 **強い窓の中で、受けてから締め切りを過ぎたか**（#599・窓の扱いは `CommentaryWindow.strong_cover?`）。
+    # ⚠ 門と違い、LLM を呼んだ後に見る（返事を捨てるかどうか）。
+    def late?(received_at, now = Time.now)
+      return false unless now - received_at > duration(config['/chat/commentary/deadline'])
+      return CommentaryWindow.strong_cover?(received_at, now)
+    end
+
     # n 回目の印のペナルティの長さ（秒）。
     def penalty_duration(marks)
       durations = Array(config['/chat/penalty'])
@@ -164,7 +171,7 @@ module Makoto
 
     def duration(value)
       seconds = Fugit::Duration.parse(value.to_s)&.to_sec
-      raise Ginseng::ConfigError, "chat: bad penalty '#{value}'" unless seconds&.positive?
+      raise Ginseng::ConfigError, "chat: bad duration '#{value}'" unless seconds&.positive?
       return seconds
     end
   end
