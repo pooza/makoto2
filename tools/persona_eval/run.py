@@ -312,7 +312,16 @@ def split_reply(entry):
   return entry
 
 
-def judge_params(judge_model, persona, case, text):
+JUDGE_LEDGER_NOTE = '''
+
+# MAKOTO で足した設定（台帳・#526）
+
+次は本編には無いが、MAKOTO の原稿で採用済みの設定で、MAKOTO にも本人の記憶として渡してある。応答がこれに沿っているなら、作った設定として外れにしない（台帳に無いことを新しく言い切っているかは、これまでどおり見る）。
+
+'''
+
+
+def judge_params(judge_model, persona, case, text, ledger=None):
   sections = []
   if case.get('history'):
     lines = [f"- {'ファン' if m['role'] == 'user' else 'MAKOTO'}: {m['content']}" for m in case['history']]
@@ -326,7 +335,8 @@ def judge_params(judge_model, persona, case, text):
   return {
     'model': judge_model,
     'max_tokens': MAX_TOKENS,
-    'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona, 'cache_control': {'type': 'ephemeral'}}],
+    'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona + (JUDGE_LEDGER_NOTE + ledger if ledger else ''),
+                'cache_control': {'type': 'ephemeral'}}],
     'output_config': {
       'effort': JUDGE_EFFORT,
       'format': {'type': 'json_schema', 'schema': JUDGE_SCHEMA},
@@ -481,6 +491,9 @@ def cmd_respond(args):
   run = datetime.now().strftime('%Y%m%d-%H%M%S')
   run_dir = OUT_DIR / run
   run_dir.mkdir(parents=True)
+  # 🔴 渡した台帳の写しを残す（判定役にも同じものを見せる・あとで台帳が変わっても回を読み直せる）。
+  if ledger:
+    (run_dir / 'ledger.md').write_text(ledger + '\n')
   batch = api.messages.batches.create(requests=requests)
   state = {
     'created_at': datetime.now().isoformat(),
@@ -557,6 +570,9 @@ def cmd_judge(args):
   responses = read_json(run_dir / 'respond.json')
   cases = {c['id']: c for c in load_cases(suite=state.get('suite', 'cases'))}
   persona = load_persona()
+  # ⚠ 台帳は応答を作ったときの写しを使う（無い回 ＝ 台帳なしで作った回）。
+  ledger_path = run_dir / 'ledger.md'
+  ledger = ledger_path.read_text().strip() if ledger_path.exists() else None
   for judge_key in judge_keys(args):
     if judge_key in state['judges']:
       print(f"judge-{judge_key}: 投げてある（batch {state['judges'][judge_key]}）")
@@ -567,7 +583,7 @@ def cmd_judge(args):
         continue
       case_id, _, _ = parse_custom_id(key)
       # 🔴 判定役には条件（モデル・台詞の件数）を見せない。
-      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'])
+      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'], ledger)
       requests.append(Request(custom_id=key, params=MessageCreateParamsNonStreaming(**params)))
     batch = api.messages.batches.create(requests=requests)
     state['judges'][judge_key] = batch.id
@@ -684,6 +700,9 @@ def cmd_fork(args):
   run_dir = OUT_DIR / run
   run_dir.mkdir(parents=True)
   (run_dir / 'respond.json').write_text((source_dir / 'respond.json').read_text())
+  # ⚠ 台帳の写しも引き継ぐ（判定役が同じ台帳を見る）。
+  if (source_dir / 'ledger.md').exists():
+    (run_dir / 'ledger.md').write_text((source_dir / 'ledger.md').read_text())
   write_json(run_dir / 'state.json', state)
   print(f"run: {run}（{state['source']} の応答を引き継いだ）")
 
