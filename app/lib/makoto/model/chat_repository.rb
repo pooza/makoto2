@@ -65,6 +65,34 @@ module Makoto
       return !threads.where(root_id: root_id.to_s).empty?
     end
 
+    def blocks
+      return @db[:chat_block]
+    end
+
+    def block(account_id, acct, note: nil, at: Time.now)
+      key = account_id.to_s
+      return nil if blocked(key)
+      return blocks.insert(account_id: key, acct: acct.to_s.delete_prefix('@'), note: note,
+        blocked_at: local(at))
+    end
+
+    # 載っていれば行、無ければ nil。
+    def blocked(account_id)
+      return blocks.where(account_id: account_id.to_s).first
+    end
+
+    def find_block_by_acct(acct)
+      return blocks.where(acct: acct.to_s.delete_prefix('@')).first
+    end
+
+    def unblock(account_id)
+      return blocks.where(account_id: account_id.to_s).delete
+    end
+
+    def all_blocks
+      return blocks.reverse(:blocked_at).all
+    end
+
     def find_penalty_by_acct(acct)
       return penalties.where(acct: acct.to_s.delete_prefix('@')).first
     end

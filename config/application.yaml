@@ -558,6 +558,9 @@ message:
     - chat_ask_follow
     - chat_limit_notice
     - chat_owner_notice
+    # 黙る理由を 1 回だけ伝える文（#20 のブロックリスト・#510 のペナルティ）。
+    - chat_block_notice
+    - chat_penalty_notice
   anniversary:
     # ⚠ 引用符を外さない。`11-04` は YAML が数値・日付と取り違えうる書き方。
     #

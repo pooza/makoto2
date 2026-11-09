@@ -304,7 +304,7 @@ map $http_x_mulukhiya $mulukhiya_backend {
   - ⚠ `write:follows`（フォローを外す）が要るのは、外すのを自動にする日だけ（それまではオーナーに知らせるだけ）
   - ✅ **2026-11-08 にトークンを作り直す側へ決めた**（#18 で返信の祖先を引く `read:statuses` が要るため・オーナー）。スコープは `read:accounts read:notifications read:statuses read:follows write:statuses write:media write:follows` の 7 つ。🔴 **ステージング（dev25 → bydo）は 2026-11-08 に差し替え済み**・⚠ **本番（gomander → rubicon）は `1.0` のリリース直前に作り直す**（記録は chubo2 の infra-servers / infra-history）。⚠ `read:follows` が入ったので、門を `relationships` に戻すかは別に決める
 - ⚠ **フォロワーの一覧が一度も引けていなければ黙る**（「フォロワーでない」に倒すと、Mastodon の不調のたびにフォロワーへ「フォローしてくれたら」を返す）
-- ⚠ **決まった文の正本は makoto-scripts の `chat.yaml`**（オーナーのレビュー・type は `chat_ask_follow` / `chat_limit_notice` / `chat_owner_notice`）。🔴 **投稿する配線は #18 と一緒に入れた**（2026-11-08・`ChatResponder`）。⚠ **原稿が無ければ決まった文は黙る**（オーナーへの DM だけは、原稿が無くても平文で送る）
+- ⚠ **決まった文の正本は makoto-scripts の `chat.yaml`**（オーナーのレビュー・type は `chat_ask_follow` / `chat_limit_notice` / `chat_owner_notice`、#20 から `chat_block_notice` / `chat_penalty_notice`）。🔴 **投稿する配線は #18 と一緒に入れた**（2026-11-08・`ChatResponder`）。⚠ **原稿が無ければ決まった文は黙る**（オーナーへの DM だけは、原稿が無くても平文で送る）
 
 ### プロセスの寿命を設計に含める
 
