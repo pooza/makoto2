@@ -175,7 +175,8 @@ module Makoto
     # 古い側を落とす（古いほうは 15 分を超えて捨てる側なので）。
     # @return [Array<Hash>]
     def mentions_since(since_id, limit: 40)
-      query = URI.encode_www_form('types[]' => 'mention', 'since_id' => since_id.to_s, 'limit' => limit)
+      query = URI.encode_www_form('types[]' => 'mention',
+        'since_id' => since_id.to_s, 'limit' => limit)
       response = http.get("/api/v1/notifications?#{query}", {
         headers: direct_headers,
         host_validator: ->(host) {host == http.base_uri.host},
