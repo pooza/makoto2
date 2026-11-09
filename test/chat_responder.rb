@@ -330,5 +330,18 @@ module Makoto
     ensure
       FileUtils.rm_f(Heartbeat.path)
     end
+
+    # 🔴 **落ちたときも ID を残す**（PR #633 の Codex の P2）。
+    def test_the_notification_id_is_recorded_after_a_failure
+      FileUtils.rm_f(Heartbeat.path)
+      subject = responder
+      subject.define_singleton_method(:handle) {|*| raise Ginseng::GatewayError, 'mastodon returned 500'}
+      subject.define_singleton_method(:report_error) {|*, **| nil}
+      subject.send(:handle_safely, notification.merge('id' => '31'), Time.now)
+
+      assert_equal('31', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end

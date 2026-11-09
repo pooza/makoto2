@@ -239,5 +239,23 @@ module Makoto
 
       assert_equal(3, caught)
     end
+
+    # 🔴 **追いつけなかったら、次に届いたときにもう一度**（間を空けて・PR #633 の Codex の P2）。
+    def test_catch_up_is_retried_after_a_failure
+      results = [false, 1]
+      calls = 0
+      listener = MentionListener.new(service: service, handler: ->(_) {})
+      listener.catch_up = -> {(calls += 1) && results.shift}
+      parser = ServerSentEvents.new
+      listener.receive(':thump', parser)
+      listener.receive(':thump', parser)
+
+      assert_equal(1, calls)
+      listener.instance_variable_set(:@catch_up_tried_at, 0)
+      listener.receive(':thump', parser)
+      listener.receive(':thump', parser)
+
+      assert_equal(2, calls)
+    end
   end
 end

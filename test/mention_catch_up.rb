@@ -67,7 +67,7 @@ module Makoto
     def test_a_failure_does_not_raise
       Heartbeat.record_notification_id('10')
 
-      assert_nil(catch_up(:fail).call)
+      assert_false(catch_up(:fail).call)
       assert_empty(@queued)
     end
 
@@ -83,6 +83,20 @@ module Makoto
       Heartbeat.record_notification_id('n1')
 
       assert_equal('100', Heartbeat.notification_id)
+    end
+
+    # 🔴 **引けなかったら、引けるまで起点を止める**（PR #633 の Codex の P2）。
+    def test_a_failure_holds_the_checkpoint
+      Heartbeat.record_notification_id('10')
+
+      assert_false(catch_up(:fail).call)
+      Heartbeat.checkpoint_notification('20')
+
+      assert_equal('10', Heartbeat.notification_id)
+      assert_equal(1, catch_up([mention('11', 1)]).call)
+      Heartbeat.checkpoint_notification('20')
+
+      assert_equal('20', Heartbeat.notification_id)
     end
   end
 end

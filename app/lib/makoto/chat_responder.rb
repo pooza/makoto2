@@ -92,8 +92,7 @@ module Makoto
     # ⚠ **TERM の trap から呼ばれる**ので Mutex を掴まない（→ `MentionListener#stop`）。
     def stop
       return nil unless @thread
-      @thread.kill
-      @thread.join(JOIN_TIMEOUT)
+      @thread.kill.join(JOIN_TIMEOUT)
       return nil
     rescue ThreadError
       return nil
@@ -129,14 +128,16 @@ module Makoto
 
     private
 
-    # 🔴 **処理し終えた通知の ID を残す**（#610 → `MentionCatchUp`）。⚠ 失敗しても残す（同じ通知で落ち続けない）。
+    # 🔴 **処理し終えた通知の ID を残す**（#610 → `MentionCatchUp`）。⚠⚠ **落ちたときも残す**（PR #633 の Codex の
+    # P2）— 残さないと、再起動のあと追いついた同じ通知で LLM をもう一度呼び、回数も重ねて数える。
     def handle_safely(notification, received_at)
       handle(notification, received_at)
-      Heartbeat.record_notification_id(notification['id'])
     rescue => e
       # ⚠⚠ **1 通の失敗で処理のスレッドを止めない。**
       logger.error(chat: 'respond', notification_id: notification['id'], error: e)
       report_error(e, chat: 'respond')
+    ensure
+      Heartbeat.checkpoint_notification(notification['id'])
     end
 
     def respond(account, status, decision, notification, received_at)

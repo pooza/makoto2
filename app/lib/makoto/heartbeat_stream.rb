@@ -28,6 +28,27 @@ module Makoto
       return stored[:notification_id]&.to_s
     end
 
+    # 🔴 **処理し終えた（落ちたときも）通知の ID を残す**（→ `ChatResponder#handle_safely`）。
+    # ⚠⚠ **追いつけていない間は進めない**（PR #633 の Codex の P2）— 進めると、取りこぼした分が起点より
+    # 前になり、二度と引けない。⚠ 書けなくても例外を上げない（処理のスレッドを止めない）。
+    def checkpoint_notification(id)
+      return nil if stored[:catch_up_pending]
+      return record_notification_id(id)
+    rescue => e
+      logger.error(chat: 'checkpoint', error: e)
+      return nil
+    end
+
+    # 追いつけなかった（→ `MentionCatchUp`）。⚠ 追いつけるまで起点を止める。
+    def hold_notification_id
+      return update {|record| record.merge(catch_up_pending: true)}
+    end
+
+    def release_notification_id
+      return nil unless stored.key?(:catch_up_pending)
+      return update {|record| record.except(:catch_up_pending)}
+    end
+
     # 最後に何かが届いた時刻。⚠ **一度も無ければ nil。**
     def streamed_at
       return parse_time(stored[:streamed_at])

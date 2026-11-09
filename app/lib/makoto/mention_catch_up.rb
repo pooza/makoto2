@@ -13,6 +13,9 @@ module Makoto
   #   同じ考え方 — 遅れて着いた返事は流れに合わない）。⚠ 受けた時刻は投稿の時刻にする（窓の中の締め切りも効く）
   # - ⚠ **二重に返さない**: 繋ぎ直しで同じ通知がストリームにも来たら、`ChatResponder#seen?` が畳む。再起動を
   #   またいだ分は、返事の冪等キー（`makoto-chat-<status id>`）が畳む
+  # - 🔴 **引けなかったら、引けるまで起点を止める**（PR #633 の Codex の P2）。⚠⚠ 止めないと、その間にライブで
+  #   届いた通知で起点が進み、取りこぼした分が起点より前になって二度と引けない（→ `Heartbeat.hold_notification_id`）。
+  #   ⚠ 受信の口は、次に何か届いたときにもう一度呼ぶ（間隔は `RETRY_INTERVAL` 以上 → `MentionListener`）
   # - ⚠ **例外を上げない**（受信を止めない）
   class MentionCatchUp
     include Package
@@ -29,21 +32,29 @@ module Makoto
       @clock = clock || -> {Time.now}
     end
 
-    # @return [Integer, nil] 積んだ数。⚠ 追いつく起点が無い・引けなかったなら nil
+    # @return [Integer, nil, false] 積んだ数。⚠ 追いつく起点が無ければ nil、引けなかったら false（もう一度呼ぶ）
     def call
       since = Heartbeat.notification_id
       return nil unless since
       notifications = service.mentions_since(since, limit: LIMIT)
       queued = notifications.count {|notification| feed(notification)}
+      Heartbeat.release_notification_id
       logger.info(stream: 'catch_up', since:, found: notifications.size, queued:)
       return queued
     rescue => e
       logger.warn(stream: 'catch_up', message: 'could not catch up', error_class: e.class.name,
         error: e)
-      return nil
+      hold
+      return false
     end
 
     private
+
+    def hold
+      Heartbeat.hold_notification_id
+    rescue => e
+      logger.error(stream: 'catch_up', error: e)
+    end
 
     def feed(notification)
       created_at = Time.parse(notification['created_at'].to_s)
