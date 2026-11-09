@@ -30,6 +30,7 @@ module Makoto
     # 倒さない**（事故の大きいほうを避ける）。
     DEFAULT_LEVEL = 'info'.freeze
 
+    # ginseng-upstream: pooza/ginseng-core#755
     def initialize(name = nil)
       super
       self.level = severity_level

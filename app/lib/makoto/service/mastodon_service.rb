@@ -167,6 +167,7 @@ module Makoto
     #
     # ⚠ **上流の `create_streaming_uri` を使わない** — ⚠⚠ **トークンをクエリに載せる**ので、
     # 逆プロキシのアクセスログに残る。
+    # ginseng-upstream: pooza/ginseng-fediverse#334
     def streaming_uri
       response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
       body = response.parsed_response
