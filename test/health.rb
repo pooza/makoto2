@@ -729,7 +729,7 @@ module Makoto
       beat
       Heartbeat.record_follow_over_limit(25, 20, now: now)
 
-      assert_match(/\Afollow sync is holding 25 unfollows \(over the limit 20\) since 2026-11-04T12:00:00/,
+      assert_match("follow sync is holding 25 unfollows (over the limit 20) since #{now.getlocal.iso8601}",
         health(pid: Process.pid).follow_warnings.first)
       Heartbeat.clear_follow_over_limit
 
