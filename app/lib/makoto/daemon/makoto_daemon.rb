@@ -204,6 +204,16 @@ module Makoto
       return logger.mask(message)
     end
 
+    # `config:lint` の 1 行。⚠ **投稿の名前で始まらない文には名前を付ける**（#561）。
+    # ⚠⚠ **強い窓そのものが壊れていると、全部の投稿が `commentary: <窓>: ...` の同じ文で落ち、
+    # どの投稿の行かが読めなかった。**⚠ 名前で始まる文（`song: ...`・`scheduler: song ...`）に
+    # もう一度付けると二重になる。
+    def lint_rejection(name, error)
+      message = describe_rejection(error)
+      return message if message.start_with?("#{name}:", "scheduler: #{name} ")
+      return "#{name}: #{message}"
+    end
+
     private
 
     def job_sources
