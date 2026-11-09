@@ -438,7 +438,7 @@ def cmd_estimate(args):
   repeat = len(conditions(args))
   for judge_key in judges:
     judge_model = JUDGES[judge_key]
-    params = judge_params(judge_model, persona, BLANK_CASE, '')
+    params = judge_params(judge_model, persona, BLANK_CASE, '', ledger)
     messages = [judge_params(judge_model, persona, c, 'ダミーの応答です。')['messages'] for c in cases]
     tokens = per_case_tokens(api, params, messages) * repeat
     total += print_estimate(f'判定（{judge_key}）', judge_model, tokens, EXPECTED_JUDGE_OUTPUT_TOKENS)
