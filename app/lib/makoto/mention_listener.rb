@@ -45,10 +45,10 @@ module Makoto
     #   （切断の注入）
     # @param sleeper [#call] 待ち。⚠ テストが差し替える
     # @param handler [#call, nil] メンションを受けたときに呼ぶ（#18 が繋ぐ）
-    # @param roster [FollowerRoster] フォローの通知を足す先。⚠ テストが差し替える
-    def initialize(service: nil, opener: nil, sleeper: nil, handler: nil, roster: nil)
+    # @param follower [FollowSync] フォローの通知を渡す先（一覧に足す・返す → #510 / #606）。⚠ テストが差し替える
+    def initialize(service: nil, opener: nil, sleeper: nil, handler: nil, follower: nil)
       @service = service
-      @roster = roster
+      @follower = follower
       @opener = opener || method(:open_stream)
       @sleeper = sleeper || ->(seconds) {sleep(seconds)}
       @handler = handler
@@ -156,21 +156,20 @@ module Makoto
       report_error(e, stream: 'mention')
     end
 
-    # 🔴 **新しいフォロワーをすぐ一覧に足す**（#510 の門 → `FollowerRoster`）。⚠ **フォローしてすぐ
-    # 話しかけてくれた人を、一覧の引き直し（1 時間ごと）まで待たせない。**
+    # 🔴 **新しいフォロワーをすぐ一覧に足し、フォローを返す**（#510 の門・#606 → `FollowSync#on_follow`）。
+    # ⚠ 失敗しても受信は止めない。
     def on_follow(notification)
-      id = notification.dig('account', 'id')
-      return unless id
-      roster.add(id)
-      logger.info(stream: 'follow', notification_id: notification['id'],
-        acct: notification.dig('account', 'acct'))
+      account = notification['account']
+      return unless account.is_a?(Hash) && account['id']
+      logger.info(stream: 'follow', notification_id: notification['id'], acct: account['acct'])
+      follower.on_follow(account)
     end
 
     private
 
-    def roster
-      @roster ||= FollowerRoster.instance
-      return @roster
+    def follower
+      @follower ||= FollowSync.new
+      return @follower
     end
 
     def service

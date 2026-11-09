@@ -48,6 +48,11 @@ module Makoto
       return @mutex.synchronize {@ids&.size}
     end
 
+    # 手元の一覧の写し（#606）。⚠ **まだ一度も引けていなければ nil。**
+    def ids
+      return @mutex.synchronize {@ids&.dup}
+    end
+
     def refresh
       ids = @fetcher.call.to_set(&:to_s)
       @mutex.synchronize do

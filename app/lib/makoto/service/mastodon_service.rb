@@ -144,17 +144,25 @@ module Makoto
     # 経路の設定に関わらず直で聞く（→ `#account`）。🔴 **聞けなければ例外**（途中までの一覧を返さない —
     # ⚠⚠ 欠けた一覧で「フォロワーでない」と答えると、フォロワーへ「フォローしてくれたら」を返してしまう）。
     def follower_ids(max_pages: FOLLOWER_MAX_PAGES)
-      id = URI.encode_www_form_component(account['id'].to_s)
-      path = "/api/v1/accounts/#{id}/followers?limit=80"
-      ids = []
-      max_pages.times do
-        page, path = follower_page(path)
-        ids.concat(page)
-        return ids unless path
-      end
-      raise Ginseng::GatewayError, "mastodon: followers exceed #{max_pages} pages"
-    rescue Ginseng::GatewayError => e
-      raise classify(e)
+      return account_ids('followers', max_pages:)
+    end
+
+    # MAKOTO がフォローしている相手の ID を全部（#606）。⚠ 引き方と失敗の扱いは `#follower_ids` と同じ。
+    # ⚠ **`read:follows` が要る**（2026-11-08 に作り直したトークンにはある）。⚠ 承認待ちのフォローは入らない。
+    def following_ids(max_pages: FOLLOWER_MAX_PAGES)
+      return account_ids('following', max_pages:)
+    end
+
+    # フォローする（#606）。⚠ **`write:follows` が要る。**⚠ 鍵の掛かった相手は承認待ちになる（応答の `requested`）。
+    # @return [Hash] relationship
+    def follow(account_id)
+      return relationship_action(account_id, 'follow')
+    end
+
+    # フォローを外す（#606）。
+    # @return [Hash] relationship
+    def unfollow(account_id)
+      return relationship_action(account_id, 'unfollow')
     end
 
     # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
@@ -373,7 +381,34 @@ module Makoto
       raise Ginseng::GatewayError, 'mastodon returned an unexpected shape'
     end
 
-    # フォロワーの一覧の 1 ページ。⚠ **ID の配列と、次のページのパス（無ければ nil）を返す。**
+    def account_ids(kind, max_pages:)
+      id = URI.encode_www_form_component(account['id'].to_s)
+      path = "/api/v1/accounts/#{id}/#{kind}?limit=80"
+      ids = []
+      max_pages.times do
+        page, path = follower_page(path)
+        ids.concat(page)
+        return ids unless path
+      end
+      raise Ginseng::GatewayError, "mastodon: #{kind} exceed #{max_pages} pages"
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    def relationship_action(account_id, action)
+      id = URI.encode_www_form_component(account_id.to_s)
+      response = http.post("/api/v1/accounts/#{id}/#{action}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Hash)
+      return body
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # アカウントの一覧（フォロワー・フォロー中）の 1 ページ。⚠ **ID の配列と、次のページのパス（無ければ nil）を返す。**
     def follower_page(path)
       response = http.get(path, {
         headers: direct_headers,

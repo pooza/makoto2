@@ -71,7 +71,7 @@ module Makoto
     def test_a_follow_is_added_to_the_roster
       roster = FollowerRoster.new(fetcher: -> {['1']})
       roster.refresh
-      listener = MentionListener.new(service: service, roster: roster)
+      listener = MentionListener.new(service: service, follower: FollowSync.new(roster: roster))
       payload = {id: 'n1', type: 'follow', account: {id: '9', acct: 'new_fan'}}.to_json
       listener.receive("event: notification\ndata: #{payload}\n\n", ServerSentEvents.new)
 
