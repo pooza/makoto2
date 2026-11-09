@@ -105,7 +105,12 @@ module Makoto
       #
       # ⚠ **判定の正本は上流の `Parser`**（`config/lib.yaml`）に移った — 🔴 **投稿先
       # 1 実装の正規表現をこちらで写さない**（写すと向こうが動いた日に黙ってずれる）。
-      return Ginseng::Fediverse::Service.escape_sigils(body)
+      #
+      # 🔴 **投稿先は Mastodon（キュアスタ！）なので、Mastodon の口を呼ぶ**（#524・v7.1.0）。
+      # ⚠⚠ **基底の `Service.escape_sigils` は Misskey（mfm-js）の境界** — `曲名#featuring` のように
+      # Mastodon がリンク化しない位置まで書き換え、`https://foo/-@alice` は URL として除外して
+      # `@alice` への通知を止められなかった。
+      return Ginseng::Fediverse::MastodonService.escape_sigils(body)
     end
 
     private
