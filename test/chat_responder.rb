@@ -141,14 +141,26 @@ module Makoto
     end
 
     # 🔴 **フォロワーでなければ、決まった文**（LLM は呼ばない）。⚠ 原稿が無ければ黙る。
-    # 🔴 **強い窓の中では、遅れた返事を出さない**（#599）。⚠ LLM は呼んだので数える。
+    # 🔴 **強い窓の中では、遅れた返事を出さない**（#599）。⚠ LLM を呼んでから遅れたなら、呼んだので数える。
     # ⚠ 2026-11-08 は日曜（ニチアサの窓の中に受けた形）。
     def test_a_late_reply_in_the_strong_window_is_dropped_but_counted
       received_at = Time.parse('2026-11-08 08:40:00 +0900')
+      lateness = [false, true]
+      @gate.define_singleton_method(:late?) {|*| lateness.shift}
 
       assert_equal(:late_in_window, responder.handle(notification, received_at))
       assert_empty(@service.posts)
+      assert_equal(1, @model.calls.size)
       assert_equal(1, @repository.count(:respond, Time.now - 60))
+    end
+
+    # 🔴 **呼ぶ前から締め切りを過ぎていれば、LLM を呼ばず数えない**（追いついた通知・v1.0.1 のリリース前レビュー）。
+    def test_a_late_mention_is_dropped_before_the_model
+      received_at = Time.parse('2026-11-08 08:40:00 +0900')
+
+      assert_equal(:late_in_window, responder.handle(notification, received_at))
+      assert_empty(@model.calls)
+      assert_equal(0, @repository.count(:respond, Time.now - 60))
     end
 
     # ⚠ 時刻を両方渡して決める（いまの時刻で結果が変わらないように）。
@@ -340,6 +352,25 @@ module Makoto
       subject.send(:handle_safely, notification.merge('id' => '31'), Time.now)
 
       assert_equal('31', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # 🔴 **殺された通知は起点に書かない**（再起動のあと追いついて拾い直す・v1.0.1 のリリース前レビュー）。
+    def test_a_killed_notification_is_not_checkpointed
+      FileUtils.rm_f(Heartbeat.path)
+      Heartbeat.record_notification_id('40')
+      subject = responder
+      started = Queue.new
+      subject.define_singleton_method(:handle) do |*|
+        started.push(true)
+        sleep
+      end
+      worker = Thread.new {subject.send(:handle_safely, notification.merge('id' => '41'), Time.now)}
+      started.pop
+      worker.kill.join
+
+      assert_equal('40', Heartbeat.notification_id)
     ensure
       FileUtils.rm_f(Heartbeat.path)
     end

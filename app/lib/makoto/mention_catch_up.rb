@@ -33,32 +33,43 @@ module Makoto
     end
 
     # @return [Integer, nil, false] 積んだ数。⚠ 追いつく起点が無ければ nil、引けなかったら false（もう一度呼ぶ）
+    #
+    # ⚠ **設定は rescue の外で読む**（v1.0.1 のリリース前レビュー）— 内側で読むと、設定の誤りが「引けなかった」に
+    # 化けて起点を止め続ける。
     def call
       since = Heartbeat.notification_id
       return nil unless since
+      return fetch(since, max_age)
+    end
+
+    private
+
+    def fetch(since, age)
       notifications = service.mentions_since(since, limit: LIMIT)
-      queued = notifications.count {|notification| feed(notification)}
+      queued = notifications.count {|notification| feed(notification, age)}
       Heartbeat.release_notification_id
       logger.info(stream: 'catch_up', since:, found: notifications.size, queued:)
       return queued
     rescue => e
       logger.warn(stream: 'catch_up', message: 'could not catch up', error_class: e.class.name,
         error: e)
-      hold
+      hold(e)
       return false
     end
 
-    private
-
-    def hold
+    # 🔴 **止まり始めた 1 回だけ Sentry へ**（v1.0.1 のリリース前レビュー）。⚠ 続いていることは `makoto status` の
+    # warning が言う（→ `Health#chat_trace_warnings`）。
+    def hold(error)
+      first = Heartbeat.catch_up_pending_since.nil?
       Heartbeat.hold_notification_id
+      report_error(error, stream: 'catch_up') if first
     rescue => e
       logger.error(stream: 'catch_up', error: e)
     end
 
-    def feed(notification)
+    def feed(notification, age)
       created_at = Time.parse(notification['created_at'].to_s)
-      if @clock.call - created_at > max_age
+      if @clock.call - created_at > age
         logger.info(stream: 'catch_up', result: 'stale', notification_id: notification['id'])
         return false
       end

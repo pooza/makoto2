@@ -165,10 +165,6 @@ module Makoto
       return relationship_action(account_id, 'unfollow')
     end
 
-    # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
-    #
-    # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の
-    # 投稿は引けるが、フォロワー限定と DM の会話が見えない。⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
     # `since_id` より新しいメンションの通知を、古い順に（#610 → `MentionCatchUp`）。
     # ⚠ `read:notifications` が要る。
     # ⚠ **`since_id` は新しい側から `limit` 件**（`min_id` は古い側から）。上限を超えたら
@@ -190,6 +186,10 @@ module Makoto
       raise classify(e)
     end
 
+    # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
+    #
+    # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の
+    # 投稿は引けるが、フォロワー限定と DM の会話が見えない。⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
     def status_ancestors(id)
       path = "/api/v1/statuses/#{URI.encode_www_form_component(id.to_s)}/context"
       response = http.get(path, {

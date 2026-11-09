@@ -262,13 +262,17 @@ module Makoto
       end
       unloaded = Heartbeat.followers_unloaded_since
       results.push("followers have not been loaded since #{unloaded.getlocal.iso8601}") if unloaded
+      # 🔴 **取りこぼしに追いつけていない**（#610・v1.0.1 のリリース前レビュー）。⚠ その間は起点が止まっている。
+      pending = Heartbeat.catch_up_pending_since
+      results.push("mention catch-up has been failing since #{pending.getlocal.iso8601}") if pending
       return results
     end
 
     # 🔴 **外すフォローが歯止めを超えて止まっている**（#614）。⚠ 再起動では直らないので、前の常駐の痕跡も言う。
     def follow_warnings
       found = Heartbeat.follow_over_limit
-      return [] unless found
+      # ⚠ 突き合わせを切ってあれば言わない（消す `sync` が走らない・v1.0.1 のリリース前レビュー）。
+      return [] unless found && FollowSync.enabled?
       since = found[:since]&.getlocal&.iso8601
       held = "follow sync is holding #{found[:count]} unfollows (over the limit #{found[:limit]})"
       return ["#{held} since #{since} — check with `makoto chat follow-sync`"]

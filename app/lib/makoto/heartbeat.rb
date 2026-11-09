@@ -218,7 +218,9 @@ module Makoto
       def record_start(now: nil)
         time = now || Time.now
         return update do |record|
-          cleaned = forget_future(record, time)
+          # ⚠ **前の常駐が書いた死んだスレッドを消す**（v1.0.1 のリリース前レビュー）— 止める途中の tick が、殺した
+          # スレッドを書きうる。消さないと、起き上がってから最初の tick までの間、いまの常駐の warning に見える。
+          cleaned = forget_future(record, time).except(:dead_threads)
           started = parse_time(cleaned[:started_at])
           ticked = parse_time(cleaned[:ticked_at])
           # ⚠ 前回の猶予がまだ 1 回も tick で解消されていなければ、据え置く。
