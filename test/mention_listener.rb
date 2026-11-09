@@ -23,6 +23,8 @@ module Makoto
       FileUtils.rm_f(Heartbeat.lock_path)
     end
 
+    SSE = {'Content-Type' => 'text/event-stream; charset=utf-8'}.freeze
+
     def service
       return FakeService.new('https://streaming.example.com/api/v1/streaming/user/notification')
     end
@@ -184,7 +186,7 @@ module Makoto
     def test_open_stream_passes_the_body
       stub_request(:get, service.uri)
         .with(headers: {'Authorization' => 'Bearer x'})
-        .to_return(status: 200, body: ":thump\n#{mention}")
+        .to_return(status: 200, body: ":thump\n#{mention}", headers: SSE)
       received = []
       listener = MentionListener.new(service: service, handler: ->(n) {received.push(n['id'])})
       parser = ServerSentEvents.new
@@ -193,6 +195,31 @@ module Makoto
       end
 
       assert_equal(['1'], received)
+    end
+
+    # 🔴 **2xx でも SSE でなければ失敗として上げる**（#616）。⚠ 本文は渡さない（痕跡を書かない）。
+    def test_open_stream_rejects_a_non_sse_body
+      stub_request(:get, service.uri)
+        .to_return(status: 200, body: '<html>maintenance</html>', headers: {'Content-Type' => 'text/html'})
+      received = []
+      listener = MentionListener.new(service: service)
+
+      assert_raise(Ginseng::GatewayError) do
+        listener.send(:open_stream, service.streaming_uri, service.streaming_headers) {|c| received.push(c)}
+      end
+      assert_empty(received)
+    end
+
+    # ⚠ 繋ぎ直しの数え方まで（`listen` が失敗として数え、待ちが延びる・痕跡は書かない）。
+    def test_a_non_sse_body_counts_as_a_failure
+      stub_request(:get, service.uri)
+        .to_return(status: 200, body: ':thump', headers: {'Content-Type' => 'text/html'})
+      listener = MentionListener.new(service: service)
+      listener.listen
+      listener.listen
+
+      assert_equal(2, listener.failures)
+      assert_nil(Heartbeat.streamed_at)
     end
   end
 end
