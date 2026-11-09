@@ -100,17 +100,30 @@ module Makoto
     # ブロック関係の相手に 403、凍結された相手に 404 を返す。一覧は毎回同じ順なので、1 人で止めると、
     # その後ろの全員にずっと返せない。⚠ 失敗した相手は ID をログに出し、次の回にまた試す。
     # ⚠ Sentry には送らない（恒久的に断られる相手がいると毎時鳴る）。
-    def sync
-      return nil unless roster.refresh
-      following = service.following_ids.to_set(&:to_s)
-      # ⚠ **フォロワーの写しは、フォロー中の一覧を引いた後に取る**（リリース前レビュー）。先に取ると、
-      # その間に来たフォローを返した相手が「フォロー中なのにフォロワーでない」になり、すぐ外してしまう。
-      to_follow, to_unfollow = plan(roster.ids, following)
-      to_unfollow = over_limit(to_unfollow) if to_unfollow.size > unfollow_limit
+    #
+    # @param force [Boolean] 外す数の歯止めを今回だけ外す（#614・オーナーが `makoto chat follow-sync --apply` で）
+    def sync(force: false)
+      to_follow, to_unfollow = preview
+      return nil unless to_follow
+      if !force && to_unfollow.size > unfollow_limit
+        to_unfollow = over_limit(to_unfollow)
+      else
+        trace(:clear_follow_over_limit)
+      end
       return apply(to_follow, to_unfollow)
     rescue => e
       logger.warn(follow: 'sync', message: 'could not sync', error_class: e.class.name, error: e)
       return nil
+    end
+
+    # 返す ID と外す ID（#614）。⚠ 何もしない。⚠ 一覧が引けなければ nil。
+    # @return [Array<Set>, nil]
+    def preview
+      return nil unless roster.refresh
+      following = service.following_ids.to_set(&:to_s)
+      # ⚠ **フォロワーの写しは、フォロー中の一覧を引いた後に取る**（リリース前レビュー）。先に取ると、
+      # その間に来たフォローを返した相手が「フォロー中なのにフォロワーでない」になり、すぐ外してしまう。
+      return plan(roster.ids, following)
     end
 
     private
@@ -162,13 +175,25 @@ module Makoto
       return action
     end
 
+    # 🔴 **超えたら 1 人も外さず、知らせる**（#614・2026-11-10 オーナー判断）。⚠⚠ 歯止めは「一覧が欠けて全員を
+    # 外す」事故を防ぐためのもの。わざと踏まれると毎回止まるが、外すかは人が決める（`makoto chat follow-sync`）。
+    # ⚠ `makoto status` の warning に出し、Sentry は止まり始めた 1 回だけ（毎時鳴らさない）。
     def over_limit(to_unfollow)
       error = Ginseng::GatewayError.new(
         "follow: #{to_unfollow.size} accounts to unfollow is over the limit (#{unfollow_limit})",
       )
       logger.error(follow: 'sync', message: error.message)
-      report_error(error, follow: 'sync')
+      first = Heartbeat.follow_over_limit.nil?
+      trace(:record_follow_over_limit, to_unfollow.size, unfollow_limit)
+      report_error(error, follow: 'sync') if first
       return Set.new
+    end
+
+    # ⚠ **痕跡が書けなくても突き合わせは止めない**（観測のためのもの）。
+    def trace(method, *)
+      Heartbeat.public_send(method, *)
+    rescue => e
+      logger.error(follow: 'sync', error: e)
     end
 
     # 返事を止めている相手か（#20 の `chat block` と、ペナルティ）。

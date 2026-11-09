@@ -97,6 +97,23 @@ module Makoto
       puts "unblocked: @#{row[:acct]}"
     end
 
+    # 🔴 **外すフォローの歯止めを超えて止まったときの口**（#614・2026-11-10 オーナー判断）。⚠ 既定は見るだけ。
+    # ⚠ `--apply` は歯止めを今回だけ外して突き合わせる（常駐の次の回からは、また歯止めが効く）。
+    desc 'follow-sync', '返す・外すフォローを表示する（--apply で歯止めを外して 1 回だけ通す）'
+    option :apply, type: :boolean, default: false, desc: '歯止めを外して実行する'
+    def follow_sync
+      unless options[:apply]
+        to_follow, to_unfollow = syncer.preview
+        return fail_with('フォロワーの一覧を引けませんでした（ログを見てください）') unless to_follow
+        puts "follow: #{to_follow.size} #{to_follow.to_a.join(' ')}".strip
+        puts "unfollow: #{to_unfollow.size} #{to_unfollow.to_a.join(' ')}".strip
+        return puts("limit: #{config['/chat/follow/unfollow_limit']}（--apply で歯止めを外して実行）")
+      end
+      result = syncer.sync(force: true)
+      return fail_with('フォロワーの一覧を引けませんでした（ログを見てください）') unless result
+      puts "followed: #{result[:followed].size} unfollowed: #{result[:unfollowed].size}"
+    end
+
     desc 'blocks', '返事をしない相手の一覧'
     def blocks
       rows = repository.all_blocks
@@ -107,6 +124,17 @@ module Makoto
     end
 
     private
+
+    # ⚠ テストが差し替える（`@syncer`）。
+    def syncer
+      @syncer ||= FollowSync.new
+      return @syncer
+    end
+
+    def fail_with(message)
+      warn message
+      exit 1
+    end
 
     # ⚠ テストが差し替える（`@repository` / `@mastodon`）。
     def repository

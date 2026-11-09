@@ -165,5 +165,55 @@ module Makoto
       assert_true(exited)
       assert_match('ペナルティの記録がありません: cure_sword', err)
     end
+
+    # `preview` / `sync` だけを持つ作り物（#614）。
+    class FakeSync
+      attr_reader :forced
+
+      def initialize(plan)
+        @plan = plan
+      end
+
+      def preview
+        return @plan
+      end
+
+      def sync(force: false)
+        @forced = force
+        return nil unless @plan
+        return {followed: @plan[0].to_a, unfollowed: @plan[1].to_a}
+      end
+    end
+
+    def sync_command(plan, options = {})
+      subject = command(options)
+      @sync = FakeSync.new(plan)
+      subject.instance_variable_set(:@syncer, @sync)
+      return subject
+    end
+
+    # 🔴 **既定は見るだけ**（#614）。
+    def test_follow_sync_previews
+      out, _, exited = run_command {sync_command([Set['3'], Set['4', '5']]).follow_sync}
+
+      assert_false(exited)
+      assert_match("follow: 1 3\nunfollow: 2 4 5\nlimit: ", out)
+      assert_nil(@sync.forced)
+    end
+
+    # 🔴 **`--apply` は歯止めを外して 1 回だけ通す**（#614）。
+    def test_follow_sync_applies_with_force
+      out, = run_command {sync_command([Set['3'], Set['4', '5']], {apply: true}).follow_sync}
+
+      assert_equal("followed: 1 unfollowed: 2\n", out)
+      assert_true(@sync.forced)
+    end
+
+    def test_follow_sync_without_followers
+      _, err, exited = run_command {sync_command(nil).follow_sync}
+
+      assert_true(exited)
+      assert_match('フォロワーの一覧を引けませんでした', err)
+    end
   end
 end

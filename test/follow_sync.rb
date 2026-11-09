@@ -193,5 +193,52 @@ module Makoto
 
       assert_equal([FollowSync::FALLBACK_INTERVAL], waits)
     end
+
+    # 🔴 **歯止めを超えたら痕跡に残し、Sentry は止まり始めた 1 回だけ**（#614）。⚠ 歯止めの内に戻れば消える。
+    def test_over_the_limit_is_traced_and_reported_once
+      FileUtils.rm_f(Heartbeat.path)
+      config['/chat/follow/unfollow_limit'] = 2
+      @followers = []
+      @service.following = ['1', '2', '3']
+      reported = []
+      subject.define_singleton_method(:report_error) {|error, **| reported.push(error.message)}
+      2.times {subject.sync}
+
+      assert_equal(1, reported.size)
+      assert_equal({count: 3, limit: 2}, Heartbeat.follow_over_limit.slice(:count, :limit))
+      @service.following = ['1']
+      subject.sync
+
+      assert_nil(Heartbeat.follow_over_limit)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # 🔴 **人が通すときは歯止めを外す**（#614・`makoto chat follow-sync --apply`）。
+    def test_force_ignores_the_limit
+      FileUtils.rm_f(Heartbeat.path)
+      config['/chat/follow/unfollow_limit'] = 2
+      @followers = []
+      @service.following = ['1', '2', '3']
+      subject.define_singleton_method(:report_error) {|*, **| nil}
+      subject.sync
+
+      assert_equal(['1', '2', '3'], subject.sync(force: true)[:unfollowed].sort)
+      assert_nil(Heartbeat.follow_over_limit)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # ⚠ 見るだけ（何もしない）。
+    def test_preview
+      config['/chat/follow/unfollow_limit'] = 2
+      @service.following = ['1', '4']
+      to_follow, to_unfollow = subject.preview
+
+      assert_equal(['2', '3'], to_follow.to_a.sort)
+      assert_equal(['4'], to_unfollow.to_a)
+      assert_empty(@service.followed)
+      assert_empty(@service.unfollowed)
+    end
   end
 end

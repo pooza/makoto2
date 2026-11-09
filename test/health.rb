@@ -723,5 +723,17 @@ module Makoto
 
       assert_empty(health(pid: Process.pid).thread_warnings)
     end
+
+    # 🔴 **外すフォローが歯止めで止まっていたら言う**（#614）。
+    def test_a_held_unfollow_is_a_warning
+      beat
+      Heartbeat.record_follow_over_limit(25, 20, now: now)
+
+      assert_match(/\Afollow sync is holding 25 unfollows \(over the limit 20\) since 2026-11-04T12:00:00/,
+        health(pid: Process.pid).follow_warnings.first)
+      Heartbeat.clear_follow_over_limit
+
+      assert_empty(health(pid: Process.pid).follow_warnings)
+    end
   end
 end
