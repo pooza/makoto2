@@ -99,6 +99,8 @@ module Makoto
       # ⚠ **繋がらなくても常駐は止めない**（→ `MentionListener`）。
       # 🔴 **返事は受信とは別のスレッド**（#18 → `ChatResponder`）。⚠ キーが無い・切ってあるなら起こさない。
       chat_responder&.start
+      # 🔴 **フォローの突き合わせも別スレッド**（#606）。⚠ 切ってある・受信を切ってあるなら起こさない。
+      follow_sync.start
       mention_listener.start
       Scheduler.instance.exec
     rescue => e
@@ -117,6 +119,7 @@ module Makoto
       monitor_server.stop
       # ⚠ **受信のスレッドも畳む**（#29・孤児を残さない）。
       mention_listener.stop
+      follow_sync.stop
       chat_responder&.stop
       Scheduler.instance.shutdown
     end
@@ -127,8 +130,14 @@ module Makoto
     end
 
     def mention_listener
-      @mention_listener ||= MentionListener.new(handler: chat_responder)
+      @mention_listener ||= MentionListener.new(handler: chat_responder, follower: follow_sync)
       return @mention_listener
+    end
+
+    # ⚠ **切ってあってもフォローの通知は受ける**（一覧に足す・#510）。スレッドは `start` が起こさない（#606）。
+    def follow_sync
+      @follow_sync ||= FollowSync.new
+      return @follow_sync
     end
 
     # ⚠ **返事をしないなら nil**（受信はログに出すだけ・#29 の形）。

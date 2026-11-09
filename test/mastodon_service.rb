@@ -454,6 +454,35 @@ module Makoto
       assert_equal(['1'], MastodonService.new.follower_ids)
     end
 
+    # フォロー中の一覧も同じ引き方（#606）。
+    def test_following_ids
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/following"
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '5'}].to_json,
+        headers: {'Content-Type' => 'application/json'})
+
+      assert_equal(['5'], MastodonService.new.following_ids)
+    end
+
+    def test_follow_and_unfollow
+      base = "#{config['/mastodon/url']}/api/v1/accounts/9"
+      json = {'Content-Type' => 'application/json'}
+      stub_request(:post, "#{base}/follow").to_return(status: 200, headers: json,
+        body: {id: '9', following: false, requested: true}.to_json)
+      stub_request(:post, "#{base}/unfollow").to_return(status: 200, headers: json,
+        body: {id: '9', following: false}.to_json)
+      service = MastodonService.new
+
+      assert_true(service.follow('9')['requested'])
+      assert_false(service.unfollow('9')['following'])
+    end
+
+    def test_follow_raises_on_permanent_failure
+      stub_request(:post, "#{config['/mastodon/url']}/api/v1/accounts/9/follow").to_return(status: 403, body: '{}')
+
+      assert_raise(Ginseng::AuthError) {MastodonService.new.follow('9')}
+    end
+
     # 🔴 **SSE の口は申告された `streaming_api` から組む**（#29）。⚠ `wss://` は `https://` へ。
     # ⚠⚠ **トークンをクエリに載せない**（ヘッダで渡す）。
     def test_streaming_uri

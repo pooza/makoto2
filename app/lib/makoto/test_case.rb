@@ -33,6 +33,7 @@ module Makoto
     # ⚠ チャットのテストは、要る設定を自分で入れる。⚠ **`config.reload` のあとは呼び直す**（上書きが消える）。
     def quiet_chat
       config['/chat/enabled'] = false
+      config['/chat/follow/enabled'] = false
       config['/anthropic/api_key'] = ''
     end
 
