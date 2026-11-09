@@ -31,6 +31,7 @@ module Makoto
   # ⚠⚠ **本文をログに出さない**（相手の投稿も MAKOTO の返事も）。
   class ChatResponder
     include Package
+    include ChatOwnerNotice
 
     # ⚠ 溜まった通知の上限。⚠ 門の全体の上限（1 日 150 回）より十分小さければよい。
     QUEUE_MAX = 50
@@ -45,17 +46,8 @@ module Makoto
       'direct' => 'direct',
     }.freeze
 
-    OWNER_NOTICE_TYPE = 'chat_owner_notice'.freeze
-
     # 🔴 **1 回目はペナルティにしない印**（→ クラスの冒頭）。
     GRACE_MARKS = ['provoke', 'backstage'].freeze
-
-    # オーナーへの DM に入れる印の言い方。⚠ 真琴の口調の文ではない（原稿の `{reason}` に入る）。
-    REASONS = {
-      'provoke' => '繰り返し言わせようとした',
-      'backstage' => '舞台裏を繰り返し訊いた',
-      'impersonate' => '運営を名乗った',
-    }.freeze
 
     attr_reader :thread
 
@@ -92,21 +84,22 @@ module Makoto
     # ⚠ **TERM の trap から呼ばれる**ので Mutex を掴まない（→ `MentionListener#stop`）。
     def stop
       return nil unless @thread
-      @thread.kill
-      @thread.join(JOIN_TIMEOUT)
+      # 🔴 **処理中の 1 通は、終わるのを少し待つ**（v1.0.1 のリリース前レビュー・3 観点）。⚠ 待っても終わらなければ
+      # 殺し、その通知は起点に書かない（→ `handle_safely`）— 再起動のあと追いついて拾い直す。
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + JOIN_TIMEOUT
+      sleep(0.1) while @busy && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+      @thread.kill.join(JOIN_TIMEOUT)
       return nil
     rescue ThreadError
       return nil
     end
 
     # 受信の口から呼ばれる。⚠ **待たない**（積むだけ）。
-    def call(notification)
-      if @queue.size >= QUEUE_MAX
-        logger.warn(chat: 'queue', message: 'dropped', notification_id: notification['id'])
-        return nil
-      end
+    # @param received_at [Time] ⚠ 追いついた通知（#610）は投稿の時刻（窓の中の締め切りを効かせる）
+    def call(notification, received_at = Time.now)
       # ⚠ **受けた時刻を一緒に積む**（窓の中の締め切りは、待ち行列で待った時間も含めて測る → #599）。
-      @queue.push([notification, Time.now])
+      return @queue.push([notification, received_at]) && nil if @queue.size < QUEUE_MAX
+      logger.warn(chat: 'queue', message: 'dropped', notification_id: notification['id'])
       return nil
     end
 
@@ -121,21 +114,35 @@ module Makoto
       decision = gate.decide(account)
       return done(decision.reason, notification) if decision.silent?
       return notice(account, status, decision, notification) if decision.notice?
+      # ⚠ **LLM を呼ぶ前にも窓の締め切りを見る**（v1.0.1 のリリース前レビュー）— 追いついた通知（#610）は受けた時刻が
+      # 投稿の時刻なので、窓の中では呼ぶ前から締め切りを過ぎていることが多い（費用と回数を使わない）。
+      return done(:late_in_window, notification) if gate.late?(received_at)
       return respond(account, status, decision, notification, received_at)
     end
 
-    def reply_visibility(status)
-      return REPLY_VISIBILITY.fetch(status['visibility'].to_s, 'direct')
+    # @param visibility [String] 渡した投稿のうち最も狭い公開範囲（→ `ChatThread#visibility`・#613）
+    def reply_visibility(visibility)
+      return REPLY_VISIBILITY.fetch(visibility.to_s, 'direct')
     end
 
     private
 
+    # 🔴 **処理し終えた通知の ID を残す**（#610 → `MentionCatchUp`）。⚠⚠ **落ちたときも残す**（PR #633 の Codex の
+    # P2）— 残さないと、再起動のあと追いついた同じ通知で LLM をもう一度呼び、回数も重ねて数える。
+    #
+    # ⚠⚠ **殺されたときは書かない**（v1.0.1 のリリース前レビュー）— `Thread#kill` でも `ensure` は走るので、返事を
+    # 作っている途中で止めた通知が「処理し終えた」になり、再起動のあと二度と引かれなかった。
     def handle_safely(notification, received_at)
+      @busy = true
       handle(notification, received_at)
     rescue => e
       # ⚠⚠ **1 通の失敗で処理のスレッドを止めない。**
       logger.error(chat: 'respond', notification_id: notification['id'], error: e)
       report_error(e, chat: 'respond')
+    ensure
+      killed = Thread.current.status == 'aborting'
+      Heartbeat.checkpoint_notification(notification['id']) unless killed
+      @busy = false
     end
 
     def respond(account, status, decision, notification, received_at)
@@ -153,7 +160,7 @@ module Makoto
       handle_marks(account, status, thread, reply.marks)
       return done(:no_reply, notification, marks: reply.marks) if reply.silent?
       return done(:late_in_window, notification, marks: reply.marks) if gate.late?(received_at)
-      post_reply(account, status, reply.text)
+      post_reply(account, status, reply.text, thread)
       return done(:respond, notification, marks: reply.marks)
     end
 
@@ -185,42 +192,13 @@ module Makoto
       return repository.count(mark, since, account_id: account['id']).positive?
     end
 
-    # 🔴 **オーナーへ DM で知らせる**（#510）。⚠ モデレーションの判断に足りる材料を載せる。
-    #
-    # 🔴🔴 **相手をメンションしない**（PR #589 の Codex の P1）。⚠⚠ **DM は本文でメンションした全員に
-    # 届く**ので、`@相手` と書くと、オーナーだけへの知らせ（理由・回数・期限）が当の相手にも届く。
-    # ⚠ `{acct}` は先頭の `@` を外す（`user@host` は `@` の前が文字なのでメンションにならない）。
-    def notify_owner(account, status, penalty, reasons)
-      values = {
-        acct: account['acct'].to_s.delete_prefix('@'),
-        url: status['url'].to_s,
-        marks: penalty[:marks].to_s,
-        until: penalty[:until_at]&.strftime('%Y-%m-%d %H:%M').to_s,
-        reason: reasons.map {|reason| REASONS.fetch(reason)}.join('・'),
-      }
-      body = pick(OWNER_NOTICE_TYPE)
-      unless body
-        # ⚠ 原稿が無くても知らせは落とさない（オーナーにだけ届く・口調の文でなくてよい）。
-        logger.warn(chat: 'owner', message: 'no script, sending a plain notice')
-        body = '{acct} に印が付きました（{reason}・{marks} 回目・{until} まで応答しません）{url}'
-      end
-      text = "@#{config['/chat/owner']} #{render(body, values)}"
-      key = "makoto-chat-owner-#{status['id']}"
-      service.post_status(text, visibility: 'direct', idempotency_key: key)
-      logger.info(chat: 'owner', acct: account['acct'], reasons: reasons, marks: penalty[:marks])
-    end
-
-    def render(body, values)
-      return body.gsub(/\{(\w+)\}/) do
-        values.fetch(Regexp.last_match(1).to_sym, Regexp.last_match(0))
-      end
-    end
-
     # 🔴 **本文の `@` はメンションにしない**（→ `ChatThread.unmention`）。⚠ 宛先の `@相手` だけをここで付ける。
-    def post_reply(account, status, text)
+    # 🔴 **会話への返事は、渡した投稿のうち最も狭い公開範囲に合わせる**（→ `ChatThread#visibility`・#613）。
+    # ⚠ 決まった文（`notice`）は祖先を引かないので、メンションの公開範囲で返す（会話の中身を含まない）。
+    def post_reply(account, status, text, thread = nil)
       service.post_status(
         "@#{account['acct']} #{ChatThread.unmention(text)}",
-        visibility: reply_visibility(status),
+        visibility: reply_visibility(thread ? thread.visibility : status['visibility']),
         in_reply_to_id: status['id'],
         # ⚠ **同じ通知に 2 度返さない**（繋ぎ直しで同じ通知が届いても畳まれる）。
         idempotency_key: "makoto-chat-#{status['id']}",

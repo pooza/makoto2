@@ -6,7 +6,7 @@ module Makoto
     include ProcessIdentity
 
     # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
-    # ginseng-upstream: pooza/ginseng-core#756（`proc_dir` は身元の判定をテストで差し替える口）
+    # ginseng-upstream: no — 身元の判定（→ `alive_state_of`）をテストで差し替える口
     def initialize(opts = {})
       super
       @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
@@ -50,7 +50,12 @@ module Makoto
     # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
     # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
     # `:unknown` という 3 つ目の答えとして上流に入った。**
-    # ginseng-upstream: pooza/ginseng-core#756
+    # ## ⚠ 上流の `process_pattern` へは寄せない（#605・ginseng-core 7.0.0 で確認）
+    #
+    # 上流は `ps` のコマンド行を正規表現 1 本で照合する。こちらはインタプリタ越しの起動（`ruby … makoto_daemon.rb`）・
+    # 一時的なサブコマンド（`stop` / `status`）を argv を解いて見分け、`/proc` を差し替えるテストで縛っている
+    # （→ `ProcessIdentity`）。⚠ 上流の「確かめられないときは送らずに exit 1」（#756）は、ここが例外を上げたときに効く。
+    # ginseng-upstream: no — argv の解釈と `/proc` の差し替えはこのアプリのテストの都合
     def alive_state_of(found)
       state = super
       return state unless state == :alive
@@ -98,10 +103,8 @@ module Makoto
       # 🔴 **メンションの受信は別スレッド**（#29）。⚠⚠ **`Scheduler#exec` は戻らない**ので、その前に。
       # ⚠ **繋がらなくても常駐は止めない**（→ `MentionListener`）。
       # 🔴 **返事は受信とは別のスレッド**（#18 → `ChatResponder`）。⚠ キーが無い・切ってあるなら起こさない。
-      chat_responder&.start
       # 🔴 **フォローの突き合わせも別スレッド**（#606）。⚠ 切ってある・受信を切ってあるなら起こさない。
-      follow_sync.start
-      mention_listener.start
+      start_threads
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -122,6 +125,18 @@ module Makoto
       follow_sync.stop
       chat_responder&.stop
       Scheduler.instance.shutdown
+    end
+
+    # 🔴 **別スレッドの生死を tick が見て痕跡に書く**（#611 → `makoto status`）。⚠ 起こしていないものは見ない。
+    def start_threads
+      chat_responder&.start
+      follow_sync.start
+      # 🔴 **繋がったら取りこぼしに追いつく**（#610）。⚠ 返事をしないなら追いつかない。
+      mention_listener.catch_up = chat_responder && MentionCatchUp.new(handler: chat_responder)
+      mention_listener.start
+      # ⚠ 名前はスレッド自身の名前（`makoto-chat` / `makoto-follow` / `makoto-stream`）。
+      workers = [chat_responder, follow_sync, mention_listener]
+      Scheduler.instance.thread_watch = -> {workers.filter_map {|w| w&.thread}.index_by(&:name)}
     end
 
     def monitor_server
@@ -265,7 +280,7 @@ module Makoto
     # `run_stop` は pid ファイルを読み直す**ので、**確かめてから送るまでの間に
     # 後継が新しい pid を書けば、身元を確かめていない相手へ `TERM` が飛ぶ。**
     # ⚠⚠ **まさに `remove_pid(expected)`（上流 `#532`）が相手にしている競り合い。**
-    # ginseng-upstream: pooza/ginseng-core#756
+    # ginseng-upstream: no — `alive_state_of` と同じ（身元の判定をこのアプリで持つ）
     def send_signal(signal, target)
       return nil unless stoppable?(target)
       return super

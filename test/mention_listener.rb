@@ -23,6 +23,8 @@ module Makoto
       FileUtils.rm_f(Heartbeat.lock_path)
     end
 
+    SSE = {'Content-Type' => 'text/event-stream; charset=utf-8'}.freeze
+
     def service
       return FakeService.new('https://streaming.example.com/api/v1/streaming/user/notification')
     end
@@ -184,7 +186,7 @@ module Makoto
     def test_open_stream_passes_the_body
       stub_request(:get, service.uri)
         .with(headers: {'Authorization' => 'Bearer x'})
-        .to_return(status: 200, body: ":thump\n#{mention}")
+        .to_return(status: 200, body: ":thump\n#{mention}", headers: SSE)
       received = []
       listener = MentionListener.new(service: service, handler: ->(n) {received.push(n['id'])})
       parser = ServerSentEvents.new
@@ -193,6 +195,67 @@ module Makoto
       end
 
       assert_equal(['1'], received)
+    end
+
+    # 🔴 **2xx でも SSE でなければ失敗として上げる**（#616）。⚠ 本文は渡さない（痕跡を書かない）。
+    def test_open_stream_rejects_a_non_sse_body
+      stub_request(:get, service.uri)
+        .to_return(status: 200, body: '<html>maintenance</html>', headers: {'Content-Type' => 'text/html'})
+      received = []
+      listener = MentionListener.new(service: service)
+
+      assert_raise(Ginseng::GatewayError) do
+        listener.send(:open_stream, service.streaming_uri, service.streaming_headers) {|c| received.push(c)}
+      end
+      assert_empty(received)
+    end
+
+    # ⚠ 繋ぎ直しの数え方まで（`listen` が失敗として数え、待ちが延びる・痕跡は書かない）。
+    def test_a_non_sse_body_counts_as_a_failure
+      stub_request(:get, service.uri)
+        .to_return(status: 200, body: ':thump', headers: {'Content-Type' => 'text/html'})
+      listener = MentionListener.new(service: service)
+      listener.listen
+      listener.listen
+
+      assert_equal(2, listener.failures)
+      assert_nil(Heartbeat.streamed_at)
+    end
+
+    # 🔴 **繋がって最初に何か届いたら追いつく。繋ぎ直すたびに 1 回**（#610）。
+    def test_catch_up_runs_once_per_connection
+      caught = 0
+      ref = {}
+      steps = [[':thump', mention], Errno::ECONNRESET.new, [':thump'], [mention(id: '2')]]
+      listener = MentionListener.new(
+        service: service,
+        opener: scripted_opener(steps, ref),
+        sleeper: ->(_) {},
+        handler: ->(_) {},
+      )
+      listener.catch_up = -> {caught += 1}
+      ref[:listener] = listener
+      listener.run
+
+      assert_equal(3, caught)
+    end
+
+    # 🔴 **追いつけなかったら、次に届いたときにもう一度**（間を空けて・PR #633 の Codex の P2）。
+    def test_catch_up_is_retried_after_a_failure
+      results = [false, 1]
+      calls = 0
+      listener = MentionListener.new(service: service, handler: ->(_) {})
+      listener.catch_up = -> {(calls += 1) && results.shift}
+      parser = ServerSentEvents.new
+      listener.receive(':thump', parser)
+      listener.receive(':thump', parser)
+
+      assert_equal(1, calls)
+      listener.instance_variable_set(:@catch_up_tried_at, 0)
+      listener.receive(':thump', parser)
+      listener.receive(':thump', parser)
+
+      assert_equal(2, calls)
     end
   end
 end

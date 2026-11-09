@@ -171,8 +171,12 @@ module Makoto
       #
       # ⚠ **記録するのは終わった時刻。**始めた時刻にすると、⚠⚠ **90 秒かかった tick が
       # 「90 秒前に回った」ことになり、詰まりを短く見せる。**
-      def record_tick(now: nil)
+      #
+      # 🔴 **死んでいる別スレッドの名前も書く**（#611）。⚠⚠ 死んだスレッドは自分で痕跡を書けないので、
+      # 生きている tick が見て書く。⚠ 渡されたときだけ書き直す（空なら空で上書きする）。
+      def record_tick(now: nil, dead_threads: nil)
         return update do |record|
+          record = record.merge(dead_threads:) if dead_threads
           record.merge(ticked_at: (now || Time.now).getutc.iso8601)
         end
       end
@@ -214,7 +218,9 @@ module Makoto
       def record_start(now: nil)
         time = now || Time.now
         return update do |record|
-          cleaned = forget_future(record, time)
+          # ⚠ **前の常駐が書いた死んだスレッドを消す**（v1.0.1 のリリース前レビュー）— 止める途中の tick が、殺した
+          # スレッドを書きうる。消さないと、起き上がってから最初の tick までの間、いまの常駐の warning に見える。
+          cleaned = forget_future(record, time).except(:dead_threads)
           started = parse_time(cleaned[:started_at])
           ticked = parse_time(cleaned[:ticked_at])
           # ⚠ 前回の猶予がまだ 1 回も tick で解消されていなければ、据え置く。

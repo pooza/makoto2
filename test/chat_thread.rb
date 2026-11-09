@@ -2,12 +2,14 @@ module Makoto
   class ChatThreadTest < TestCase
     OWN = '100'.freeze
 
-    def post(id, account_id, html, acct: "user#{account_id}", reply_to: nil)
+    # @param options [Hash] `acct:` / `reply_to:` / `visibility:`（既定は公開）
+    def post(id, account_id, html, **options)
       return {
         'id' => id,
-        'in_reply_to_id' => reply_to,
+        'in_reply_to_id' => options[:reply_to],
+        'visibility' => options.fetch(:visibility, 'public'),
         'content' => html,
-        'account' => {'id' => account_id, 'acct' => acct},
+        'account' => {'id' => account_id, 'acct' => options.fetch(:acct, "user#{account_id}")},
       }
     end
 
@@ -81,6 +83,41 @@ module Makoto
     # ⚠ 祖先が引けなかったときは、返信先で代える。
     def test_the_root_falls_back_to_the_reply_target
       assert_equal('5', ChatThread.new(mention(reply_to: '5'), [], own_id: OWN).root_id)
+    end
+
+    # 🔴 **第三者の閉じた投稿は渡さない**（#613）。⚠ MAKOTO と本人のものは渡す。根は落とす前で決める。
+    def test_closed_posts_of_others_are_not_passed
+      ancestors = [
+        post('1', '2', '<p>フォロワーだけに</p>', acct: 'other', visibility: 'private'),
+        post('2', '1', '<p>@makoto ねえ</p>', reply_to: '1', visibility: 'private'),
+        post('3', OWN, '<p>うん</p>', acct: 'makoto', reply_to: '2', visibility: 'private'),
+        post('4', '2', '<p>内緒の話</p>', acct: 'other', reply_to: '3', visibility: 'direct'),
+      ]
+      thread = ChatThread.new(mention('<p>@makoto どう思う？</p>', reply_to: '4'), ancestors, own_id: OWN)
+
+      assert_equal([
+        {role: 'user', content: 'ねえ'},
+        {role: 'assistant', content: 'うん'},
+        {role: 'user', content: 'どう思う？'},
+      ], thread.messages)
+      assert_equal('1', thread.root_id)
+    end
+
+    # 🔴 **公開範囲は渡した投稿のうち最も狭いもの**（#613）。⚠ 渡さなかった投稿は数えない。
+    def test_visibility_is_the_narrowest_of_what_is_passed
+      assert_equal('public', ChatThread.new(mention, [], own_id: OWN).visibility)
+
+      own_private = [post('1', OWN, '<p>うん</p>', acct: 'makoto', visibility: 'private')]
+
+      assert_equal('private', ChatThread.new(mention(reply_to: '1'), own_private, own_id: OWN).visibility)
+
+      others_direct = [post('1', '2', '<p>内緒</p>', acct: 'other', visibility: 'direct')]
+
+      assert_equal('public', ChatThread.new(mention(reply_to: '1'), others_direct, own_id: OWN).visibility)
+
+      unknown = [post('1', '1', '<p>?</p>', visibility: nil)]
+
+      assert_equal('direct', ChatThread.new(mention(reply_to: '1'), unknown, own_id: OWN).visibility)
     end
   end
 end

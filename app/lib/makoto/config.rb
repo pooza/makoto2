@@ -13,8 +13,52 @@ module Makoto
     #
     # ⚠ **設定を書き換えたら `reload` で捨てる。**
     def validation_errors
-      @validation_errors ||= errors.map {|message| sanitize_error(message)}
+      @validation_errors ||= errors.map {|message| sanitize_error(message)} + duration_errors
       return @validation_errors
+    end
+
+    # 期間として読む設定（Fugit で秒に直す）。⚠ **新しく足したら、ここにも足す。**
+    DURATION_KEYS = [
+      '/chat/grace/window',
+      '/chat/commentary/deadline',
+      '/chat/catch_up/max_age',
+      '/chat/model/timeout',
+      '/chat/followers/refresh',
+      '/streaming/stale',
+      '/streaming/retry/base',
+      '/streaming/retry/max',
+      '/scheduler/tick',
+      '/scheduler/tolerance',
+      '/scheduler/heartbeat/interval',
+      '/scheduler/tick_stale',
+      '/scheduler/posting/failure_stale',
+    ].freeze
+
+    # 期間の配列（n 回目の印のペナルティの長さ）。
+    DURATION_LIST_KEYS = ['/chat/penalty'].freeze
+
+    # 🔴 **期間の書き損じを、使う瞬間ではなく検査で拾う**（#612）。⚠⚠ **schema は `type: string`
+    # しか見ない**ので、`30x` のような値は lint を通り、**本番で初めて `ConfigError` で黙る**
+    # （`deadline` / `timeout` は全員に黙る・`streaming/stale` は `makoto status` が落ちる）。
+    # ⚠ **無いキーは見ない**（必須かどうかは schema の役目）。
+    #
+    # @param values [#key?, #[]] ⚠ テストが差し替える（平たいキーの Hash）
+    # @return [Array<String>]
+    def duration_errors(values = self)
+      found = DURATION_KEYS.filter_map do |key|
+        next unless values.key?(key)
+        "#{key}: '#{values[key]}' is not a positive duration" unless positive_duration?(values[key])
+      end
+      DURATION_LIST_KEYS.each do |key|
+        next unless values.key?(key)
+        list = values[key]
+        next found.push("#{key}: must be a non-empty list") unless list.is_a?(Array) && list.any?
+        list.each_with_index do |value, i|
+          next if positive_duration?(value)
+          found.push("#{key}[#{i}]: '#{value}' is not a positive duration")
+        end
+      end
+      return found
     end
 
     # ginseng-upstream: no — 捨てるのはこのアプリが足した `validation_errors` のメモ
@@ -61,6 +105,12 @@ module Makoto
     end
 
     private
+
+    def positive_duration?(value)
+      return Fugit::Duration.parse(value.to_s)&.to_sec&.positive? || false
+    rescue ArgumentError
+      return false
+    end
 
     # 🔴 **検査エラーは値そのものを本文に載せる** — ⚠ **json-schema がそうするのは
     # `pattern` / `enum` / `const` の 3 つだけ**（`type` などは載せない）。

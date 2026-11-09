@@ -35,10 +35,19 @@ module Makoto
     # 奪い合う**（`:thump` だけで 1 時間 240 回）。⚠ 検知の閾値（`/streaming/stale`）より十分短いこと。
     RECORD_INTERVAL = 30
 
+    # 追いつけなかったときに、もう一度試すまでの間（秒・#610）。⚠ `:thump` は 15 秒ごとに届く。
+    CATCH_UP_RETRY = 60
+
+    # SSE の Content-Type（#616）。
+    EVENT_STREAM = 'text/event-stream'.freeze
+
     # 止めるときに待つ長さ（秒）。
     JOIN_TIMEOUT = 5
 
     attr_reader :thread, :failures
+
+    # 繋がったら呼ぶ（取りこぼしに追いつく・#610 → `MentionCatchUp`）。⚠ 返事をしないなら nil。
+    attr_writer :catch_up
 
     # @param service [MastodonService] ⚠ テストが差し替える
     # @param opener [#call] `(uri, headers) {|chunk| ...}` で塊を渡す。⚠ **テストが差し替える**
@@ -97,6 +106,8 @@ module Makoto
     # 1 回繋いで、切れるまで読む。⚠ **例外を上げない**（切れ方を数えて戻る）。
     def listen
       parser = ServerSentEvents.new
+      @connected = false
+      @catch_up_tried_at = nil
       uri = service.streaming_uri
       logger.info(stream: 'connect', host: uri.host, failures: @failures)
       @opener.call(uri, service.streaming_headers) do |chunk|
@@ -117,9 +128,13 @@ module Makoto
     end
 
     # 塊が 1 つ届いた。
+    #
+    # 🔴 **繋がって最初に何か届いたら、取りこぼしに追いつく**（#610）。⚠ 繋ぐ前に引くと、引いてから繋がるまでの
+    # 分を落とす。後に引けば、重なった分は返事の側（`seen?`）が畳む。
     def receive(chunk, parser)
       @failures = 0
       record_alive
+      catch_up unless @connected
       parser.feed(chunk) {|event| dispatch(event)}
     end
 
@@ -165,6 +180,14 @@ module Makoto
       follower.on_follow(account)
     end
 
+    # 繋がって最初の 1 回。⚠ 引けなかったら（`false`）、次に何か届いたときにもう一度（間隔を空けて）。
+    def catch_up
+      clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return if @catch_up_tried_at && clock - @catch_up_tried_at < CATCH_UP_RETRY
+      @catch_up_tried_at = clock
+      @connected = @catch_up&.call != false
+    end
+
     private
 
     def follower
@@ -206,6 +229,9 @@ module Makoto
     end
 
     # 🔴 **SSE の口を開けて、届いた塊を渡す。**⚠ 2xx 以外は分類して上げる。
+    # ⚠⚠ **2xx でも SSE でなければ上げる**（#616）— 前段がメンテナンスの HTML を 200 で返して閉じると、
+    # 本文を `receive` に渡した時点で失敗の回数を 0 に戻し、受信の痕跡を書いてしまう
+    # （`makoto status` が緑のまま、最短の間隔で繋ぎ直し続ける）。**本文を読む前に弾く。**
     def open_stream(uri, headers, &)
       Net::HTTP.start(uri.host, uri.port,
         use_ssl: uri.scheme == 'https',
@@ -213,9 +239,16 @@ module Makoto
         read_timeout: READ_TIMEOUT) do |http|
         http.request(Net::HTTP::Get.new(uri, headers)) do |response|
           raise_for(response) unless response.is_a?(Net::HTTPSuccess)
+          raise_unless_event_stream(response)
           response.read_body(&)
         end
       end
+    end
+
+    def raise_unless_event_stream(response)
+      type = response['Content-Type'].to_s.split(';').first.to_s.strip.downcase
+      return if type == EVENT_STREAM
+      raise Ginseng::GatewayError, "streaming returned '#{type}', not #{EVENT_STREAM}"
     end
 
     def raise_for(response)

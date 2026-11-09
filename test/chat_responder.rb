@@ -99,7 +99,7 @@ module Makoto
 
       assert_equal(
         ['unlisted', 'unlisted', 'private', 'direct'],
-        ['public', 'unlisted', 'private', 'direct'].map {|v| subject.reply_visibility({'visibility' => v})},
+        ['public', 'unlisted', 'private', 'direct'].map {|v| subject.reply_visibility(v)},
       )
     end
 
@@ -141,14 +141,26 @@ module Makoto
     end
 
     # 🔴 **フォロワーでなければ、決まった文**（LLM は呼ばない）。⚠ 原稿が無ければ黙る。
-    # 🔴 **強い窓の中では、遅れた返事を出さない**（#599）。⚠ LLM は呼んだので数える。
+    # 🔴 **強い窓の中では、遅れた返事を出さない**（#599）。⚠ LLM を呼んでから遅れたなら、呼んだので数える。
     # ⚠ 2026-11-08 は日曜（ニチアサの窓の中に受けた形）。
     def test_a_late_reply_in_the_strong_window_is_dropped_but_counted
       received_at = Time.parse('2026-11-08 08:40:00 +0900')
+      lateness = [false, true]
+      @gate.define_singleton_method(:late?) {|*| lateness.shift}
 
       assert_equal(:late_in_window, responder.handle(notification, received_at))
       assert_empty(@service.posts)
+      assert_equal(1, @model.calls.size)
       assert_equal(1, @repository.count(:respond, Time.now - 60))
+    end
+
+    # 🔴 **呼ぶ前から締め切りを過ぎていれば、LLM を呼ばず数えない**（追いついた通知・v1.0.1 のリリース前レビュー）。
+    def test_a_late_mention_is_dropped_before_the_model
+      received_at = Time.parse('2026-11-08 08:40:00 +0900')
+
+      assert_equal(:late_in_window, responder.handle(notification, received_at))
+      assert_empty(@model.calls)
+      assert_equal(0, @repository.count(:respond, Time.now - 60))
     end
 
     # ⚠ 時刻を両方渡して決める（いまの時刻で結果が変わらないように）。
@@ -186,6 +198,15 @@ module Makoto
 
       assert_equal([{role: 'user', content: "〔あなたの投稿〕\nおはよう！\n\n〔それへの返信〕\nこんにちは"}],
         @model.calls.first)
+    end
+
+    # 🔴 **祖先が狭ければ、返事も狭くする**（#613）。
+    def test_the_reply_is_not_wider_than_the_ancestors
+      own = {'id' => OWN, 'acct' => 'makoto'}
+      @service.ancestors = [{'id' => '1', 'content' => '<p>おはよう</p>', 'account' => own, 'visibility' => 'private'}]
+
+      assert_equal(:respond, responder.handle(notification(reply_to: '1')))
+      assert_equal('private', @service.posts.first[:visibility])
     end
 
     # ⚠ 祖先が引けなければ、その 1 通だけで答える。
@@ -306,6 +327,52 @@ module Makoto
       config['/chat/enabled'] = false
 
       assert_false(ChatResponder.enabled?)
+    end
+
+    # 🔴 **処理し終えた通知の ID を残す**（#610 → `MentionCatchUp`）。⚠ 返事をしなかった通知も。
+    def test_the_handled_notification_id_is_recorded
+      FileUtils.rm_f(Heartbeat.path)
+      subject = responder
+      subject.send(:handle_safely, notification.merge('id' => '21'), Time.now)
+
+      assert_equal('21', Heartbeat.notification_id)
+      subject.send(:handle_safely, notification(account_id: OWN).merge('id' => '22'), Time.now)
+
+      assert_equal('22', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # 🔴 **落ちたときも ID を残す**（PR #633 の Codex の P2）。
+    def test_the_notification_id_is_recorded_after_a_failure
+      FileUtils.rm_f(Heartbeat.path)
+      subject = responder
+      subject.define_singleton_method(:handle) {|*| raise Ginseng::GatewayError, 'mastodon returned 500'}
+      subject.define_singleton_method(:report_error) {|*, **| nil}
+      subject.send(:handle_safely, notification.merge('id' => '31'), Time.now)
+
+      assert_equal('31', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # 🔴 **殺された通知は起点に書かない**（再起動のあと追いついて拾い直す・v1.0.1 のリリース前レビュー）。
+    def test_a_killed_notification_is_not_checkpointed
+      FileUtils.rm_f(Heartbeat.path)
+      Heartbeat.record_notification_id('40')
+      subject = responder
+      started = Queue.new
+      subject.define_singleton_method(:handle) do |*|
+        started.push(true)
+        sleep
+      end
+      worker = Thread.new {subject.send(:handle_safely, notification.merge('id' => '41'), Time.now)}
+      started.pop
+      worker.kill.join
+
+      assert_equal('40', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
     end
   end
 end

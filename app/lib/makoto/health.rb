@@ -47,6 +47,9 @@ module Makoto
     ERROR = 1
     WARNING = 2
 
+    # LLM の API が何回続けて落ちたら言うか（#611）。⚠ 1〜2 回は一時的な不調でありうる。
+    CHAT_FAILURE_LIMIT = 3
+
     attr_reader :daemon
 
     # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
@@ -214,6 +217,8 @@ module Makoto
       results.push(*sentry_warnings) if alive?
       results.push(*stream_warnings) if alive?
       results.push(*chat_warnings) if alive?
+      results.push(*thread_warnings) if alive?
+      results.push(*follow_warnings) if alive?
       results.push(*orphan_warnings)
       return results
     end
@@ -240,9 +245,43 @@ module Makoto
     def chat_warnings
       return [] unless ChatResponder.configured?
       return ['chat is enabled but there is no API key'] unless ChatModel.enabled?
+      return chat_trace_warnings
+    end
+
+    # 🔴 **黙り続けている状態**（#611）。⚠ **いま生きている常駐が書いたものだけ**ではない — キーの失効・API の
+    # 失敗・一覧の未取得は再起動では直らないので、前の常駐の痕跡も言う（消えるのは次に通ったとき）。
+    # ⚠ 死んだスレッドだけは、いまの常駐の tick が書いたものに限る（→ `thread_warnings`）。
+    def chat_trace_warnings
+      results = []
       failed_at = Heartbeat.chat_auth_failed_at
-      return [] unless failed_at
-      return ["chat API key was rejected at #{failed_at.getlocal.iso8601}"]
+      results.push("chat API key was rejected at #{failed_at.getlocal.iso8601}") if failed_at
+      failures = Heartbeat.chat_failures
+      if failures >= CHAT_FAILURE_LIMIT
+        since = Heartbeat.chat_failed_since&.getlocal&.iso8601
+        results.push("chat API failed #{failures} times in a row (since #{since})")
+      end
+      unloaded = Heartbeat.followers_unloaded_since
+      results.push("followers have not been loaded since #{unloaded.getlocal.iso8601}") if unloaded
+      # 🔴 **取りこぼしに追いつけていない**（#610・v1.0.1 のリリース前レビュー）。⚠ その間は起点が止まっている。
+      pending = Heartbeat.catch_up_pending_since
+      results.push("mention catch-up has been failing since #{pending.getlocal.iso8601}") if pending
+      return results
+    end
+
+    # 🔴 **外すフォローが歯止めを超えて止まっている**（#614）。⚠ 再起動では直らないので、前の常駐の痕跡も言う。
+    def follow_warnings
+      found = Heartbeat.follow_over_limit
+      # ⚠ 突き合わせを切ってあれば言わない（消す `sync` が走らない・v1.0.1 のリリース前レビュー）。
+      return [] unless found && FollowSync.enabled?
+      since = found[:since]&.getlocal&.iso8601
+      held = "follow sync is holding #{found[:count]} unfollows (over the limit #{found[:limit]})"
+      return ["#{held} since #{since} — check with `makoto chat follow-sync`"]
+    end
+
+    # 🔴 **別スレッドが死んでいる**（#611）。⚠ 受信・返事・フォローの突き合わせは、死んでも常駐は落ちない。
+    def thread_warnings
+      return [] unless own_heartbeat?
+      return Heartbeat.dead_threads.map {|name| "thread #{name} is dead"}
     end
 
     # 最後にメンションの受信で何かが届いた時刻（#29）。⚠ **一度も無ければ nil。**

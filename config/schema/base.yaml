@@ -558,6 +558,14 @@ properties:
             type: string
         required:
           - deadline
+      # 取りこぼしに追いつく（#610・→ `MentionCatchUp`）。
+      catch_up:
+        type: object
+        properties:
+          max_age:
+            type: string
+        required:
+          - max_age
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object
@@ -625,6 +633,7 @@ properties:
       - thread
       - grace
       - commentary
+      - catch_up
       - follow
   # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
   # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。

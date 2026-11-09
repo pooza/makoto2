@@ -165,6 +165,27 @@ module Makoto
       return relationship_action(account_id, 'unfollow')
     end
 
+    # `since_id` より新しいメンションの通知を、古い順に（#610 → `MentionCatchUp`）。
+    # ⚠ `read:notifications` が要る。
+    # ⚠ **`since_id` は新しい側から `limit` 件**（`min_id` は古い側から）。上限を超えたら
+    # 古い側を落とす（古いほうは 15 分を超えて捨てる側なので）。
+    # @return [Array<Hash>]
+    def mentions_since(since_id, limit: 40)
+      query = URI.encode_www_form('types[]' => 'mention',
+        'since_id' => since_id.to_s, 'limit' => limit)
+      response = http.get("/api/v1/notifications?#{query}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      mentions = body.select {|entry| entry.is_a?(Hash) && entry['type'] == 'mention'}
+      return mentions.sort_by {|entry| entry['id'].to_i}
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
     # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
     #
     # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の
@@ -189,9 +210,9 @@ module Makoto
     # 本体と別のホストに置ける**ので、`/mastodon/url` から組み立てない。⚠ 申告は `wss://` なので
     # SSE 用に `https://` へ読み替える。⚠ **申告が無ければ本体のホストに倒す。**
     #
-    # ⚠ **上流の `create_streaming_uri` を使わない** — ⚠⚠ **トークンをクエリに載せる**ので、
-    # 逆プロキシのアクセスログに残る。
-    # ginseng-upstream: pooza/ginseng-fediverse#334
+    # ⚠ **上流の `streaming_uri` を使わない。**トークンをクエリから外すところまでは上流に入った（`pooza/ginseng-fediverse#334`・
+    # 8.0.0）が、上流は `wss://` の WebSocket 用のままで、SSE 用の読み替え・申告が無いときの倒し方は持たない（#605 で確認）。
+    # ginseng-upstream: no — SSE で受けるのはこのアプリの選択（#29）。上流は WebSocket の口として正しい
     def streaming_uri
       response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
       body = response.parsed_response

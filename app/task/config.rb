@@ -6,9 +6,12 @@ module Makoto
     desc 'lint local config'
     task :lint do
       puts "environment: #{Environment.type}"
-      if config.errors.present?
+      # 🔴 **`validation_errors` を見る**（#612・Codex の P2）。⚠⚠ **`errors` は schema だけ**で、
+      # 期間の書き損じ（`Config#duration_errors`）を拾わない。⚠ 起動時の検査・`/healthz` と同じ口。
+      found = config.validation_errors
+      if found.present?
         puts 'config:'
-        puts config.errors.to_yaml
+        puts found.to_yaml
         exit 1
       else
         puts 'config: OK'

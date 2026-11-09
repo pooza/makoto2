@@ -14,6 +14,55 @@ module Makoto
       assert_empty(config.errors)
     end
 
+    # 🔴 **期間の書き損じを検査で拾う**（#612）。⚠ 実際の設定は通る。
+    def test_duration_errors
+      assert_empty(config.duration_errors)
+
+      broken = ['30x', '', '0s', '-5m', nil]
+      valid = (Config::DURATION_KEYS + Config::DURATION_LIST_KEYS).to_h {|key| [key, config[key]]}
+      Config::DURATION_KEYS.each do |key|
+        broken.each do |value|
+          errors = config.duration_errors(valid.merge(key => value))
+
+          assert_equal(1, errors.size, "#{key} = #{value.inspect}")
+          assert_match(key, errors.first)
+        end
+      end
+    end
+
+    def test_duration_list_errors
+      key = Config::DURATION_LIST_KEYS.first
+
+      assert_empty(config.duration_errors({key => ['1d', '3d']}))
+      assert_equal(1, config.duration_errors({key => ['1d', 'x', '7d']}).size)
+      assert_match("#{key}[1]", config.duration_errors({key => ['1d', 'x']}).first)
+      assert_equal(1, config.duration_errors({key => []}).size)
+      assert_equal(1, config.duration_errors({key => '1d'}).size)
+    end
+
+    # 🔴 **`rake config:lint` が期間の書き損じで落ちる**（#612・Codex の P2）。
+    def test_lint_task_rejects_a_broken_duration
+      require 'rake'
+      load File.join(Environment.dir, 'app/task/config.rb') unless Rake::Task.task_defined?('config:lint')
+      config['/chat/model/timeout'] = '30x'
+      config.instance_variable_set(:@validation_errors, nil)
+      task = Rake::Task['config:lint']
+      task.reenable
+      out = $stdout
+      $stdout = StringIO.new
+      error = assert_raise(SystemExit) {task.invoke}
+
+      assert_equal(1, error.status)
+      assert_match('/chat/model/timeout', $stdout.string)
+    ensure
+      $stdout = out
+    end
+
+    # ⚠ 無いキーは見ない（必須かどうかは schema の役目）。
+    def test_duration_errors_skip_missing_keys
+      assert_empty(config.duration_errors({}))
+    end
+
     # ⚠ 「スキーマが通ったのに投稿の瞬間に落ちる」を防ぐ正テスト。`/mastodon/url` と
     # `/mastodon/token` が無い設定を、実際に `rake config:lint` が弾くことを見る。
     def test_schema_rejects_mastodon_without_credentials
