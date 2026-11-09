@@ -23,6 +23,18 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {@service.status_ancestors('9')}
     end
 
+    # #20 の `makoto chat block`。⚠ 見つからなければ nil（404 は例外にしない）。
+    def test_lookup_account
+      url = "#{config['/mastodon/url']}/api/v1/accounts/lookup?acct=user1"
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'},
+        body: {id: '1', acct: 'user1'}.to_json)
+
+      assert_equal('1', @service.lookup_account('@user1')['id'])
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/accounts/lookup?acct=nobody").to_return(status: 404)
+
+      assert_nil(@service.lookup_account('nobody'))
+    end
+
     def test_post_status_in_reply_to
       stub_request(:post, @url)
         .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {

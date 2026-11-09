@@ -103,6 +103,22 @@ module Makoto
       raise classify(e)
     end
 
+    # acct からアカウントを引く（#20 の `makoto chat block`）。⚠ **見つからなければ nil。**
+    # ⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
+    def lookup_account(acct)
+      query = URI.encode_www_form(acct: acct.to_s.delete_prefix('@'))
+      response = http.get("/api/v1/accounts/lookup?#{query}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      return body.is_a?(Hash) && body['id'] ? body : nil
+    rescue Ginseng::GatewayError => e
+      return nil if e.source_status == 404
+      raise classify(e)
+    end
+
     # 投稿先が申告する本文の上限（#351）。⚠ **無ければ nil。**
     #
     # 🔴 **上流の `max_post_text_length` を使わない** — ⚠⚠ **取れないと設定の既定値（500）に

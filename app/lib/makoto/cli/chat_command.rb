@@ -57,6 +57,49 @@ module Makoto
       puts "forgiven: @#{row[:acct]} (marks: #{row[:marks]})"
     end
 
+    # 🔴 **返事をしない相手を載せる**（#20）。⚠ 次のメンションに決まった文（`chat_block_notice`）を 1 回だけ
+    # 返し、あとは黙る。⚠ **Mastodon のブロックではない**（相手のフォローは外れない・通知も届く）。
+    # ⚠ ミュートでは止まらない（2026-11-09 に Mastodon 4.7.5 で確かめた → #20）。
+    desc 'block ACCT', '返事をしない相手に載せる（次のメンションに 1 回だけ伝えて、あとは黙る）'
+    option :note, type: :string, desc: '載せた理由（オーナーの控え・相手には伝えない）'
+    def block(acct)
+      found = MastodonService.new.lookup_account(acct)
+      unless found
+        warn "アカウントが見つかりません: #{acct}"
+        exit 1
+      end
+      repository = ChatRepository.new
+      if repository.blocked(found['id'])
+        warn "もう載っています: @#{found['acct']}"
+        exit 1
+      end
+      repository.block(found['id'], found['acct'], note: options[:note])
+      puts "blocked: @#{found['acct']} (id: #{found['id']})"
+    end
+
+    desc 'unblock ACCT', '返事をしない相手から外す'
+    def unblock(acct)
+      repository = ChatRepository.new
+      # ⚠ 載せたときの acct（ローカルはホスト無し）で引けなければ、Mastodon で引き直して ID で探す。
+      row = repository.find_block_by_acct(acct)
+      row ||= (found = MastodonService.new.lookup_account(acct)) && repository.blocked(found['id'])
+      unless row
+        warn "載っていません: #{acct}"
+        exit 1
+      end
+      repository.unblock(row[:account_id])
+      puts "unblocked: @#{row[:acct]}"
+    end
+
+    desc 'blocks', '返事をしない相手の一覧'
+    def blocks
+      rows = ChatRepository.new.all_blocks
+      return puts('(none)') if rows.empty?
+      rows.each do |row|
+        puts ["@#{row[:acct]}", "since #{row[:blocked_at]}", row[:note]].compact.join(' ')
+      end
+    end
+
     private
 
     def thread_messages

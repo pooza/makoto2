@@ -45,8 +45,6 @@ module Makoto
       'direct' => 'direct',
     }.freeze
 
-    # 決まった文の原稿の type（正本は makoto-scripts の `chat.yaml`）。
-    NOTICE_TYPES = {ask_follow: 'chat_ask_follow', limit_notice: 'chat_limit_notice'}.freeze
     OWNER_NOTICE_TYPE = 'chat_owner_notice'.freeze
 
     # 🔴 **1 回目はペナルティにしない印**（→ クラスの冒頭）。
@@ -157,7 +155,7 @@ module Makoto
     end
 
     def notice(account, status, decision, notification)
-      body = pick(NOTICE_TYPES.fetch(decision.action))
+      body = pick(ChatGate::NOTICES.fetch(decision.action))
       # ⚠ **原稿が無ければ黙る**（決まった文をコードに持たない・正本は makoto-scripts）。
       return done(:no_notice_script, notification, level: :warn) unless body
       post_reply(account, status, body)
