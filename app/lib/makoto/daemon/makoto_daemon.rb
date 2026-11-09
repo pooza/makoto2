@@ -6,6 +6,7 @@ module Makoto
     include ProcessIdentity
 
     # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
+    # ginseng-upstream: pooza/ginseng-core#756（`proc_dir` は身元の判定をテストで差し替える口）
     def initialize(opts = {})
       super
       @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
@@ -49,6 +50,7 @@ module Makoto
     # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
     # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
     # `:unknown` という 3 つ目の答えとして上流に入った。**
+    # ginseng-upstream: pooza/ginseng-core#756
     def alive_state_of(found)
       state = super
       return state unless state == :alive
@@ -66,6 +68,7 @@ module Makoto
       ].compact.join("\n")
     end
 
+    # ginseng-upstream: no — 常駐は `command` のプロセスを起こさず、同じプロセスでスケジューラ・監視・SSE を回す（`stop` も同じ）
     def start(args = [])
       # ⚠ **`revision` はここで固定される**（#242 → `Package.revision`）。
       logger.info(
@@ -108,6 +111,7 @@ module Makoto
 
     # ⚠ `run_start` の trap から同じインスタンスの `stop` が呼ばれる（→ Ginseng::Daemon）
     # ので、⚠⚠ **常駐が畳まれるときに監視の口も一緒に閉じる。**
+    # ginseng-upstream: no — `start` と同じ（同じプロセスで回しているものを止める）
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
       monitor_server.stop
@@ -252,6 +256,7 @@ module Makoto
     # `run_stop` は pid ファイルを読み直す**ので、**確かめてから送るまでの間に
     # 後継が新しい pid を書けば、身元を確かめていない相手へ `TERM` が飛ぶ。**
     # ⚠⚠ **まさに `remove_pid(expected)`（上流 `#532`）が相手にしている競り合い。**
+    # ginseng-upstream: pooza/ginseng-core#756
     def send_signal(signal, target)
       return nil unless stoppable?(target)
       return super

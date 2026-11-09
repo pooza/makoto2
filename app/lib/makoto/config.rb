@@ -17,6 +17,7 @@ module Makoto
       return @validation_errors
     end
 
+    # ginseng-upstream: no — 捨てるのはこのアプリが足した `validation_errors` のメモ
     def reload
       @validation_errors = nil
       return super

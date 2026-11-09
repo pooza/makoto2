@@ -44,6 +44,7 @@ module Makoto
     # フォロワーの一覧を辿るページ数の上限（80 件ずつ ＝ 8,000 人）。⚠ 尽きたら例外（途中までを返さない）。
     FOLLOWER_MAX_PAGES = 100
 
+    # ginseng-upstream: no — モロヘイヤを経由して投稿するか（`/mastodon/mulukhiya`）はこのアプリの経路の設定
     def initialize(uri = nil, token = nil)
       super
       # ⚠ **`optional_config` で既定値に逃がさない**（→ Package#optional_config）。
@@ -166,6 +167,7 @@ module Makoto
     #
     # ⚠ **上流の `create_streaming_uri` を使わない** — ⚠⚠ **トークンをクエリに載せる**ので、
     # 逆プロキシのアクセスログに残る。
+    # ginseng-upstream: pooza/ginseng-fediverse#334
     def streaming_uri
       response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
       body = response.parsed_response

@@ -115,9 +115,5 @@ module Makoto
     def track_fixture_dir
       return File.join(self.class.fixture_dir, 'track')
     end
-
-    def self.dir
-      return File.join(Environment.dir, 'test')
-    end
   end
 end
