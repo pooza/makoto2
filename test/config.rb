@@ -40,6 +40,24 @@ module Makoto
       assert_equal(1, config.duration_errors({key => '1d'}).size)
     end
 
+    # 🔴 **`rake config:lint` が期間の書き損じで落ちる**（#612・Codex の P2）。
+    def test_lint_task_rejects_a_broken_duration
+      require 'rake'
+      load File.join(Environment.dir, 'app/task/config.rb') unless Rake::Task.task_defined?('config:lint')
+      config['/chat/model/timeout'] = '30x'
+      config.instance_variable_set(:@validation_errors, nil)
+      task = Rake::Task['config:lint']
+      task.reenable
+      out = $stdout
+      $stdout = StringIO.new
+      error = assert_raise(SystemExit) {task.invoke}
+
+      assert_equal(1, error.status)
+      assert_match('/chat/model/timeout', $stdout.string)
+    ensure
+      $stdout = out
+    end
+
     # ⚠ 無いキーは見ない（必須かどうかは schema の役目）。
     def test_duration_errors_skip_missing_keys
       assert_empty(config.duration_errors({}))
