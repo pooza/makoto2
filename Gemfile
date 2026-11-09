@@ -4,8 +4,8 @@ source 'https://rubygems.org'
 #   ⚠⚠ 事故が理由の pin ではない。外すのは「実機と CI の Ruby を 5.x にし、
 #   当日通しリハーサルを 5.x で通した」とき（→ docs/CLAUDE.md の当日通し）。
 ruby '>= 4.0', '< 5.0'
-gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v6.1.1', require: 'ginseng'
-gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v7.1.0',
+gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v7.0.0', require: 'ginseng'
+gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v8.0.0',
   require: 'ginseng/fediverse'
 # チャットボットの応答（#18）。⚠ **公式の Ruby SDK**（Messages API・structured outputs）。
 # ⚠ 2.x は API 版 `2026-10-21` に合わせた系列。⚠ 出たばかりの版を避けて 2.3（2026-10-23）から。

@@ -1,9 +1,9 @@
 GIT
   remote: https://github.com/pooza/ginseng-core.git
-  revision: 8821677b395f5959aac58280810e2bbea720abfb
-  tag: v6.1.1
+  revision: 738ddbea2487b0c9e5c6bd1af9b6079e13b311d0
+  tag: v7.0.0
   specs:
-    ginseng-core (6.1.1)
+    ginseng-core (7.0.0)
       activesupport (>= 8.1.2.1)
       addressable (>= 2.9.0)
       cgi (>= 0.4.2)
@@ -34,10 +34,10 @@ GIT
 
 GIT
   remote: https://github.com/pooza/ginseng-fediverse.git
-  revision: 8bdda3798900508890ad22829de908042257c717
-  tag: v7.1.0
+  revision: 49393a9d7b6b163f364bea9598f79bb9897ebb5a
+  tag: v8.0.0
   specs:
-    ginseng-fediverse (7.1.0)
+    ginseng-fediverse (8.0.0)
       ginseng-core (>= 2.1.0)
 
 GIT
@@ -296,8 +296,8 @@ CHECKSUMS
   fileutils (1.7.3) sha256=57271e854b694a87755d76f836f5c57b2c9538ebbaf4b2154bb66addf15eb5da
   find (0.2.0) sha256=9aabac9dbbea3fdd23781f79a2fd626166e57dab349aaec449400811b40c371b
   fugit (1.13.0) sha256=a4f093fce740da52f216740a5041e2a594ea763cdb89e8b2754ca4399634ab18
-  ginseng-core (6.1.1)
-  ginseng-fediverse (7.1.0)
+  ginseng-core (7.0.0)
+  ginseng-fediverse (8.0.0)
   ginseng-style (1.1.15)
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   httparty (0.24.2) sha256=8fca6a54aa0c4aa4303a0fd33e5e2156175d6a5334f714263b458abd7fda9c38

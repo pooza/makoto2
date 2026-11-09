@@ -1,5 +1,5 @@
 module Makoto
-  # ログの出口。⚠ **いまここに残っているのは「出す水準を設定から取る」だけ。**
+  # ログの出口。⚠ **いまここに残っているものは無い**（`Package` を足すだけ）。
   #
   # ## 🔴 文字コードの安全網とマスクは上流へ返した（#101 / 2026-08-24）
   #
@@ -23,32 +23,13 @@ module Makoto
   #
   # ⚠ **`error_message`（`Package`）は別物なので残る。**あちらは**例外を文字列に
   # 埋める**ためのもので、**ログを通らない**（`raise "...: #{error_message(e)}"`）。
+  #
+  # ## 🔴 出す水準も上流へ返した（#605・ginseng-core 7.0.0）
+  #
+  # ⚠ **`/logger/level` は上流（`pooza/ginseng-core#755`）が読む。**書いていなければ debug（`Syslog::Logger` の
+  # 既定）、読めない値は info に倒して warn を 1 行。⚠ makoto2 は `config/application.yaml` に `level: info` を
+  # 書いており、綴りの誤りは schema の enum で `rake config:lint` が止める。
   class Logger < Ginseng::Logger
     include Package
-
-    # ⚠ 出す水準の既定。⚠⚠ **設定が読めないときはここへ倒す** — **黙る方向へは
-    # 倒さない**（事故の大きいほうを避ける）。
-    DEFAULT_LEVEL = 'info'.freeze
-
-    # ginseng-upstream: pooza/ginseng-core#755
-    def initialize(name = nil)
-      super
-      self.level = severity_level
-    end
-
-    private
-
-    # 出す水準（#80 の黄 9）。
-    #
-    # ⚠⚠ **平常日に 171 行出ていた「本文が無い」を黙らせるために足した。**⚠ 枠は
-    # 毎日空回りする設計なので、**それ自体は異常ではない**（→ `PostingJob`）。
-    #
-    # ⚠ **読めない値でも落ちない。**⚠⚠ **ログの出口が設定の不備で例外を上げると、
-    # その例外を書く先も無い。**
-    def severity_level
-      name = (optional_config('/logger/level') || DEFAULT_LEVEL).to_s.upcase
-      name = DEFAULT_LEVEL.upcase unless ::Logger::Severity.constants.include?(name.to_sym)
-      return ::Logger::Severity.const_get(name)
-    end
   end
 end
