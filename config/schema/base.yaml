@@ -532,6 +532,12 @@ properties:
             type: string
         required:
           - window
+      # 足した設定の台帳（#526）。⚠ 必須にしない（無ければ渡さない）。
+      ledger:
+        type: object
+        properties:
+          path:
+            type: string
       # 実況の窓の中の返事（#599）。
       commentary:
         type: object

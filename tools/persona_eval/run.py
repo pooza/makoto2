@@ -32,6 +32,7 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -166,6 +167,8 @@ def main():
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
     p.add_argument('--suite', default='cases', choices=SUITES, help='質問集')
     p.add_argument('--reply-format', default='json', choices=REPLY_FORMATS, help='返事の形（json は本番と同じ）')
+    p.add_argument('--ledger', default='on', choices=['on', 'off'],
+                   help='足した設定の台帳を渡すか（on は本番と同じ・#526）')
   sub.choices['estimate'].add_argument('--judges', default=DEFAULT_JUDGES, help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
@@ -222,6 +225,18 @@ def load_reply_format(name):
   return load_prompt('reply_format.md') if name == 'json' else None
 
 
+def load_ledger(flag):
+  # 🔴 台帳の塊は本番と同じものを使う（`bin/makoto chat ledger`・組み立ての正本は Makoto::Ledger）。
+  # ⚠ 台帳が無い（makoto-scripts が無い）ときに on なら止める — 黙って外すと、本番と違う条件で課金する。
+  if flag == 'off':
+    return None
+  result = subprocess.run([str(ROOT / 'bin' / 'makoto'), 'chat', 'ledger'], cwd=ROOT,
+                          capture_output=True, text=True)
+  if result.returncode != 0:
+    sys.exit(f'台帳を読めません（--ledger=off で外せます）: {result.stderr.strip()}')
+  return result.stdout.strip()
+
+
 def load_prompt(name):
   # ⚠ 書き手向けの注記（HTML のコメント）は渡さない（Makoto::ChatModel#system_blocks と同じ）。
   text = (ROOT / 'config' / 'chat' / name).read_text()
@@ -244,12 +259,14 @@ def corpus_block(quotes, limit):
   return '# 本編での真琴の台詞（口調の素材）\n\n' + '\n'.join(lines)
 
 
-def system_blocks(persona, corpus, reply_format=None):
-  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。⚠ 返事の形は指示書のすぐ後ろ
-  # （本番の並びと同じ）。
+def system_blocks(persona, corpus, reply_format=None, ledger=None):
+  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。⚠ 返事の形は指示書のすぐ後ろ、
+  # 台帳はその後ろ（本番の並びと同じ → Makoto::ChatModel#system_blocks）。
   blocks = [{'type': 'text', 'text': persona}]
   if reply_format:
     blocks.append({'type': 'text', 'text': reply_format})
+  if ledger:
+    blocks.append({'type': 'text', 'text': ledger})
   if corpus:
     blocks.append({'type': 'text', 'text': corpus})
   blocks[-1]['cache_control'] = {'type': 'ephemeral'}
@@ -295,7 +312,16 @@ def split_reply(entry):
   return entry
 
 
-def judge_params(judge_model, persona, case, text):
+JUDGE_LEDGER_NOTE = '''
+
+# MAKOTO で足した設定（台帳・#526）
+
+次は本編には無いが、MAKOTO の原稿で採用済みの設定で、MAKOTO にも本人の記憶として渡してある。応答がこれに沿っているなら、作った設定として外れにしない（台帳に無いことを新しく言い切っているかは、これまでどおり見る）。
+
+'''
+
+
+def judge_params(judge_model, persona, case, text, ledger=None):
   sections = []
   if case.get('history'):
     lines = [f"- {'ファン' if m['role'] == 'user' else 'MAKOTO'}: {m['content']}" for m in case['history']]
@@ -309,7 +335,8 @@ def judge_params(judge_model, persona, case, text):
   return {
     'model': judge_model,
     'max_tokens': MAX_TOKENS,
-    'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona, 'cache_control': {'type': 'ephemeral'}}],
+    'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona + (JUDGE_LEDGER_NOTE + ledger if ledger else ''),
+                'cache_control': {'type': 'ephemeral'}}],
     'output_config': {
       'effort': JUDGE_EFFORT,
       'format': {'type': 'json_schema', 'schema': JUDGE_SCHEMA},
@@ -394,6 +421,7 @@ def cmd_estimate(args):
   cases = load_cases(args.cases, args.suite)
   judges = judge_keys(args)
   persona = load_persona()
+  ledger = load_ledger(args.ledger)
   quotes = load_quotes()
   total = 0.0
   print(f'質問 {len(cases)} 本・応答可の台詞 {len(quotes)} 件')
@@ -401,7 +429,8 @@ def cmd_estimate(args):
   print('| --- | --- | --- | --- |')
   for model_key, corpus_key in conditions(args):
     model = MODELS[model_key]
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format))
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format),
+                           ledger)
     params = respond_params(model, system, BLANK_CASE, args.reply_format)
     tokens = per_case_tokens(api, params, [messages_of(c) for c in cases])
     total += print_estimate(f'{model_key} × {corpus_key}', model, tokens, EXPECTED_OUTPUT_TOKENS)
@@ -409,7 +438,7 @@ def cmd_estimate(args):
   repeat = len(conditions(args))
   for judge_key in judges:
     judge_model = JUDGES[judge_key]
-    params = judge_params(judge_model, persona, BLANK_CASE, '')
+    params = judge_params(judge_model, persona, BLANK_CASE, '', ledger)
     messages = [judge_params(judge_model, persona, c, 'ダミーの応答です。')['messages'] for c in cases]
     tokens = per_case_tokens(api, params, messages) * repeat
     total += print_estimate(f'判定（{judge_key}）', judge_model, tokens, EXPECTED_JUDGE_OUTPUT_TOKENS)
@@ -447,10 +476,12 @@ def cmd_respond(args):
   api = client()
   cases = load_cases(args.cases, args.suite)
   persona = load_persona()
+  ledger = load_ledger(args.ledger)
   quotes = load_quotes()
   requests = []
   for model_key, corpus_key in conditions(args):
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format))
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format),
+                           ledger)
     for case in cases:
       params = respond_params(MODELS[model_key], system, case, args.reply_format)
       requests.append(Request(
@@ -460,12 +491,16 @@ def cmd_respond(args):
   run = datetime.now().strftime('%Y%m%d-%H%M%S')
   run_dir = OUT_DIR / run
   run_dir.mkdir(parents=True)
+  # 🔴 渡した台帳の写しを残す（判定役にも同じものを見せる・あとで台帳が変わっても回を読み直せる）。
+  if ledger:
+    (run_dir / 'ledger.md').write_text(ledger + '\n')
   batch = api.messages.batches.create(requests=requests)
   state = {
     'created_at': datetime.now().isoformat(),
     'models': args.models,
     'corpus': args.corpus,
     'suite': args.suite,
+    'ledger': args.ledger,
     'cases': [c['id'] for c in cases],
     'respond_effort': RESPOND_EFFORT,
     'reply_format': args.reply_format,
@@ -535,6 +570,9 @@ def cmd_judge(args):
   responses = read_json(run_dir / 'respond.json')
   cases = {c['id']: c for c in load_cases(suite=state.get('suite', 'cases'))}
   persona = load_persona()
+  # ⚠ 台帳は応答を作ったときの写しを使う（無い回 ＝ 台帳なしで作った回）。
+  ledger_path = run_dir / 'ledger.md'
+  ledger = ledger_path.read_text().strip() if ledger_path.exists() else None
   for judge_key in judge_keys(args):
     if judge_key in state['judges']:
       print(f"judge-{judge_key}: 投げてある（batch {state['judges'][judge_key]}）")
@@ -545,7 +583,7 @@ def cmd_judge(args):
         continue
       case_id, _, _ = parse_custom_id(key)
       # 🔴 判定役には条件（モデル・台詞の件数）を見せない。
-      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'])
+      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'], ledger)
       requests.append(Request(custom_id=key, params=MessageCreateParamsNonStreaming(**params)))
     batch = api.messages.batches.create(requests=requests)
     state['judges'][judge_key] = batch.id
@@ -662,6 +700,9 @@ def cmd_fork(args):
   run_dir = OUT_DIR / run
   run_dir.mkdir(parents=True)
   (run_dir / 'respond.json').write_text((source_dir / 'respond.json').read_text())
+  # ⚠ 台帳の写しも引き継ぐ（判定役が同じ台帳を見る）。
+  if (source_dir / 'ledger.md').exists():
+    (run_dir / 'ledger.md').write_text((source_dir / 'ledger.md').read_text())
   write_json(run_dir / 'state.json', state)
   print(f"run: {run}（{state['source']} の応答を引き継いだ）")
 

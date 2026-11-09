@@ -57,6 +57,15 @@ module Makoto
       puts "forgiven: @#{row[:acct]} (marks: #{row[:marks]})"
     end
 
+    # 指示書に足す台帳の塊を表示する（#526）。⚠ 評価の道具（`tools/persona_eval/run.py`）もこれを読む。
+    desc 'ledger', 'チャットボットに渡す台帳（足した設定）を表示する'
+    def ledger
+      text = Ledger.new.to_prompt
+      return puts(text) if text
+      warn "台帳がありません: #{Ledger.new.path}"
+      exit 1
+    end
+
     # 🔴 **返事をしない相手を載せる**（#20）。⚠ 次のメンションに決まった文（`chat_block_notice`）を 1 回だけ
     # 返し、あとは黙る。⚠ **Mastodon のブロックではない**（相手のフォローは外れない・通知も届く）。
     # ⚠ ミュートでは止まらない（2026-11-09 に Mastodon 4.7.5 で確かめた → #20）。

@@ -1,3 +1,5 @@
+require 'tmpdir'
+
 module Makoto
   class ChatModelTest < TestCase
     URL = 'https://api.anthropic.com/v1/messages'.freeze
@@ -6,7 +8,7 @@ module Makoto
     def setup
       super
       config['/anthropic/api_key'] = 'sk-ant-test'
-      @model = ChatModel.new
+      @model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'))
     end
 
     def response_body(reply: '{"reply":"おはようございます。","marks":[]}', stop_reason: 'end_turn',
@@ -48,6 +50,21 @@ module Makoto
 
     # 🔴 **送る形を本物の SDK で確かめる**（Ruby の属性名は `format_` なので、ハッシュの `format:` が
     # API の `format` に乗るかは送ってみないと分からない）。
+    #
+    # 🔴 **台帳があれば 3 つ目の塊として足し、キャッシュの印はその最後の塊に付く**（#526）。
+    def test_the_ledger_is_the_last_block
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, 'ledger.md')
+        File.write(path, "## 食べ物\n\n| 中身 | 出どころ |\n| --- | --- |\n| いちごが大好き | 宮本 |\n")
+        blocks = ChatModel.new(ledger: Ledger.new(path)).system_blocks
+
+        assert_equal(3, blocks.size)
+        assert_include(blocks.last[:text], '- いちごが大好き')
+        assert_nil(blocks[1][:cache_control])
+        assert_equal('ephemeral', blocks.last[:cache_control][:type])
+      end
+    end
+
     def test_it_asks_for_json_with_the_persona_at_low_effort
       stub_model
       @model.respond(MESSAGES)
