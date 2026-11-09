@@ -259,10 +259,11 @@ module Makoto
       assert_equal(::Logger::Severity::INFO, Logger.new.level)
     end
 
+    # ⚠ 書いていなければ上流の既定（debug・#605 で上流へ寄せた）。⚠ 黙る方向へは倒れない。
     def test_the_level_falls_back_when_the_setting_is_gone
       config.delete('/logger/level')
 
-      assert_equal(::Logger::Severity::INFO, Logger.new.level)
+      assert_equal(::Logger::Severity::DEBUG, Logger.new.level)
     end
 
     # 🔴 **#97 の本体。**⚠⚠ **1.15.28 が上書きしていたのは `info` と `error` の 2 つ

@@ -210,9 +210,9 @@ module Makoto
     # 本体と別のホストに置ける**ので、`/mastodon/url` から組み立てない。⚠ 申告は `wss://` なので
     # SSE 用に `https://` へ読み替える。⚠ **申告が無ければ本体のホストに倒す。**
     #
-    # ⚠ **上流の `create_streaming_uri` を使わない** — ⚠⚠ **トークンをクエリに載せる**ので、
-    # 逆プロキシのアクセスログに残る。
-    # ginseng-upstream: pooza/ginseng-fediverse#334
+    # ⚠ **上流の `streaming_uri` を使わない。**トークンをクエリから外すところまでは上流に入った（`pooza/ginseng-fediverse#334`・
+    # 8.0.0）が、上流は `wss://` の WebSocket 用のままで、SSE 用の読み替え・申告が無いときの倒し方は持たない（#605 で確認）。
+    # ginseng-upstream: no — SSE で受けるのはこのアプリの選択（#29）。上流は WebSocket の口として正しい
     def streaming_uri
       response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
       body = response.parsed_response
