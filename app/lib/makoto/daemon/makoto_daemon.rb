@@ -66,6 +66,7 @@ module Makoto
       ].compact.join("\n")
     end
 
+    # ginseng-upstream: no — 常駐は `command` のプロセスを起こさず、同じプロセスでスケジューラ・監視・SSE を回す（`stop` も同じ）
     def start(args = [])
       # ⚠ **`revision` はここで固定される**（#242 → `Package.revision`）。
       logger.info(
@@ -108,6 +109,7 @@ module Makoto
 
     # ⚠ `run_start` の trap から同じインスタンスの `stop` が呼ばれる（→ Ginseng::Daemon）
     # ので、⚠⚠ **常駐が畳まれるときに監視の口も一緒に閉じる。**
+    # ginseng-upstream: no — `start` と同じ（同じプロセスで回しているものを止める）
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
       monitor_server.stop

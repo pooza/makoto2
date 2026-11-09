@@ -44,6 +44,7 @@ module Makoto
     # フォロワーの一覧を辿るページ数の上限（80 件ずつ ＝ 8,000 人）。⚠ 尽きたら例外（途中までを返さない）。
     FOLLOWER_MAX_PAGES = 100
 
+    # ginseng-upstream: no — モロヘイヤを経由して投稿するか（`/mastodon/mulukhiya`）はこのアプリの経路の設定
     def initialize(uri = nil, token = nil)
       super
       # ⚠ **`optional_config` で既定値に逃がさない**（→ Package#optional_config）。
