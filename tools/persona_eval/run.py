@@ -32,6 +32,7 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -166,6 +167,8 @@ def main():
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
     p.add_argument('--suite', default='cases', choices=SUITES, help='質問集')
     p.add_argument('--reply-format', default='json', choices=REPLY_FORMATS, help='返事の形（json は本番と同じ）')
+    p.add_argument('--ledger', default='on', choices=['on', 'off'],
+                   help='足した設定の台帳を渡すか（on は本番と同じ・#526）')
   sub.choices['estimate'].add_argument('--judges', default=DEFAULT_JUDGES, help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
@@ -222,6 +225,18 @@ def load_reply_format(name):
   return load_prompt('reply_format.md') if name == 'json' else None
 
 
+def load_ledger(flag):
+  # 🔴 台帳の塊は本番と同じものを使う（`bin/makoto chat ledger`・組み立ての正本は Makoto::Ledger）。
+  # ⚠ 台帳が無い（makoto-scripts が無い）ときに on なら止める — 黙って外すと、本番と違う条件で課金する。
+  if flag == 'off':
+    return None
+  result = subprocess.run([str(ROOT / 'bin' / 'makoto'), 'chat', 'ledger'], cwd=ROOT,
+                          capture_output=True, text=True)
+  if result.returncode != 0:
+    sys.exit(f'台帳を読めません（--ledger=off で外せます）: {result.stderr.strip()}')
+  return result.stdout.strip()
+
+
 def load_prompt(name):
   # ⚠ 書き手向けの注記（HTML のコメント）は渡さない（Makoto::ChatModel#system_blocks と同じ）。
   text = (ROOT / 'config' / 'chat' / name).read_text()
@@ -244,12 +259,14 @@ def corpus_block(quotes, limit):
   return '# 本編での真琴の台詞（口調の素材）\n\n' + '\n'.join(lines)
 
 
-def system_blocks(persona, corpus, reply_format=None):
-  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。⚠ 返事の形は指示書のすぐ後ろ
-  # （本番の並びと同じ）。
+def system_blocks(persona, corpus, reply_format=None, ledger=None):
+  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。⚠ 返事の形は指示書のすぐ後ろ、
+  # 台帳はその後ろ（本番の並びと同じ → Makoto::ChatModel#system_blocks）。
   blocks = [{'type': 'text', 'text': persona}]
   if reply_format:
     blocks.append({'type': 'text', 'text': reply_format})
+  if ledger:
+    blocks.append({'type': 'text', 'text': ledger})
   if corpus:
     blocks.append({'type': 'text', 'text': corpus})
   blocks[-1]['cache_control'] = {'type': 'ephemeral'}
@@ -394,6 +411,7 @@ def cmd_estimate(args):
   cases = load_cases(args.cases, args.suite)
   judges = judge_keys(args)
   persona = load_persona()
+  ledger = load_ledger(args.ledger)
   quotes = load_quotes()
   total = 0.0
   print(f'質問 {len(cases)} 本・応答可の台詞 {len(quotes)} 件')
@@ -401,7 +419,8 @@ def cmd_estimate(args):
   print('| --- | --- | --- | --- |')
   for model_key, corpus_key in conditions(args):
     model = MODELS[model_key]
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format))
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format),
+                           ledger)
     params = respond_params(model, system, BLANK_CASE, args.reply_format)
     tokens = per_case_tokens(api, params, [messages_of(c) for c in cases])
     total += print_estimate(f'{model_key} × {corpus_key}', model, tokens, EXPECTED_OUTPUT_TOKENS)
@@ -447,10 +466,12 @@ def cmd_respond(args):
   api = client()
   cases = load_cases(args.cases, args.suite)
   persona = load_persona()
+  ledger = load_ledger(args.ledger)
   quotes = load_quotes()
   requests = []
   for model_key, corpus_key in conditions(args):
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format))
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format),
+                           ledger)
     for case in cases:
       params = respond_params(MODELS[model_key], system, case, args.reply_format)
       requests.append(Request(
@@ -466,6 +487,7 @@ def cmd_respond(args):
     'models': args.models,
     'corpus': args.corpus,
     'suite': args.suite,
+    'ledger': args.ledger,
     'cases': [c['id'] for c in cases],
     'respond_effort': RESPOND_EFFORT,
     'reply_format': args.reply_format,

@@ -54,8 +54,10 @@ module Makoto
     end
 
     # @param client [Anthropic::Client, nil] ⚠ テストが差し替える
-    def initialize(client: nil)
+    # @param ledger [Ledger, nil] ⚠ テストが差し替える（手元に makoto-scripts があると結果が変わるため）
+    def initialize(client: nil, ledger: nil)
       @client = client
+      @ledger = ledger
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -106,6 +108,9 @@ module Makoto
         text = File.read(File.join(Environment.dir, path))
         {type: 'text', text: text.gsub(/<!--.*?-->\s*/m, '').strip}
       end
+      # 🔴 **足した設定の台帳を本人の記憶として渡す**（#526）。⚠ 無ければ渡さない（→ `Ledger`）。
+      ledger = (@ledger || Ledger.new).to_prompt
+      blocks.push({type: 'text', text: ledger}) if ledger
       blocks.last[:cache_control] = cache_control
       @system_blocks = blocks
       return @system_blocks

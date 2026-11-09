@@ -532,6 +532,12 @@ properties:
             type: string
         required:
           - window
+      # 足した設定の台帳（#526）。⚠ 必須にしない（無ければ渡さない）。
+      ledger:
+        type: object
+        properties:
+          path:
+            type: string
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object
