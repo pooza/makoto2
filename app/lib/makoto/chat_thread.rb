@@ -18,12 +18,23 @@ module Makoto
   # - 本文は HTML を外し、先頭の宛先（`@makoto` など）を落とす
   # - ⚠ **祖先は新しい側から `/chat/thread/max_statuses` 件まで**（費用の歯止め）
   #
+  # ## 🔴 第三者の閉じた投稿を渡さない（#613・v1.0.0 のリリース前レビュー）
+  #
+  # ⚠⚠ 祖先は MAKOTO のトークンで引くので、フォローを返した相手（#606）のフォロワー限定の投稿も読める。
+  # 渡すと LLM が返事で言い換え、相手やタイムラインに漏れる。**MAKOTO と話しかけた本人以外の、
+  # 公開・未収載でない祖先は会話に入れない。**⚠ 返事の公開範囲は、渡した投稿のうち最も狭いものに合わせる
+  # （→ `visibility`）。⚠ 根（`root_id`）は落とす前の祖先で決める（会話を閉じた記録の鍵を変えない）
+  #
   # ⚠⚠ **本文をログに出さない**（メンバーの書いたもの）。
   class ChatThread
     include Package
 
     OWN_POST_LABEL = '〔あなたの投稿〕'.freeze
     REPLY_LABEL = '〔それへの返信〕'.freeze
+
+    # 広い順。⚠ 知らない値は最も狭いものとみなす。
+    VISIBILITIES = ['public', 'unlisted', 'private', 'direct'].freeze
+    OPEN_VISIBILITIES = ['public', 'unlisted'].freeze
 
     attr_reader :status, :ancestors
 
@@ -47,8 +58,21 @@ module Makoto
 
     # @return [Array<Hash>] `{role:, content:}` の並び。⚠ 最後は相手の投稿（`user`）
     def messages
-      statuses = (@ancestors.last(limit) + [@status]).filter_map {|entry| message(entry)}
+      statuses = passed.filter_map {|entry| message(entry)}
       return merge(lead(statuses))
+    end
+
+    # 渡す投稿のうち最も狭い公開範囲（#613）。⚠ 返事はこれより広げない（→ `ChatResponder`）。
+    def visibility
+      narrowest = VISIBILITIES.size - 1
+      index = passed.map {|entry| VISIBILITIES.index(entry['visibility'].to_s) || narrowest}.max
+      return VISIBILITIES[index]
+    end
+
+    # 会話に入れる祖先（→ クラスの冒頭「第三者の閉じた投稿を渡さない」）。
+    def visible_ancestors
+      @visible_ancestors ||= @ancestors.reject {|entry| hidden?(entry)}
+      return @visible_ancestors
     end
 
     # 🔴 **返事の本文の `@` をメンションにしない**（v1.0.0 のリリース前レビューの赤）。
@@ -67,6 +91,18 @@ module Makoto
 
     private
 
+    # LLM に渡す投稿（祖先は新しい側から上限まで ＋ メンション）。
+    def passed
+      @passed ||= visible_ancestors.last(limit) + [@status]
+      return @passed
+    end
+
+    def hidden?(entry)
+      return false if OPEN_VISIBILITIES.include?(entry['visibility'].to_s)
+      author = entry.dig('account', 'id').to_s
+      return ![@own_id, @status.dig('account', 'id').to_s].include?(author)
+    end
+
     def message(entry)
       text = self.class.text_of(entry)
       return nil if text.empty?
@@ -76,7 +112,7 @@ module Makoto
     end
 
     def speakers
-      @speakers ||= (@ancestors + [@status])
+      @speakers ||= (visible_ancestors + [@status])
         .map {|entry| entry.dig('account', 'id').to_s}
         .reject {|id| id == @own_id}
         .uniq.size

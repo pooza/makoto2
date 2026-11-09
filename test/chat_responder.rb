@@ -99,7 +99,7 @@ module Makoto
 
       assert_equal(
         ['unlisted', 'unlisted', 'private', 'direct'],
-        ['public', 'unlisted', 'private', 'direct'].map {|v| subject.reply_visibility({'visibility' => v})},
+        ['public', 'unlisted', 'private', 'direct'].map {|v| subject.reply_visibility(v)},
       )
     end
 
@@ -186,6 +186,15 @@ module Makoto
 
       assert_equal([{role: 'user', content: "〔あなたの投稿〕\nおはよう！\n\n〔それへの返信〕\nこんにちは"}],
         @model.calls.first)
+    end
+
+    # 🔴 **祖先が狭ければ、返事も狭くする**（#613）。
+    def test_the_reply_is_not_wider_than_the_ancestors
+      own = {'id' => OWN, 'acct' => 'makoto'}
+      @service.ancestors = [{'id' => '1', 'content' => '<p>おはよう</p>', 'account' => own, 'visibility' => 'private'}]
+
+      assert_equal(:respond, responder.handle(notification(reply_to: '1')))
+      assert_equal('private', @service.posts.first[:visibility])
     end
 
     # ⚠ 祖先が引けなければ、その 1 通だけで答える。

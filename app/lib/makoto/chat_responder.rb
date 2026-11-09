@@ -124,8 +124,9 @@ module Makoto
       return respond(account, status, decision, notification, received_at)
     end
 
-    def reply_visibility(status)
-      return REPLY_VISIBILITY.fetch(status['visibility'].to_s, 'direct')
+    # @param visibility [String] 渡した投稿のうち最も狭い公開範囲（→ `ChatThread#visibility`・#613）
+    def reply_visibility(visibility)
+      return REPLY_VISIBILITY.fetch(visibility.to_s, 'direct')
     end
 
     private
@@ -153,7 +154,7 @@ module Makoto
       handle_marks(account, status, thread, reply.marks)
       return done(:no_reply, notification, marks: reply.marks) if reply.silent?
       return done(:late_in_window, notification, marks: reply.marks) if gate.late?(received_at)
-      post_reply(account, status, reply.text)
+      post_reply(account, status, reply.text, thread)
       return done(:respond, notification, marks: reply.marks)
     end
 
@@ -217,10 +218,12 @@ module Makoto
     end
 
     # 🔴 **本文の `@` はメンションにしない**（→ `ChatThread.unmention`）。⚠ 宛先の `@相手` だけをここで付ける。
-    def post_reply(account, status, text)
+    # 🔴 **会話への返事は、渡した投稿のうち最も狭い公開範囲に合わせる**（→ `ChatThread#visibility`・#613）。
+    # ⚠ 決まった文（`notice`）は祖先を引かないので、メンションの公開範囲で返す（会話の中身を含まない）。
+    def post_reply(account, status, text, thread = nil)
       service.post_status(
         "@#{account['acct']} #{ChatThread.unmention(text)}",
-        visibility: reply_visibility(status),
+        visibility: reply_visibility(thread ? thread.visibility : status['visibility']),
         in_reply_to_id: status['id'],
         # ⚠ **同じ通知に 2 度返さない**（繋ぎ直しで同じ通知が届いても畳まれる）。
         idempotency_key: "makoto-chat-#{status['id']}",
