@@ -35,6 +35,9 @@ module Makoto
     # 奪い合う**（`:thump` だけで 1 時間 240 回）。⚠ 検知の閾値（`/streaming/stale`）より十分短いこと。
     RECORD_INTERVAL = 30
 
+    # SSE の Content-Type（#616）。
+    EVENT_STREAM = 'text/event-stream'.freeze
+
     # 止めるときに待つ長さ（秒）。
     JOIN_TIMEOUT = 5
 
@@ -206,6 +209,9 @@ module Makoto
     end
 
     # 🔴 **SSE の口を開けて、届いた塊を渡す。**⚠ 2xx 以外は分類して上げる。
+    # ⚠⚠ **2xx でも SSE でなければ上げる**（#616）— 前段がメンテナンスの HTML を 200 で返して閉じると、
+    # 本文を `receive` に渡した時点で失敗の回数を 0 に戻し、受信の痕跡を書いてしまう
+    # （`makoto status` が緑のまま、最短の間隔で繋ぎ直し続ける）。**本文を読む前に弾く。**
     def open_stream(uri, headers, &)
       Net::HTTP.start(uri.host, uri.port,
         use_ssl: uri.scheme == 'https',
@@ -213,9 +219,16 @@ module Makoto
         read_timeout: READ_TIMEOUT) do |http|
         http.request(Net::HTTP::Get.new(uri, headers)) do |response|
           raise_for(response) unless response.is_a?(Net::HTTPSuccess)
+          raise_unless_event_stream(response)
           response.read_body(&)
         end
       end
+    end
+
+    def raise_unless_event_stream(response)
+      type = response['Content-Type'].to_s.split(';').first.to_s.strip.downcase
+      return if type == EVENT_STREAM
+      raise Ginseng::GatewayError, "streaming returned '#{type}', not #{EVENT_STREAM}"
     end
 
     def raise_for(response)
