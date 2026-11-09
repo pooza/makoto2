@@ -686,8 +686,8 @@ module Makoto
       assert_empty(health(pid: Process.pid).chat_warnings)
       Heartbeat.record_chat_failure(now: now + 60)
 
-      assert_match(/\Achat API failed 3 times in a row \(since 2026-11-04T12:00:00/,
-        health(pid: Process.pid).chat_warnings.first)
+      assert_equal(["chat API failed 3 times in a row (since #{now.getlocal.iso8601})"],
+        health(pid: Process.pid).chat_warnings)
       Heartbeat.clear_chat_failures
 
       assert_empty(health(pid: Process.pid).chat_warnings)
@@ -701,7 +701,7 @@ module Makoto
       Heartbeat.record_followers_unloaded(now: now)
       Heartbeat.record_followers_unloaded(now: now + 3600)
 
-      assert_equal(['followers have not been loaded since 2026-11-04T12:00:00+09:00'],
+      assert_equal(["followers have not been loaded since #{now.getlocal.iso8601}"],
         health(pid: Process.pid).chat_warnings)
       Heartbeat.clear_followers_unloaded
 
