@@ -74,5 +74,20 @@ module Makoto
       assert_true(subject.include?('9'))
       assert_equal(3, subject.size)
     end
+
+    # ⚠ **重なった引き直しは 1 本ずつ**（PR #618 の Codex の P2）。両方とも引けた扱いになる。
+    def test_overlapping_refreshes_are_serialized
+      gate = Thread::Queue.new
+      calls = 0
+      subject = roster(fetcher: -> {(calls += 1) == 1 ? (gate.pop && ['1']) : ['1', '2']})
+      first = Thread.new {subject.refresh}
+      Thread.pass until first.status == 'sleep'
+      second = Thread.new {subject.refresh}
+      Thread.pass until ['sleep', false].include?(second.status)
+      gate.push(true)
+
+      assert_equal([1, 2], [first.value, second.value])
+      assert_equal(2, subject.size)
+    end
   end
 end

@@ -25,6 +25,7 @@ module Makoto
       @ids = nil
       @loaded_at = nil
       @mutex = Mutex.new
+      @refreshing = Mutex.new
     end
 
     def self.instance
@@ -60,7 +61,22 @@ module Makoto
       return @mutex.synchronize {@ids&.dup}
     end
 
+    # ⚠ **引き直しは 1 本ずつ**（PR #618 の Codex の P2）。⚠⚠ 返事のスレッド（`include?`）と突き合わせのスレッド
+    # （`FollowSync#sync`）が重なると、引き直しの最中に足したぶん（`@fetching`）を互いに上書き・消去する。
+    # ⚠ 一覧を引く間は `@mutex` を掴まない（`include?` / `add` を待たせない）。
     def refresh
+      return @refreshing.synchronize {refresh_once}
+    end
+
+    def stale?
+      loaded_at = @mutex.synchronize {@loaded_at}
+      return true unless loaded_at
+      return @clock.call - loaded_at >= interval
+    end
+
+    private
+
+    def refresh_once
       @mutex.synchronize {@fetching = Set.new}
       ids = @fetcher.call.to_set(&:to_s)
       @mutex.synchronize do
@@ -80,14 +96,6 @@ module Makoto
       end
       return nil
     end
-
-    def stale?
-      loaded_at = @mutex.synchronize {@loaded_at}
-      return true unless loaded_at
-      return @clock.call - loaded_at >= interval
-    end
-
-    private
 
     def interval
       seconds = Fugit::Duration.parse(config['/chat/followers/refresh'].to_s)&.to_sec
