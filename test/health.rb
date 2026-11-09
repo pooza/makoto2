@@ -762,6 +762,14 @@ module Makoto
       assert_empty(health(pid: Process.pid).chat_warnings)
     end
 
+    # ⚠ 時刻として読めない値（前の実装の `true`）は、次に止めたときに時刻へ書き直す（PR #642 の Codex の P2）。
+    def test_a_legacy_catch_up_hold_is_normalized
+      Heartbeat.update {|record| record.merge(catch_up_pending: true)}
+      Heartbeat.hold_notification_id(now: now)
+
+      assert_equal(now.to_i, Heartbeat.catch_up_pending_since.to_i)
+    end
+
     # ⚠ 前の常駐が書いた死んだスレッドは、起き上がったときに消す（v1.0.1 のリリース前レビュー）。
     def test_dead_threads_are_cleared_on_start
       Heartbeat.record_tick(now: now - 60, dead_threads: ['makoto-chat'])

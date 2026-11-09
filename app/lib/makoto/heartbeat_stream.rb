@@ -43,7 +43,9 @@ module Makoto
     # ⚠ 止まり始めた時刻を残す（`makoto status` が言う）。
     def hold_notification_id(now: nil)
       return update do |record|
-        since = record[:catch_up_pending] || (now || Time.now).getutc.iso8601
+        # ⚠ 時刻として読めない値（前の実装の `true` など）は書き直す（PR #642 の Codex の P2）。
+        since = record[:catch_up_pending] if parse_time(record[:catch_up_pending].to_s)
+        since ||= (now || Time.now).getutc.iso8601
         record.merge(catch_up_pending: since)
       end
     end
