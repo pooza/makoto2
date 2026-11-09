@@ -27,6 +27,8 @@ module Makoto
       '/streaming/stale',
       '/streaming/retry/base',
       '/streaming/retry/max',
+      '/scheduler/tick',
+      '/scheduler/tolerance',
       '/scheduler/heartbeat/interval',
       '/scheduler/tick_stale',
       '/scheduler/posting/failure_stale',

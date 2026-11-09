@@ -32,7 +32,7 @@ module Makoto
     # ⚠⚠ **追いつけていない間は進めない**（PR #633 の Codex の P2）— 進めると、取りこぼした分が起点より
     # 前になり、二度と引けない。⚠ 書けなくても例外を上げない（処理のスレッドを止めない）。
     def checkpoint_notification(id)
-      return nil if stored[:catch_up_pending]
+      return nil if stored.key?(:catch_up_pending)
       return record_notification_id(id)
     rescue => e
       logger.error(chat: 'checkpoint', error: e)
@@ -40,8 +40,18 @@ module Makoto
     end
 
     # 追いつけなかった（→ `MentionCatchUp`）。⚠ 追いつけるまで起点を止める。
-    def hold_notification_id
-      return update {|record| record.merge(catch_up_pending: true)}
+    # ⚠ 止まり始めた時刻を残す（`makoto status` が言う）。
+    def hold_notification_id(now: nil)
+      return update do |record|
+        # ⚠ 時刻として読めない値（前の実装の `true` など）は書き直す（PR #642 の Codex の P2）。
+        since = record[:catch_up_pending] if parse_time(record[:catch_up_pending].to_s)
+        since ||= (now || Time.now).getutc.iso8601
+        record.merge(catch_up_pending: since)
+      end
+    end
+
+    def catch_up_pending_since
+      return parse_time(stored[:catch_up_pending].to_s)
     end
 
     def release_notification_id

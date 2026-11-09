@@ -726,6 +726,8 @@ module Makoto
 
     # 🔴 **外すフォローが歯止めで止まっていたら言う**（#614）。
     def test_a_held_unfollow_is_a_warning
+      config['/chat/follow/enabled'] = true
+      config['/streaming/enabled'] = true
       beat
       Heartbeat.record_follow_over_limit(25, 20, now: now)
 
@@ -734,6 +736,46 @@ module Makoto
       Heartbeat.clear_follow_over_limit
 
       assert_empty(health(pid: Process.pid).follow_warnings)
+    end
+
+    # ⚠ 突き合わせを切ってあれば言わない（消す `sync` が走らない・v1.0.1 のリリース前レビュー）。
+    def test_a_held_unfollow_is_silent_when_follow_sync_is_off
+      config['/chat/follow/enabled'] = false
+      beat
+      Heartbeat.record_follow_over_limit(25, 20, now: now)
+
+      assert_empty(health(pid: Process.pid).follow_warnings)
+    end
+
+    # 🔴 **取りこぼしに追いつけていなければ言う**（#610・v1.0.1 のリリース前レビュー）。
+    def test_a_failing_catch_up_is_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = 'sk-ant-test'
+      beat
+      Heartbeat.hold_notification_id(now: now)
+      Heartbeat.hold_notification_id(now: now + 600)
+
+      assert_equal(["mention catch-up has been failing since #{now.getlocal.iso8601}"],
+        health(pid: Process.pid).chat_warnings)
+      Heartbeat.release_notification_id
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
+    # ⚠ 時刻として読めない値（前の実装の `true`）は、次に止めたときに時刻へ書き直す（PR #642 の Codex の P2）。
+    def test_a_legacy_catch_up_hold_is_normalized
+      Heartbeat.update {|record| record.merge(catch_up_pending: true)}
+      Heartbeat.hold_notification_id(now: now)
+
+      assert_equal(now.to_i, Heartbeat.catch_up_pending_since.to_i)
+    end
+
+    # ⚠ 前の常駐が書いた死んだスレッドは、起き上がったときに消す（v1.0.1 のリリース前レビュー）。
+    def test_dead_threads_are_cleared_on_start
+      Heartbeat.record_tick(now: now - 60, dead_threads: ['makoto-chat'])
+      Heartbeat.record_start(now: now)
+
+      assert_empty(Heartbeat.dead_threads)
     end
   end
 end
