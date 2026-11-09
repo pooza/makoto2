@@ -138,7 +138,9 @@ module Makoto
     end
 
     def mention_listener
-      @mention_listener ||= MentionListener.new(handler: chat_responder, follower: follow_sync)
+      return @mention_listener if @mention_listener
+      @mention_listener = MentionListener.new(handler: chat_responder, follower: follow_sync)
+      @mention_listener.catch_up = chat_responder && MentionCatchUp.new(handler: chat_responder)
       return @mention_listener
     end
 

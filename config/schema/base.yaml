@@ -558,6 +558,14 @@ properties:
             type: string
         required:
           - deadline
+      # 取りこぼしに追いつく（#610・→ `MentionCatchUp`）。
+      catch_up:
+        type: object
+        properties:
+          max_age:
+            type: string
+        required:
+          - max_age
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object

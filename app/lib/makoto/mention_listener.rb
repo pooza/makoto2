@@ -43,6 +43,9 @@ module Makoto
 
     attr_reader :thread, :failures
 
+    # 繋がったら呼ぶ（取りこぼしに追いつく・#610 → `MentionCatchUp`）。⚠ 返事をしないなら nil。
+    attr_writer :catch_up
+
     # @param service [MastodonService] ⚠ テストが差し替える
     # @param opener [#call] `(uri, headers) {|chunk| ...}` で塊を渡す。⚠ **テストが差し替える**
     #   （切断の注入）
@@ -100,6 +103,7 @@ module Makoto
     # 1 回繋いで、切れるまで読む。⚠ **例外を上げない**（切れ方を数えて戻る）。
     def listen
       parser = ServerSentEvents.new
+      @connected = false
       uri = service.streaming_uri
       logger.info(stream: 'connect', host: uri.host, failures: @failures)
       @opener.call(uri, service.streaming_headers) do |chunk|
@@ -120,9 +124,16 @@ module Makoto
     end
 
     # 塊が 1 つ届いた。
+    #
+    # 🔴 **繋がって最初に何か届いたら、取りこぼしに追いつく**（#610）。⚠ 繋ぐ前に引くと、引いてから繋がるまでの
+    # 分を落とす。後に引けば、重なった分は返事の側（`seen?`）が畳む。
     def receive(chunk, parser)
       @failures = 0
       record_alive
+      unless @connected
+        @connected = true
+        @catch_up&.call
+      end
       parser.feed(chunk) {|event| dispatch(event)}
     end
 

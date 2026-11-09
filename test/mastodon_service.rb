@@ -7,6 +7,15 @@ module Makoto
     end
 
     # 返信の祖先（#18）。⚠ トークンを付けて直で聞く。
+    # #610 の追いつく口。⚠ メンションだけを古い順に。
+    def test_mentions_since
+      url = "#{config['/mastodon/url']}/api/v1/notifications?types%5B%5D=mention&since_id=10&limit=40"
+      body = [{id: '12', type: 'mention'}, {id: '11', type: 'mention'}, {id: '13', type: 'follow'}].to_json
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: body)
+
+      assert_equal(['11', '12'], @service.mentions_since('10').map {|n| n['id']})
+    end
+
     def test_status_ancestors
       url = "#{config['/mastodon/url']}/api/v1/statuses/9/context"
       body = {ancestors: [{id: '1'}, {id: '2'}], descendants: []}.to_json

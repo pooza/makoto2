@@ -13,6 +13,21 @@ module Makoto
       end
     end
 
+    # 🔴 **最後に処理し終えたメンションの通知 ID**（#610 → `MentionCatchUp`）。⚠ 大きくなるときだけ書く
+    # （追いついた古い通知で戻さない）。⚠ Mastodon の ID は数字の文字列。
+    def record_notification_id(id)
+      return nil unless id.to_s.match?(/\A\d+\z/)
+      return update do |record|
+        current = record[:notification_id].to_s
+        next record if current.match?(/\A\d+\z/) && current.to_i >= id.to_i
+        record.merge(notification_id: id.to_s)
+      end
+    end
+
+    def notification_id
+      return stored[:notification_id]&.to_s
+    end
+
     # 最後に何かが届いた時刻。⚠ **一度も無ければ nil。**
     def streamed_at
       return parse_time(stored[:streamed_at])
