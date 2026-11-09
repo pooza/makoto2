@@ -40,8 +40,15 @@ module Makoto
     end
 
     # フォローの通知を受けた。⚠ **まだ一度も引けていなければ何もしない**（引けたときに入っている）。
+    #
+    # 🔴 **引き直しの最中に足したぶんも残す**（v1.0.0 のリリース前レビュー）。⚠⚠ 引き直しは引き終えた一覧で
+    # 丸ごと差し替えるので、引いている数秒のうちに来たフォローが消え、フォローしたばかりの人に
+    # 「フォローしてね」を返していた。
     def add(account_id)
-      @mutex.synchronize {@ids&.add(account_id.to_s)}
+      @mutex.synchronize do
+        @ids&.add(account_id.to_s)
+        @fetching&.add(account_id.to_s)
+      end
     end
 
     def size
@@ -54,9 +61,11 @@ module Makoto
     end
 
     def refresh
+      @mutex.synchronize {@fetching = Set.new}
       ids = @fetcher.call.to_set(&:to_s)
       @mutex.synchronize do
-        @ids = ids
+        @ids = ids | @fetching
+        @fetching = nil
         @loaded_at = @clock.call
       end
       logger.info(chat: 'followers', count: ids.size)
@@ -65,7 +74,10 @@ module Makoto
       # ⚠ 前の一覧があれば使い続ける。⚠⚠ **無ければ `include?` が例外にする**（→ クラスの冒頭）。
       logger.warn(chat: 'followers', message: 'could not refresh', error_class: e.class.name,
         error: e)
-      @mutex.synchronize {@loaded_at = @clock.call if @ids}
+      @mutex.synchronize do
+        @fetching = nil
+        @loaded_at = @clock.call if @ids
+      end
       return nil
     end
 

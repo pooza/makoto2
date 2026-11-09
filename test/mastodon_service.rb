@@ -443,7 +443,7 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids(max_pages: 1)}
     end
 
-    # ⚠ **別ホストの `next` は辿らない。**
+    # ⚠ **別ホストの `next` は辿らない。**🔴 **途中までを全部として返さず、例外にする**（リリース前レビュー）。
     def test_follower_ids_do_not_follow_another_host
       stub_account
       base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
@@ -451,7 +451,7 @@ module Makoto
         headers: {'Content-Type' => 'application/json',
                   'Link' => '<https://evil.example.com/next>; rel="next"'})
 
-      assert_equal(['1'], MastodonService.new.follower_ids)
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids}
     end
 
     # フォロー中の一覧も同じ引き方（#606）。

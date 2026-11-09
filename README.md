@@ -4,7 +4,7 @@ Mastodon サーバー「[キュアスタ！](https://precure.ml)」で稼働す�
 
 旧実装 [pooza/makoto](https://github.com/pooza/makoto)（アーカイブ済み）のコードは引き継がず、機能を 4 つ（曲紹介 / 朝挨拶 / チャットボット / 11 月 4 日のバースデーライブ）に絞って作り直す。
 
-✅ **本番で稼働中。**11 月 4 日のバースデーライブと、日常運用の 2 機能（曲紹介・朝挨拶）が動いている。⚠ **チャットボットは未実装。**
+✅ **本番で稼働中。**11 月 4 日のバースデーライブと、日常運用の 3 機能（曲紹介・朝挨拶・チャットボット）。チャットボットは `1.0` から — フォロワーからのメンションに、LLM（Claude）で真琴として返事をする（⚠ API キー `/anthropic/api_key` が無ければ返事をしない・受信は続く）。
 
 ⚠ 版は [リリース一覧](https://github.com/pooza/makoto2/releases) を見る（ここに版を書かない）。⚠⚠ **タグは本番へ入れる前に打つ**ので、最新のリリースが本番で動いているとは限らない — **本番に入った版は [docs/CLAUDE.md](docs/CLAUDE.md) のデプロイの記録が正本。**
 
@@ -54,6 +54,12 @@ bin/makoto song preview  # 曲紹介を数日ぶん下見する（投稿しな�
 bin/makoto song sample  # kind ごとに本文を組んで表示する（投稿しない）
 bin/makoto song slot  # 曲紹介の枠・前置きの本数・抽選の母集合
 bin/makoto live setlist --date=2026-11-04 --mc  # ライブの並びを下見する（投稿しない）
+
+bin/makoto chat try TEXT  # 返事を作らせて表示する（投稿しない・課金あり）
+bin/makoto chat penalties  # 悪戯の印が付いた相手と、ペナルティの期限
+bin/makoto chat forgive ACCT  # ペナルティと印を消す（判定の間違いを直す）
+bin/makoto chat block ACCT  # 返事をしない相手に載せる（unblock で外す・blocks で一覧）
+bin/makoto chat ledger  # チャットボットに渡す台帳を表示する
 ```
 
 死活監視はここを叩く。⚠⚠ **終了コードで返す。**

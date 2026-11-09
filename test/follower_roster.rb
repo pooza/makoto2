@@ -64,5 +64,15 @@ module Makoto
       assert_true(subject.include?('9'))
       assert_equal(3, subject.size)
     end
+
+    # 🔴 **引き直しの最中に来たフォローを、差し替えで消さない**（v1.0.0 のリリース前レビュー）。
+    def test_a_follow_during_refresh_is_kept
+      subject = nil
+      subject = roster(fetcher: -> {subject.add('9') && ['1', '2']})
+      subject.refresh
+
+      assert_true(subject.include?('9'))
+      assert_equal(3, subject.size)
+    end
   end
 end

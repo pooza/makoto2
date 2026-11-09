@@ -2,12 +2,13 @@ module Makoto
   class FollowSyncTest < TestCase
     # Mastodon の代わり。フォローした・外した ID を覚える。
     class FakeService
-      attr_accessor :following, :locked
+      attr_accessor :following, :locked, :refused
       attr_reader :followed, :unfollowed
 
       def initialize(following: [])
         @following = following
         @locked = []
+        @refused = []
         @followed = []
         @unfollowed = []
       end
@@ -18,6 +19,7 @@ module Makoto
       end
 
       def follow(id)
+        raise Ginseng::AuthError, 'mastodon returned 403' if @refused.include?(id.to_s)
         @followed.push(id.to_s)
         locked = @locked.include?(id.to_s)
         return {'id' => id.to_s, 'following' => !locked, 'requested' => locked}
@@ -133,6 +135,14 @@ module Makoto
 
       assert_equal(['3'], subject.sync[:followed])
       assert_empty(@service.unfollowed)
+    end
+
+    # 🔴 **1 人に断られても、その回の残りは続ける**（引っ越した・凍結された相手・リリース前レビューの赤）。
+    def test_sync_continues_after_a_refused_follow
+      @service.refused = ['2']
+
+      assert_equal(['1', '3'], subject.sync[:followed].sort)
+      assert_equal(['1', '3'], @service.followed.sort)
     end
 
     # ⚠ どちらかの一覧が引けなければ何もしない。
