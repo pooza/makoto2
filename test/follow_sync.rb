@@ -182,5 +182,16 @@ module Makoto
       assert_false(FollowSync.enabled?)
       assert_nil(subject.start)
     end
+
+    # 🔴 **待ちの設定が読めなくてもスレッドを死なせない**（#611）。⚠ 既定の待ちに倒す。
+    def test_a_bad_interval_does_not_kill_the_thread
+      waits = []
+      sync = FollowSync.new(service: @service, roster: @roster, repository: @repository,
+        sleeper: ->(seconds) {waits.push(seconds) && sync.stop})
+      config['/chat/followers/refresh'] = '30x'
+      sync.run
+
+      assert_equal([FollowSync::FALLBACK_INTERVAL], waits)
+    end
   end
 end

@@ -89,5 +89,35 @@ module Makoto
       assert_equal([1, 2], [first.value, second.value])
       assert_equal(2, subject.size)
     end
+
+    # 🔴 **一度も引けていなければ痕跡に残し、引けたら消す**（#611 → `makoto status`）。
+    def test_unloaded_followers_are_traced
+      FileUtils.rm_f(Heartbeat.path)
+      fail_now = true
+      subject = roster(fetcher: -> {fail_now ? raise(Ginseng::GatewayError, 'down') : @list})
+      subject.refresh
+
+      assert_not_nil(Heartbeat.followers_unloaded_since)
+      fail_now = false
+      subject.refresh
+
+      assert_nil(Heartbeat.followers_unloaded_since)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # ⚠ 前の一覧があるときの失敗は残さない（前の一覧で答えられる）。
+    def test_a_failed_refresh_with_an_old_list_is_not_traced
+      FileUtils.rm_f(Heartbeat.path)
+      fail_now = false
+      subject = roster(fetcher: -> {fail_now ? raise(Ginseng::GatewayError, 'down') : @list})
+      subject.refresh
+      fail_now = true
+      subject.refresh
+
+      assert_nil(Heartbeat.followers_unloaded_since)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end
