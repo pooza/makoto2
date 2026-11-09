@@ -20,7 +20,7 @@
 オーナーに見せて了承をもらう（#19 のコメントの決まり）。
 
 ⚠ 入力に第三者の著作物（台詞）が入るので、**結果は var/persona_eval/ に出す**
-（var/ はコミットしない）。このファイルと cases.yaml・persona_prompt.md には台詞を書かない。
+（var/ はコミットしない）。このファイルと cases.yaml・config/chat/persona.md には台詞を書かない。
 
 ⚠ API キーは config/local.yaml の `/anthropic/api_key`（無ければ環境変数
 `ANTHROPIC_API_KEY`）。ログにもファイルにも書き出さない。
@@ -32,6 +32,7 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -85,6 +86,21 @@ EXPECTED_OUTPUT_TOKENS = 800
 EXPECTED_JUDGE_OUTPUT_TOKENS = 1500
 
 RESPOND_EFFORT = 'low'
+
+# 🔴 返事の形（#18・2026-11-08）。`json` は本番（Makoto::ChatModel）と同じ — 指示書の後ろに
+# config/chat/reply_format.md を足し、structured outputs で {reply, marks} を返させる。`text` は
+# 2026-11-07 までの評価の形（返事の文だけ）。⚠ 本番の口調を測るなら json で回す。
+REPLY_FORMATS = ('json', 'text')
+# ⚠ Makoto::ChatModel::SCHEMA と揃える（印の種類も）。
+REPLY_SCHEMA = {
+  'type': 'object',
+  'properties': {
+    'reply': {'type': 'string'},
+    'marks': {'type': 'array', 'items': {'type': 'string', 'enum': ['provoke', 'backstage', 'impersonate']}},
+  },
+  'required': ['reply', 'marks'],
+  'additionalProperties': False,
+}
 JUDGE_EFFORT = 'medium'
 MAX_TOKENS = 8000
 
@@ -150,6 +166,9 @@ def main():
     p.add_argument('--corpus', default=','.join(CORPUS), help='同梱する台詞の条件（カンマ区切り）')
     p.add_argument('--cases', default=None, help='使う質問の id（カンマ区切り・省略で全部）')
     p.add_argument('--suite', default='cases', choices=SUITES, help='質問集')
+    p.add_argument('--reply-format', default='json', choices=REPLY_FORMATS, help='返事の形（json は本番と同じ）')
+    p.add_argument('--ledger', default='on', choices=['on', 'off'],
+                   help='足した設定の台帳を渡すか（on は本番と同じ・#526）')
   sub.choices['estimate'].add_argument('--judges', default=DEFAULT_JUDGES, help='判定役（カンマ区切り）')
   for name in ('collect', 'judge', 'report'):
     p = sub.add_parser(name)
@@ -199,7 +218,28 @@ def load_cases(only=None, suite='cases'):
 
 
 def load_persona():
-  text = (HERE / 'persona_prompt.md').read_text()
+  return load_prompt('persona.md')
+
+
+def load_reply_format(name):
+  return load_prompt('reply_format.md') if name == 'json' else None
+
+
+def load_ledger(flag):
+  # 🔴 台帳の塊は本番と同じものを使う（`bin/makoto chat ledger`・組み立ての正本は Makoto::Ledger）。
+  # ⚠ 台帳が無い（makoto-scripts が無い）ときに on なら止める — 黙って外すと、本番と違う条件で課金する。
+  if flag == 'off':
+    return None
+  result = subprocess.run([str(ROOT / 'bin' / 'makoto'), 'chat', 'ledger'], cwd=ROOT,
+                          capture_output=True, text=True)
+  if result.returncode != 0:
+    sys.exit(f'台帳を読めません（--ledger=off で外せます）: {result.stderr.strip()}')
+  return result.stdout.strip()
+
+
+def load_prompt(name):
+  # ⚠ 書き手向けの注記（HTML のコメント）は渡さない（Makoto::ChatModel#system_blocks と同じ）。
+  text = (ROOT / 'config' / 'chat' / name).read_text()
   return re.sub(r'<!--.*?-->\s*', '', text, flags=re.S).strip()
 
 
@@ -219,9 +259,14 @@ def corpus_block(quotes, limit):
   return '# 本編での真琴の台詞（口調の素材）\n\n' + '\n'.join(lines)
 
 
-def system_blocks(persona, corpus):
-  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。
+def system_blocks(persona, corpus, reply_format=None, ledger=None):
+  # 🔴 キャッシュは前方一致なので、変わらないもの（指示書）を先に置く。⚠ 返事の形は指示書のすぐ後ろ、
+  # 台帳はその後ろ（本番の並びと同じ → Makoto::ChatModel#system_blocks）。
   blocks = [{'type': 'text', 'text': persona}]
+  if reply_format:
+    blocks.append({'type': 'text', 'text': reply_format})
+  if ledger:
+    blocks.append({'type': 'text', 'text': ledger})
   if corpus:
     blocks.append({'type': 'text', 'text': corpus})
   blocks[-1]['cache_control'] = {'type': 'ephemeral'}
@@ -233,17 +278,50 @@ def messages_of(case):
   return list(case.get('history', [])) + [{'role': 'user', 'content': case['prompt']}]
 
 
-def respond_params(model, system, case):
+def respond_params(model, system, case, reply_format='text'):
+  output_config = {'effort': RESPOND_EFFORT}
+  if reply_format == 'json':
+    output_config['format'] = {'type': 'json_schema', 'schema': REPLY_SCHEMA}
   return {
     'model': model,
     'max_tokens': MAX_TOKENS,
     'system': system,
-    'output_config': {'effort': RESPOND_EFFORT},
+    'output_config': output_config,
     'messages': messages_of(case),
   }
 
 
-def judge_params(judge_model, persona, case, text):
+def failed(entry):
+  # 本番（Makoto::ChatModel）が黙る応答。🔴 判定に回さない — 本番が投稿しないものを採点しない
+  # （PR #588 の Codex の P2）。⚠ json の回は end_turn 以外（打ち切り）と読めない JSON も黙る。
+  if entry['type'] != 'succeeded' or entry.get('stop_reason') == 'refusal':
+    return True
+  if 'raw' in entry or entry.get('unreadable'):
+    return entry.get('unreadable', False) or entry.get('stop_reason') != 'end_turn'
+  return False
+
+
+def split_reply(entry):
+  # json の回の応答を、返事の文と印に分ける。⚠ 判定役と報告は `text`（返事の文）を読む。
+  raw = entry.get('text', '')
+  try:
+    data = json.loads(raw)
+    entry.update({'raw': raw, 'text': data.get('reply', ''), 'marks': data.get('marks', [])})
+  except (json.JSONDecodeError, AttributeError):
+    entry['unreadable'] = True
+  return entry
+
+
+JUDGE_LEDGER_NOTE = '''
+
+# MAKOTO で足した設定（台帳・#526）
+
+次は本編には無いが、MAKOTO の原稿で採用済みの設定で、MAKOTO にも本人の記憶として渡してある。応答がこれに沿っているなら、作った設定として外れにしない（台帳に無いことを新しく言い切っているかは、これまでどおり見る）。
+
+'''
+
+
+def judge_params(judge_model, persona, case, text, ledger=None):
   sections = []
   if case.get('history'):
     lines = [f"- {'ファン' if m['role'] == 'user' else 'MAKOTO'}: {m['content']}" for m in case['history']]
@@ -257,7 +335,8 @@ def judge_params(judge_model, persona, case, text):
   return {
     'model': judge_model,
     'max_tokens': MAX_TOKENS,
-    'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona, 'cache_control': {'type': 'ephemeral'}}],
+    'system': [{'type': 'text', 'text': JUDGE_INSTRUCTIONS + persona + (JUDGE_LEDGER_NOTE + ledger if ledger else ''),
+                'cache_control': {'type': 'ephemeral'}}],
     'output_config': {
       'effort': JUDGE_EFFORT,
       'format': {'type': 'json_schema', 'schema': JUDGE_SCHEMA},
@@ -342,6 +421,7 @@ def cmd_estimate(args):
   cases = load_cases(args.cases, args.suite)
   judges = judge_keys(args)
   persona = load_persona()
+  ledger = load_ledger(args.ledger)
   quotes = load_quotes()
   total = 0.0
   print(f'質問 {len(cases)} 本・応答可の台詞 {len(quotes)} 件')
@@ -349,15 +429,16 @@ def cmd_estimate(args):
   print('| --- | --- | --- | --- |')
   for model_key, corpus_key in conditions(args):
     model = MODELS[model_key]
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]))
-    params = respond_params(model, system, BLANK_CASE)
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format),
+                           ledger)
+    params = respond_params(model, system, BLANK_CASE, args.reply_format)
     tokens = per_case_tokens(api, params, [messages_of(c) for c in cases])
     total += print_estimate(f'{model_key} × {corpus_key}', model, tokens, EXPECTED_OUTPUT_TOKENS)
   # ⚠ 判定の入力に入る応答は、まだ無いのでダミーで数える（応答の長さぶん少なめに出る）。
   repeat = len(conditions(args))
   for judge_key in judges:
     judge_model = JUDGES[judge_key]
-    params = judge_params(judge_model, persona, BLANK_CASE, '')
+    params = judge_params(judge_model, persona, BLANK_CASE, '', ledger)
     messages = [judge_params(judge_model, persona, c, 'ダミーの応答です。')['messages'] for c in cases]
     tokens = per_case_tokens(api, params, messages) * repeat
     total += print_estimate(f'判定（{judge_key}）', judge_model, tokens, EXPECTED_JUDGE_OUTPUT_TOKENS)
@@ -395,12 +476,14 @@ def cmd_respond(args):
   api = client()
   cases = load_cases(args.cases, args.suite)
   persona = load_persona()
+  ledger = load_ledger(args.ledger)
   quotes = load_quotes()
   requests = []
   for model_key, corpus_key in conditions(args):
-    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]))
+    system = system_blocks(persona, corpus_block(quotes, CORPUS[corpus_key]), load_reply_format(args.reply_format),
+                           ledger)
     for case in cases:
-      params = respond_params(MODELS[model_key], system, case)
+      params = respond_params(MODELS[model_key], system, case, args.reply_format)
       requests.append(Request(
         custom_id=custom_id(case['id'], model_key, corpus_key),
         params=MessageCreateParamsNonStreaming(**params),
@@ -408,14 +491,19 @@ def cmd_respond(args):
   run = datetime.now().strftime('%Y%m%d-%H%M%S')
   run_dir = OUT_DIR / run
   run_dir.mkdir(parents=True)
+  # 🔴 渡した台帳の写しを残す（判定役にも同じものを見せる・あとで台帳が変わっても回を読み直せる）。
+  if ledger:
+    (run_dir / 'ledger.md').write_text(ledger + '\n')
   batch = api.messages.batches.create(requests=requests)
   state = {
     'created_at': datetime.now().isoformat(),
     'models': args.models,
     'corpus': args.corpus,
     'suite': args.suite,
+    'ledger': args.ledger,
     'cases': [c['id'] for c in cases],
     'respond_effort': RESPOND_EFFORT,
+    'reply_format': args.reply_format,
     'respond_batch': batch.id,
   }
   write_json(run_dir / 'state.json', state)
@@ -465,6 +553,8 @@ def cmd_collect(args):
       })
       if message.stop_reason == 'refusal' and message.stop_details:
         entry['refusal'] = message.stop_details.category
+      elif stage == 'respond' and state.get('reply_format') == 'json':
+        split_reply(entry)
     elif item.result.type == 'errored':
       entry['error'] = str(item.result.error)
     results[item.custom_id] = entry
@@ -480,17 +570,20 @@ def cmd_judge(args):
   responses = read_json(run_dir / 'respond.json')
   cases = {c['id']: c for c in load_cases(suite=state.get('suite', 'cases'))}
   persona = load_persona()
+  # ⚠ 台帳は応答を作ったときの写しを使う（無い回 ＝ 台帳なしで作った回）。
+  ledger_path = run_dir / 'ledger.md'
+  ledger = ledger_path.read_text().strip() if ledger_path.exists() else None
   for judge_key in judge_keys(args):
     if judge_key in state['judges']:
       print(f"judge-{judge_key}: 投げてある（batch {state['judges'][judge_key]}）")
       continue
     requests = []
     for key, entry in responses.items():
-      if entry['type'] != 'succeeded' or entry['stop_reason'] == 'refusal':
+      if failed(entry):
         continue
       case_id, _, _ = parse_custom_id(key)
       # 🔴 判定役には条件（モデル・台詞の件数）を見せない。
-      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'])
+      params = judge_params(JUDGES[judge_key], persona, cases[case_id], entry['text'], ledger)
       requests.append(Request(custom_id=key, params=MessageCreateParamsNonStreaming(**params)))
     batch = api.messages.batches.create(requests=requests)
     state['judges'][judge_key] = batch.id
@@ -524,27 +617,28 @@ def cmd_report(args):
     rows[key] = {'entry': entry, 'flags': flags, 'verdicts': verdicts}
 
   out = [f'# 評価の報告 {args.run}', '']
-  out.append(f"- 条件: モデル {state['models']} × 台詞 {state['corpus']}・effort {state['respond_effort']}")
-  out.append(f"- 判定役: {'・'.join(judges) or '（未実施）'}。条件は見せていない。pass / fail / unsure は判定役ごとに「{' / '.join(judges)}」の順")
+  out.append(f"- 条件: モデル {state['models']} × 台詞 {state['corpus']}・effort {state['respond_effort']}・返事の形 {state.get('reply_format', 'text')}")
+  out.append(f"- 判定役: {'・'.join(judges) or '（未実施）'}。条件は見せていない。pass / fail / unsure / 判定役の失敗は判定役ごとに「{' / '.join(judges)}」の順")
+  out.append('- ⚠ 判定役の失敗（途中で切れた・JSON として読めない・verdict が無い）は unsure に数えない。理由は質問ごとの表にある')
   out.append('- 🔴 目印（機械）は外れの検出だけ。当たらなくても合格とは限らない')
   out.append('')
   out.append('## 条件ごとのまとめ')
   out.append('')
-  out.append('| 条件 | 本数 | pass | fail | unsure | 目印あり | 平均の長さ | 拒否・失敗 | 応答の費用（USD） |')
-  out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+  out.append('| 条件 | 本数 | pass | fail | unsure | 判定役の失敗 | 目印あり | 平均の長さ | 拒否・失敗 | 応答の費用（USD） |')
+  out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
   for model_key, corpus_key in conds:
     keys = [k for k in rows if parse_custom_id(k)[1:] == (model_key, corpus_key)]
     counts = {v: ' / '.join(
       str(sum(1 for k in keys if rows[k]['verdicts'].get(j, {}).get('verdict') == v)) for j in judges
-    ) for v in ('pass', 'fail', 'unsure')}
+    ) for v in ('pass', 'fail', 'unsure', 'broken')}
     texts = [rows[k]['entry'].get('text', '') for k in keys]
-    broken = sum(1 for k in keys if rows[k]['entry']['type'] != 'succeeded' or rows[k]['entry'].get('stop_reason') == 'refusal')
+    broken = sum(1 for k in keys if failed(rows[k]['entry']))
     spent = sum(cost(MODELS[model_key], rows[k]['entry']['usage']) for k in keys if 'usage' in rows[k]['entry'])
     flagged = sum(1 for k in keys if rows[k]['flags'])
     avg = sum(len(t) for t in texts) / len(texts) if texts else 0
     out.append(
       f"| {model_key} × {corpus_key} | {len(keys)} | {counts['pass']} | {counts['fail']} "
-      f"| {counts['unsure']} | {flagged} | {avg:.0f} 字 | {broken} | {spent:.2f} |"
+      f"| {counts['unsure']} | {counts['broken']} | {flagged} | {avg:.0f} 字 | {broken} | {spent:.2f} |"
     )
   out.append('')
   for judge_key in judges:
@@ -578,12 +672,17 @@ def cmd_report(args):
         text = f"（{entry['type']}: {entry.get('error', '')}）"
       elif entry['stop_reason'] == 'refusal':
         text = f"（拒否: {entry.get('refusal')}）"
+      elif failed(entry):
+        text = f"（本番では黙る: {entry.get('stop_reason')}・{'JSON として読めない' if entry.get('unreadable') else '打ち切り'}）"
       else:
-        text = entry['text']
+        text = entry['text'] or '（返事をしない）'
+        if entry.get('marks'):
+          text += f"〔印: {'・'.join(entry['marks'])}〕"
       cells = []
       for judge_key in judges:
         verdict = row['verdicts'].get(judge_key)
-        cells.append(cell(f"**{verdict['verdict']}** {verdict['reason']}" if verdict else ''))
+        label = '判定役の失敗' if verdict and verdict['verdict'] == 'broken' else (verdict or {}).get('verdict')
+        cells.append(cell(f"**{label}** {verdict['reason']}" if verdict else ''))
       out.append(f"| {model_key} × {corpus_key} | {cell(text)} | {cell('・'.join(row['flags']))} | " + ' | '.join(cells) + ' |')
   (run_dir / 'report.md').write_text('\n'.join(out) + '\n')
   print(run_dir / 'report.md')
@@ -601,6 +700,9 @@ def cmd_fork(args):
   run_dir = OUT_DIR / run
   run_dir.mkdir(parents=True)
   (run_dir / 'respond.json').write_text((source_dir / 'respond.json').read_text())
+  # ⚠ 台帳の写しも引き継ぐ（判定役が同じ台帳を見る）。
+  if (source_dir / 'ledger.md').exists():
+    (run_dir / 'ledger.md').write_text((source_dir / 'ledger.md').read_text())
   write_json(run_dir / 'state.json', state)
   print(f"run: {run}（{state['source']} の応答を引き継いだ）")
 
@@ -611,10 +713,10 @@ def cmd_agree(args):
   readers = {}
   for run in args.runs:
     readers[read_json(OUT_DIR / run / 'state.json').get('source', run)] = run
-  out = ['| 判定役 | 本数 | 一致 | 食い違い | unsure | 判定なし |', '| --- | --- | --- | --- | --- | --- |']
+  out = ['| 判定役 | 本数 | 一致 | 食い違い | unsure | 判定役の失敗 | 判定なし |', '| --- | --- | --- | --- | --- | --- | --- |']
   details = []
   for judge_key in JUDGES:
-    counts = {'agree': 0, 'differ': 0, 'unsure': 0, 'missing': 0}
+    counts = {'agree': 0, 'differ': 0, 'unsure': 0, 'broken': 0, 'missing': 0}
     for item in gold:
       run = readers.get(item['run'], item['run'])
       path = OUT_DIR / run / f'judge-{judge_key}.json'
@@ -622,6 +724,11 @@ def cmd_agree(args):
       verdict = parse_verdict(read_json(path).get(key) if path.exists() else None)
       if not verdict:
         counts['missing'] += 1
+        continue
+      # ⚠ 正解が unsure でも、壊れた判定を一致に数えない（#579）。本数と一致率の分母からも外す。
+      if verdict['verdict'] == 'broken':
+        counts['broken'] += 1
+        details.append(f"- {judge_key} `{run}` {item['case']}: 判定役の失敗 — {verdict['reason']}")
         continue
       if verdict['verdict'] == item['verdict']:
         counts['agree'] += 1
@@ -632,14 +739,16 @@ def cmd_agree(args):
         f"- {judge_key} `{run}` {item['case']}: 正解 **{item['verdict']}**{minor} / 判定 **{verdict['verdict']}**\n"
         f"  - 正解の理由: {item['note']}\n  - 判定の理由: {verdict['reason']}"
       )
-    judged = len(gold) - counts['missing']
-    if not judged:
+    judged = len(gold) - counts['missing'] - counts['broken']
+    if not judged and not counts['broken']:
       continue
     rate = f"{counts['agree']}（{counts['agree'] / judged:.0%}）" if judged else '0'
-    out.append(f"| {judge_key} | {judged} | {rate} | {counts['differ']} | {counts['unsure']} | {counts['missing']} |")
+    out.append(
+      f"| {judge_key} | {judged} | {rate} | {counts['differ']} | {counts['unsure']} | {counts['broken']} | {counts['missing']} |"
+    )
   print('\n'.join(out))
   if details:
-    print('\n## 食い違い\n')
+    print('\n## 食い違い・判定役の失敗\n')
     print('\n'.join(details))
 
 
@@ -651,7 +760,10 @@ def cell(text):
 
 # 判定役の応答 1 本を {'verdict', 'reason'} に。⚠ 応答が無ければ None（判定なし）。
 #
-# 🔴 途中で切れた応答は unsure として数える（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
+# 🔴 判定役が壊れた回は verdict を 'broken' にする（#579）。本物の unsure に混ぜると、判定役への指示を直して
+# 一致率を比べるとき（#508）に、道具の失敗が「unsure が増えた」に見える。report と agree は別の列で数える。
+#
+# 🔴 途中で切れた応答も 1 本として残す（#560）。max_tokens（思考も含めて MAX_TOKENS）や refusal で
 # 終わると text が途中で切れた JSON になり、json.loads が落ちて報告がまるごと書けなかった。
 # ⚠ 課金済みの結果は残るので、失うのはその 1 本の判定だけにする。
 #
@@ -662,15 +774,15 @@ def parse_verdict(found):
     return None
   stop = found.get('stop_reason')
   if stop in ('max_tokens', 'refusal'):
-    return {'verdict': 'unsure', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
+    return {'verdict': 'broken', 'reason': f'（判定役の応答が途中で切れた: stop_reason {stop}）'}
   if not found.get('text'):
     return None
   try:
     verdict = json.loads(found['text'])
   except json.JSONDecodeError:
-    return {'verdict': 'unsure', 'reason': f'（判定役の応答を JSON として読めない: stop_reason {stop}）'}
+    return {'verdict': 'broken', 'reason': f'（判定役の応答を JSON として読めない: stop_reason {stop}）'}
   if not isinstance(verdict, dict) or verdict.get('verdict') not in ('pass', 'fail', 'unsure'):
-    return {'verdict': 'unsure', 'reason': f'（判定役の応答に verdict が無い: stop_reason {stop}）'}
+    return {'verdict': 'broken', 'reason': f'（判定役の応答に verdict が無い: stop_reason {stop}）'}
   verdict.setdefault('reason', '')
   return verdict
 

@@ -17,6 +17,7 @@ module Makoto
     setup do
       WebMock.enable!
       WebMock.disable_net_connect!
+      quiet_chat
     end
 
     teardown do
@@ -25,6 +26,15 @@ module Makoto
       WebMock.disable!
       @empty_db&.disconnect
       config.reload
+    end
+
+    # 🔴 **チャットボットは切り、キーも空にしておく**（#18）。⚠⚠ **手元の `local.yaml` にはキーがあり、
+    # CI の雛形には無い**ので、そろえないと `Health` の警告が機械ごとに変わる（PR #589 の CI で踏んだ）。
+    # ⚠ チャットのテストは、要る設定を自分で入れる。⚠ **`config.reload` のあとは呼び直す**（上書きが消える）。
+    def quiet_chat
+      config['/chat/enabled'] = false
+      config['/chat/follow/enabled'] = false
+      config['/anthropic/api_key'] = ''
     end
 
     # 🔴 **日付を騙している状態を作る**（#174 / #154）。
@@ -105,10 +115,6 @@ module Makoto
 
     def track_fixture_dir
       return File.join(self.class.fixture_dir, 'track')
-    end
-
-    def self.dir
-      return File.join(Environment.dir, 'test')
     end
   end
 end

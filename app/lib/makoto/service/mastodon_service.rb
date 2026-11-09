@@ -38,6 +38,13 @@ module Makoto
       422 => Ginseng::ValidateError,
     }.freeze
 
+    # メンションを受ける SSE の口（#29）。⚠ **通知だけを流すストリーム**（ホームの投稿は来ない）。
+    STREAMING_PATH = '/api/v1/streaming/user/notification'.freeze
+
+    # フォロワーの一覧を辿るページ数の上限（80 件ずつ ＝ 8,000 人）。⚠ 尽きたら例外（途中までを返さない）。
+    FOLLOWER_MAX_PAGES = 100
+
+    # ginseng-upstream: no — モロヘイヤを経由して投稿するか（`/mastodon/mulukhiya`）はこのアプリの経路の設定
     def initialize(uri = nil, token = nil)
       super
       # ⚠ **`optional_config` で既定値に逃がさない**（→ Package#optional_config）。
@@ -96,6 +103,22 @@ module Makoto
       raise classify(e)
     end
 
+    # acct からアカウントを引く（#20 の `makoto chat block`）。⚠ **見つからなければ nil。**
+    # ⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
+    def lookup_account(acct)
+      query = URI.encode_www_form(acct: acct.to_s.delete_prefix('@'))
+      response = http.get("/api/v1/accounts/lookup?#{query}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      return body.is_a?(Hash) && body['id'] ? body : nil
+    rescue Ginseng::GatewayError => e
+      return nil if e.source_status == 404
+      raise classify(e)
+    end
+
     # 投稿先が申告する本文の上限（#351）。⚠ **無ければ nil。**
     #
     # 🔴 **上流の `max_post_text_length` を使わない** — ⚠⚠ **取れないと設定の既定値（500）に
@@ -111,12 +134,92 @@ module Makoto
       raise classify(e)
     end
 
+    # MAKOTO のフォロワーの ID を全部（#510 の門 → `FollowerRoster`）。⚠ **投稿しない**ので副作用は無い。
+    #
+    # 🔴 **`/api/v1/accounts/relationships` を使わない** — ⚠⚠ **`read:follows` が要り、いまのトークン
+    # （`read:accounts read:notifications write:statuses write:media`）では 403**（2026-11-07 に実測）。
+    # **スコープは発行後に足せない**ので、`read:accounts` で引ける自分のフォロワー一覧を使う。
+    #
+    # ⚠ **ページは `Link` の `next` を辿る**（80 件ずつ）。⚠ **辿る先は同じホストのときだけ**、
+    # 経路の設定に関わらず直で聞く（→ `#account`）。🔴 **聞けなければ例外**（途中までの一覧を返さない —
+    # ⚠⚠ 欠けた一覧で「フォロワーでない」と答えると、フォロワーへ「フォローしてくれたら」を返してしまう）。
+    def follower_ids(max_pages: FOLLOWER_MAX_PAGES)
+      return account_ids('followers', max_pages:)
+    end
+
+    # MAKOTO がフォローしている相手の ID を全部（#606）。⚠ 引き方と失敗の扱いは `#follower_ids` と同じ。
+    # ⚠ **`read:follows` が要る**（2026-11-08 に作り直したトークンにはある）。⚠ 承認待ちのフォローは入らない。
+    def following_ids(max_pages: FOLLOWER_MAX_PAGES)
+      return account_ids('following', max_pages:)
+    end
+
+    # フォローする（#606）。⚠ **`write:follows` が要る。**⚠ 鍵の掛かった相手は承認待ちになる（応答の `requested`）。
+    # @return [Hash] relationship
+    def follow(account_id)
+      return relationship_action(account_id, 'follow')
+    end
+
+    # フォローを外す（#606）。
+    # @return [Hash] relationship
+    def unfollow(account_id)
+      return relationship_action(account_id, 'unfollow')
+    end
+
+    # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
+    #
+    # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の
+    # 投稿は引けるが、フォロワー限定と DM の会話が見えない。⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
+    def status_ancestors(id)
+      path = "/api/v1/statuses/#{URI.encode_www_form_component(id.to_s)}/context"
+      response = http.get(path, {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Hash) && body['ancestors'].is_a?(Array)
+      return body['ancestors']
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # メンションを受ける SSE の口（#29）。⚠ **トークンは載せない**（→ `streaming_headers`）。
+    #
+    # 🔴 **ホストは投稿先が申告する `urls.streaming_api` から引く** — ⚠ **Streaming API は
+    # 本体と別のホストに置ける**ので、`/mastodon/url` から組み立てない。⚠ 申告は `wss://` なので
+    # SSE 用に `https://` へ読み替える。⚠ **申告が無ければ本体のホストに倒す。**
+    #
+    # ⚠ **上流の `create_streaming_uri` を使わない** — ⚠⚠ **トークンをクエリに載せる**ので、
+    # 逆プロキシのアクセスログに残る。
+    # ginseng-upstream: pooza/ginseng-fediverse#334
+    def streaming_uri
+      response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
+      body = response.parsed_response
+      declared = body.dig('urls', 'streaming_api') if body.is_a?(Hash)
+      uri = URI.parse(declared.presence || http.base_uri.to_s)
+      uri = URI.parse(uri.to_s.sub(/\Awss:/, 'https:').sub(/\Aws:/, 'http:'))
+      uri.path = STREAMING_PATH
+      uri.query = nil
+      return uri
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # ⚠ **トークンはヘッダで渡す**（→ `streaming_uri`）。⚠ **経路の設定に関わらず直で受ける** —
+    # 🔴 **受信にモロヘイヤを挟む理由が無い**（タグ付けは投稿の側の仕事）。
+    def streaming_headers
+      return direct_headers({'Accept' => 'text/event-stream'})
+    end
+
     # `idempotency_key` は再送で使い回すもの。既定では 1 回の呼び出しにつき 1 つ作る。
     # 呼び出し側が「同じ予定の投稿」を識別できるなら（スケジューラの再実行など）、
     # その識別子を渡せばプロセスをまたいだ重複も畳める。
-    def post_status(text, visibility: nil, idempotency_key: SecureRandom.uuid)
+    #
+    # ⚠ `in_reply_to_id` はチャットボットの返事（#18）。
+    def post_status(text, visibility: nil, in_reply_to_id: nil, idempotency_key: SecureRandom.uuid)
       body = {status: text.to_s}
       body[:visibility] = visibility.to_s if visibility
+      body[:in_reply_to_id] = in_reply_to_id.to_s if in_reply_to_id
       response = post(body, {headers: {'Idempotency-Key' => idempotency_key}})
       status = validate_status(response)
       logger.info(
@@ -276,6 +379,63 @@ module Makoto
       # `message` の末尾 3 桁を上流のステータスとして読む**ので、**末尾に数字が来る
       # 書き方をすると `classify` の分類が化ける。**⚠ **型はログの側に出してある。**
       raise Ginseng::GatewayError, 'mastodon returned an unexpected shape'
+    end
+
+    def account_ids(kind, max_pages:)
+      id = URI.encode_www_form_component(account['id'].to_s)
+      path = "/api/v1/accounts/#{id}/#{kind}?limit=80"
+      ids = []
+      max_pages.times do
+        page, path = follower_page(path)
+        ids.concat(page)
+        return ids unless path
+      end
+      raise Ginseng::GatewayError, "mastodon: #{kind} exceed #{max_pages} pages"
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    def relationship_action(account_id, action)
+      id = URI.encode_www_form_component(account_id.to_s)
+      response = http.post("/api/v1/accounts/#{id}/#{action}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Hash)
+      return body
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
+    # アカウントの一覧（フォロワー・フォロー中）の 1 ページ。⚠ **ID の配列と、次のページのパス（無ければ nil）を返す。**
+    def follower_page(path)
+      response = http.get(path, {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      ids = body.filter_map {|follower| follower['id']&.to_s if follower.is_a?(Hash)}
+      return ids, next_page(response.headers['link'])
+    end
+
+    # `Link` の `rel="next"` を、同じホストのパスとクエリにして返す。⚠ **無ければ nil（最後のページ）。**
+    #
+    # 🔴 **別ホスト・読めない `next` は例外にする**（v1.0.0 のリリース前レビュー）。⚠⚠ nil にすると
+    # 「最後のページ」と区別が付かず、途中までの一覧を全部として返す（門が 81 人目以降に「フォローしてね」を
+    # 返し、フォローの突き合わせが外しにかかる）。⚠ 別ホストは辿らない（トークンを渡さない）。
+    def next_page(link)
+      found = link.to_s.split(',').find {|part| part.include?('rel="next"')}
+      return nil unless found
+      uri = URI.parse(found[/<([^>]+)>/, 1].to_s)
+      unless uri.host == http.base_uri.host
+        raise Ginseng::GatewayError, 'mastodon: next page on another host'
+      end
+      return [uri.path, uri.query].compact.join('?')
+    rescue URI::InvalidURIError
+      raise Ginseng::GatewayError, 'mastodon: unreadable next page'
     end
 
     # モロヘイヤを迂回して Mastodon 本体を直に叩くためのヘッダ。

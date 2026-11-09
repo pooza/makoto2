@@ -47,6 +47,12 @@ module Makoto
       return all.select(&:strong?)
     end
 
+    # どれかの時刻が強い窓の中か（#599）。⚠ チャットの返事は「受けた時」と「いま」を渡す —
+    # 窓の終わり際に受けた返事も、窓が始まった直後に着く返事も、実況の流れに落ちる。
+    def self.strong_cover?(*times)
+      return strong.any? {|window| times.any? {|time| window.cover?(time)}}
+    end
+
     # ⚠ **検査できる弱い窓だけ。**壊れた弱い窓は `broken_weak` が拾う。
     def self.weak
       return all.select(&:weak?).reject(&:error)

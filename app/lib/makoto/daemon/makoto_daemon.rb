@@ -6,6 +6,7 @@ module Makoto
     include ProcessIdentity
 
     # @param proc_dir [String] プロセスの一覧を読む場所。⚠ **テストが差し替える**
+    # ginseng-upstream: pooza/ginseng-core#756（`proc_dir` は身元の判定をテストで差し替える口）
     def initialize(opts = {})
       super
       @proc_dir = opts[:proc_dir] || ProcessIdentity::PROC_DIR
@@ -49,6 +50,7 @@ module Makoto
     # `:unknown` でも起動しない**（触れないだけで生きている可能性がある）。
     # ⚠⚠ **#111 で「`EPERM` は生きている」と自分の箱で塞いだ判断は、
     # `:unknown` という 3 つ目の答えとして上流に入った。**
+    # ginseng-upstream: pooza/ginseng-core#756
     def alive_state_of(found)
       state = super
       return state unless state == :alive
@@ -66,6 +68,7 @@ module Makoto
       ].compact.join("\n")
     end
 
+    # ginseng-upstream: no — 常駐は `command` のプロセスを起こさず、同じプロセスでスケジューラ・監視・SSE を回す（`stop` も同じ）
     def start(args = [])
       # ⚠ **`revision` はここで固定される**（#242 → `Package.revision`）。
       logger.info(
@@ -92,6 +95,13 @@ module Makoto
       verify_credentials
       # 🔴 **投稿先の本文の上限を、設定と突き合わせる**（#351）。
       verify_max_length
+      # 🔴 **メンションの受信は別スレッド**（#29）。⚠⚠ **`Scheduler#exec` は戻らない**ので、その前に。
+      # ⚠ **繋がらなくても常駐は止めない**（→ `MentionListener`）。
+      # 🔴 **返事は受信とは別のスレッド**（#18 → `ChatResponder`）。⚠ キーが無い・切ってあるなら起こさない。
+      chat_responder&.start
+      # 🔴 **フォローの突き合わせも別スレッド**（#606）。⚠ 切ってある・受信を切ってあるなら起こさない。
+      follow_sync.start
+      mention_listener.start
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -103,15 +113,38 @@ module Makoto
 
     # ⚠ `run_start` の trap から同じインスタンスの `stop` が呼ばれる（→ Ginseng::Daemon）
     # ので、⚠⚠ **常駐が畳まれるときに監視の口も一緒に閉じる。**
+    # ginseng-upstream: no — `start` と同じ（同じプロセスで回しているものを止める）
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
       monitor_server.stop
+      # ⚠ **受信のスレッドも畳む**（#29・孤児を残さない）。
+      mention_listener.stop
+      follow_sync.stop
+      chat_responder&.stop
       Scheduler.instance.shutdown
     end
 
     def monitor_server
       @monitor_server ||= MonitorServer.new
       return @monitor_server
+    end
+
+    def mention_listener
+      @mention_listener ||= MentionListener.new(handler: chat_responder, follower: follow_sync)
+      return @mention_listener
+    end
+
+    # ⚠ **切ってあってもフォローの通知は受ける**（一覧に足す・#510）。スレッドは `start` が起こさない（#606）。
+    def follow_sync
+      @follow_sync ||= FollowSync.new
+      return @follow_sync
+    end
+
+    # ⚠ **返事をしないなら nil**（受信はログに出すだけ・#29 の形）。
+    def chat_responder
+      return nil unless ChatResponder.enabled?
+      @chat_responder ||= ChatResponder.new
+      return @chat_responder
     end
 
     # 常駐が回す投稿を並べる。
@@ -184,6 +217,16 @@ module Makoto
       return logger.mask(message)
     end
 
+    # `config:lint` の 1 行。⚠ **投稿の名前で始まらない文には名前を付ける**（#561）。
+    # ⚠⚠ **強い窓そのものが壊れていると、全部の投稿が `commentary: <窓>: ...` の同じ文で落ち、
+    # どの投稿の行かが読めなかった。**⚠ 名前で始まる文（`song: ...`・`scheduler: song ...`）に
+    # もう一度付けると二重になる。
+    def lint_rejection(name, error)
+      message = describe_rejection(error)
+      return message if message.start_with?("#{name}:", "scheduler: #{name} ")
+      return "#{name}: #{message}"
+    end
+
     private
 
     def job_sources
@@ -222,6 +265,7 @@ module Makoto
     # `run_stop` は pid ファイルを読み直す**ので、**確かめてから送るまでの間に
     # 後継が新しい pid を書けば、身元を確かめていない相手へ `TERM` が飛ぶ。**
     # ⚠⚠ **まさに `remove_pid(expected)`（上流 `#532`）が相手にしている競り合い。**
+    # ginseng-upstream: pooza/ginseng-core#756
     def send_signal(signal, target)
       return nil unless stoppable?(target)
       return super

@@ -470,6 +470,194 @@ properties:
         type: string
     required:
       - db
+  # チャットのモデレーション（#510）。⚠⚠ 欠けたら止める — 既定値に逃がすと、消しただけで上限が外れる。
+  chat:
+    type: object
+    properties:
+      limit:
+        type: object
+        properties:
+          account:
+            type: object
+            properties:
+              hour:
+                type: integer
+                minimum: 1
+              day:
+                type: integer
+                minimum: 1
+            required:
+              - hour
+              - day
+          global:
+            type: object
+            properties:
+              day:
+                type: integer
+                minimum: 1
+            required:
+              - day
+        required:
+          - account
+          - global
+      followers:
+        type: object
+        properties:
+          refresh:
+            type: string
+        required:
+          - refresh
+      # フォローを返す・外す（#606）。
+      follow:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          unfollow_limit:
+            type: integer
+            minimum: 0
+        required:
+          - enabled
+          - unfollow_limit
+      penalty:
+        type: array
+        minItems: 1
+        items:
+          type: string
+      enabled:
+        type: boolean
+      owner:
+        type: string
+        minLength: 1
+      thread:
+        type: object
+        properties:
+          max_statuses:
+            type: integer
+            minimum: 0
+        required:
+          - max_statuses
+      grace:
+        type: object
+        properties:
+          window:
+            type: string
+        required:
+          - window
+      # 足した設定の台帳（#526）。⚠ 必須にしない（無ければ渡さない）。
+      ledger:
+        type: object
+        properties:
+          path:
+            type: string
+      # 実況の窓の中の返事（#599）。
+      commentary:
+        type: object
+        properties:
+          deadline:
+            type: string
+        required:
+          - deadline
+      # 返事を作る LLM（#18・→ `ChatModel`）。
+      model:
+        type: object
+        properties:
+          name:
+            type: string
+          effort:
+            type: string
+            enum:
+              - low
+              - medium
+              - high
+          max_tokens:
+            type: integer
+            minimum: 1
+          timeout:
+            type: string
+          max_retries:
+            type: integer
+            minimum: 0
+          cache_ttl:
+            type: string
+            enum:
+              - 5m
+              - 1h
+          price:
+            type: object
+            properties:
+              input:
+                type: number
+              output:
+                type: number
+              cache_read:
+                type: number
+              cache_write:
+                type: object
+                properties:
+                  5m:
+                    type: number
+                  1h:
+                    type: number
+                required:
+                  - 5m
+                  - 1h
+            required:
+              - input
+              - output
+              - cache_read
+              - cache_write
+        required:
+          - name
+          - effort
+          - max_tokens
+          - timeout
+          - max_retries
+          - cache_ttl
+          - price
+    required:
+      - limit
+      - followers
+      - penalty
+      - model
+      - enabled
+      - owner
+      - thread
+      - grace
+      - commentary
+      - follow
+  # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
+  # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。
+  anthropic:
+    type: object
+    properties:
+      api_key:
+        type: string
+      workspace_id:
+        type: string
+  # メンションの受信（#29）。⚠⚠ 欠けたら止める — optional_config で既定値に逃がすと、
+  # 消しただけで受信の止まりの検知が静かに消える（#77 の裏返し）。
+  streaming:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+      stale:
+        type: string
+      retry:
+        type: object
+        properties:
+          base:
+            type: string
+          max:
+            type: string
+        required:
+          - base
+          - max
+    required:
+      - enabled
+      - stale
+      - retry
   # 例外の集約（#28）。⚠ dsn が null なら送らない。
   sentry:
     type: object
@@ -521,6 +709,7 @@ properties:
       - weight
 required:
   - announcement
+  - chat
   - commentary
   - corpus
   - cure_api
@@ -538,4 +727,5 @@ required:
   - scheduler
   - song
   - sqlite3
+  - streaming
   - track

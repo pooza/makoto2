@@ -66,6 +66,9 @@ module Makoto
     desc 'live SUBCOMMAND', 'バースデーライブの並び・枠の下見'
     subcommand 'live', LiveCommand
 
+    desc 'chat SUBCOMMAND', 'チャットのモデレーション（#510）'
+    subcommand 'chat', ChatCommand
+
     desc 'rehearsal SUBCOMMAND', 'リハーサルの結果の集計（#110）'
     subcommand 'rehearsal', RehearsalCommand
 
@@ -92,6 +95,9 @@ module Makoto
       tick — 🔴 最後に枠を見に行った時刻。⚠⚠ ハートビートとは別の rufus ジョブなので、
       tick だけが詰まってもハートビートは動き続ける（#80 の黄 7）
 
+      stream — メンションの受信（#29）で最後に何かが届いた時刻。⚠ 無通信でも 15 秒ごとに
+      合図が届くので、繋がっていれば進む。受信を切っていれば off
+
       posting — ⚠ 投稿が実際に出ているか。連続して落ちた本数と、最後に出た時刻（#78）
 
       orphans — pid ファイルに無い常駐プロセス。⚠ 不明なら (unknown)
@@ -116,7 +122,7 @@ module Makoto
 
     private
 
-    # ⚠ **生きているときに出す 7 行**（→ `status` の `long_desc`）。⚠⚠ **死んでいれば
+    # ⚠ **生きているときに出す 8 行**（→ `status` の `long_desc`）。⚠⚠ **死んでいれば
     # `not running` の 1 行だけ**なので、ここは呼ばれない。
     def print_health(health)
       # ⚠ **痕跡は 1 回だけ読む**（→ `Health#identity`）。
@@ -125,6 +131,7 @@ module Makoto
       puts "jobs: #{format_jobs(identity)}"
       puts "heartbeat: #{format_age(health.heartbeat_age)}"
       puts "tick: #{format_tick(health)}"
+      puts "stream: #{format_stream(health)}"
       puts "posting: #{format_posting(health)}"
       puts "orphans: #{health.orphans&.join(', ') || '(unknown)'}"
       puts "sentry: #{format_sentry(identity)}"
@@ -192,6 +199,15 @@ module Makoto
       names = Array(identity.job_names)
       return identity.jobs.to_s if names.empty?
       return "#{identity.jobs} (#{names.join(', ')})"
+    end
+
+    # メンションの受信で最後に何かが届いた時刻（#29）。⚠ **`:thump`（無通信の合図）も数える**ので、
+    # 繋がっていれば 15 秒ごとに進む。⚠ **受信を切っていれば `off`。**
+    def format_stream(health)
+      return 'off' unless MentionListener.enabled?
+      last = health.streamed_at
+      return "never (limit #{Heartbeat.stream_limit.round}s)" unless last
+      return "#{format_elapsed(health.now - last)} (limit #{Heartbeat.stream_limit.round}s)"
     end
 
     def format_age(seconds)

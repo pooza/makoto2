@@ -6,6 +6,45 @@ module Makoto
       @url = "#{config['/mastodon/url']}/api/v1/statuses"
     end
 
+    # 返信の祖先（#18）。⚠ トークンを付けて直で聞く。
+    def test_status_ancestors
+      url = "#{config['/mastodon/url']}/api/v1/statuses/9/context"
+      body = {ancestors: [{id: '1'}, {id: '2'}], descendants: []}.to_json
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: body)
+
+      assert_equal(['1', '2'], @service.status_ancestors('9').map {|status| status['id']})
+      assert_requested(:get, url, headers: {'X-Mulukhiya' => Package.full_name})
+    end
+
+    def test_status_ancestors_raises_on_a_bad_shape
+      url = "#{config['/mastodon/url']}/api/v1/statuses/9/context"
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '[]')
+
+      assert_raise(Ginseng::GatewayError) {@service.status_ancestors('9')}
+    end
+
+    # #20 の `makoto chat block`。⚠ 見つからなければ nil（404 は例外にしない）。
+    def test_lookup_account
+      url = "#{config['/mastodon/url']}/api/v1/accounts/lookup?acct=user1"
+      stub_request(:get, url).to_return(status: 200, headers: {'Content-Type' => 'application/json'},
+        body: {id: '1', acct: 'user1'}.to_json)
+
+      assert_equal('1', @service.lookup_account('@user1')['id'])
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/accounts/lookup?acct=nobody").to_return(status: 404)
+
+      assert_nil(@service.lookup_account('nobody'))
+    end
+
+    def test_post_status_in_reply_to
+      stub_request(:post, @url)
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {
+          id: '2', url: "#{config['/mastodon/url']}/@test/2", visibility: 'unlisted'
+        }.to_json)
+      @service.post_status('@user1 はい', visibility: 'unlisted', in_reply_to_id: '9')
+
+      assert_requested(:post, @url) {|request| JSON.parse(request.body)['in_reply_to_id'] == '9'}
+    end
+
     def test_post_status
       stub_request(:post, @url)
         .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {
@@ -371,6 +410,100 @@ module Makoto
       stub_instance(503, {})
 
       assert_raise(Ginseng::GatewayError) {MastodonService.new.declared_max_length}
+    end
+
+    def stub_account(id = '7')
+      stub_request(:get, "#{config['/mastodon/url']}/api/v1/accounts/verify_credentials")
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {id: id}.to_json)
+    end
+
+    # 🔴 **フォロワーの一覧は `Link` の `next` を辿って全部引く**（#510 の門）。
+    def test_follower_ids
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
+      json = {'Content-Type' => 'application/json'}
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '1'}, {id: '2'}].to_json,
+        headers: json.merge('Link' => "<#{base}?limit=80&max_id=2>; rel=\"next\", <#{base}?since_id=1>; rel=\"prev\""))
+      stub_request(:get, "#{base}?limit=80&max_id=2").to_return(status: 200, body: [{id: '3'}].to_json,
+        headers: json)
+
+      assert_equal(['1', '2', '3'], MastodonService.new.follower_ids)
+    end
+
+    # 🔴 **聞けなければ例外**（途中までの一覧を返さない）。⚠ **ページが尽きても例外。**
+    def test_follower_ids_raise_instead_of_returning_a_partial_list
+      config['/http/retry/seconds'] = 0
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '1'}].to_json,
+        headers: {'Content-Type' => 'application/json', 'Link' => "<#{base}?limit=80&max_id=1>; rel=\"next\""})
+      stub_request(:get, "#{base}?limit=80&max_id=1").to_return(status: 503, body: '{}')
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids}
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids(max_pages: 1)}
+    end
+
+    # ⚠ **別ホストの `next` は辿らない。**🔴 **途中までを全部として返さず、例外にする**（リリース前レビュー）。
+    def test_follower_ids_do_not_follow_another_host
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/followers"
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '1'}].to_json,
+        headers: {'Content-Type' => 'application/json',
+                  'Link' => '<https://evil.example.com/next>; rel="next"'})
+
+      assert_raise(Ginseng::GatewayError) {MastodonService.new.follower_ids}
+    end
+
+    # フォロー中の一覧も同じ引き方（#606）。
+    def test_following_ids
+      stub_account
+      base = "#{config['/mastodon/url']}/api/v1/accounts/7/following"
+      stub_request(:get, "#{base}?limit=80").to_return(status: 200, body: [{id: '5'}].to_json,
+        headers: {'Content-Type' => 'application/json'})
+
+      assert_equal(['5'], MastodonService.new.following_ids)
+    end
+
+    def test_follow_and_unfollow
+      base = "#{config['/mastodon/url']}/api/v1/accounts/9"
+      json = {'Content-Type' => 'application/json'}
+      stub_request(:post, "#{base}/follow").to_return(status: 200, headers: json,
+        body: {id: '9', following: false, requested: true}.to_json)
+      stub_request(:post, "#{base}/unfollow").to_return(status: 200, headers: json,
+        body: {id: '9', following: false}.to_json)
+      service = MastodonService.new
+
+      assert_true(service.follow('9')['requested'])
+      assert_false(service.unfollow('9')['following'])
+    end
+
+    def test_follow_raises_on_permanent_failure
+      stub_request(:post, "#{config['/mastodon/url']}/api/v1/accounts/9/follow").to_return(status: 403, body: '{}')
+
+      assert_raise(Ginseng::AuthError) {MastodonService.new.follow('9')}
+    end
+
+    # 🔴 **SSE の口は申告された `streaming_api` から組む**（#29）。⚠ `wss://` は `https://` へ。
+    # ⚠⚠ **トークンをクエリに載せない**（ヘッダで渡す）。
+    def test_streaming_uri
+      stub_instance(200, {urls: {streaming_api: 'wss://streaming.example.com'}})
+      service = MastodonService.new
+      uri = service.streaming_uri
+
+      assert_equal('https://streaming.example.com/api/v1/streaming/user/notification', uri.to_s)
+      assert_nil(uri.query)
+      assert_equal("Bearer #{service.token}", service.streaming_headers['Authorization'])
+      assert_equal('text/event-stream', service.streaming_headers['Accept'])
+      assert_equal(Package.full_name, service.streaming_headers['X-Mulukhiya'])
+    end
+
+    # ⚠ **申告が無ければ本体のホストに倒す。**
+    def test_streaming_uri_without_the_field
+      stub_instance(200, {})
+      uri = MastodonService.new.streaming_uri
+
+      assert_equal(URI.parse(config['/mastodon/url']).host, uri.host)
+      assert_equal(MastodonService::STREAMING_PATH, uri.path)
     end
 
     # ⚠ 「テストが本物のサーバーを叩かない」こと自体を見る。WebMock.enable! を忘れると

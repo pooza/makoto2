@@ -113,6 +113,75 @@ module Makoto
       assert_empty(health(pid: Process.pid + 1).sentry_warnings)
     end
 
+    # 🔴 **メンションの受信が止まったら警告**（#29）。⚠⚠ **`errors` には置かない**（再起動で投稿を巻き込まない）。
+    def test_a_stale_stream_is_a_warning
+      config['/streaming/enabled'] = true
+      Heartbeat.record_start(now: now - (Heartbeat.stream_limit * 3))
+      Heartbeat.record_stream(now: now - (Heartbeat.stream_limit * 2))
+      beat
+      subject = health(pid: Process.pid)
+
+      assert_include(subject.warnings, "mention stream is stale (limit #{Heartbeat.stream_limit.round}s)")
+      assert_empty(subject.errors)
+      assert_equal(Health::WARNING, subject.code)
+    end
+
+    def test_a_fresh_stream_is_healthy
+      config['/streaming/enabled'] = true
+      Heartbeat.record_start(now: now - 3600)
+      Heartbeat.record_stream(now: now - 20)
+      beat
+
+      assert_empty(health(pid: Process.pid).stream_warnings)
+    end
+
+    # ⚠ **起き上がった直後は、前の稼働の古い受信時刻で鳴らない**（→ `Heartbeat.stream_stale?`）。
+    def test_a_fresh_start_covers_an_old_stream
+      config['/streaming/enabled'] = true
+      Heartbeat.record_stream(now: now - (Heartbeat.stream_limit * 10))
+      Heartbeat.record_start(now: now)
+      beat
+
+      assert_empty(health(pid: Process.pid).stream_warnings)
+    end
+
+    # ⚠ **受信を切っていれば言わない。**⚠ **別の常駐の痕跡でも言わない**（→ `own_heartbeat?`）。
+    def test_a_stream_warning_needs_the_listener_and_own_heartbeat
+      Heartbeat.record_stream(now: now - (Heartbeat.stream_limit * 10))
+      beat
+      config['/streaming/enabled'] = true
+
+      assert_empty(health(pid: Process.pid + 1).stream_warnings)
+      config['/streaming/enabled'] = false
+
+      assert_empty(health(pid: Process.pid).stream_warnings)
+    end
+
+    # 🔴 **キーが通らなくなったら言う**（#18）。⚠ 次に 1 回通れば消える。⚠ 返事を切っていれば言わない。
+    def test_a_rejected_chat_key_is_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = 'sk-ant-test'
+      beat
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+      Heartbeat.record_chat_auth_failure(now: now)
+
+      assert_match(/\Achat API key was rejected at /, health(pid: Process.pid).chat_warnings.first)
+      Heartbeat.clear_chat_auth_failure
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
+    def test_chat_without_a_key_is_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = ''
+
+      assert_equal(['chat is enabled but there is no API key'], health(pid: Process.pid).chat_warnings)
+      config['/chat/enabled'] = false
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
     def test_healthy
       beat
 
@@ -565,6 +634,7 @@ module Makoto
     def with_config_errors(found)
       config.define_singleton_method(:errors) {found}
       config.reload
+      quiet_chat
       return yield
     ensure
       config.singleton_class.remove_method(:errors)

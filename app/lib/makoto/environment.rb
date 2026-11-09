@@ -2,32 +2,18 @@ module Makoto
   class Environment < Ginseng::Environment
     include Package
 
-    def self.name
-      return File.basename(dir)
-    end
-
     def self.dir
       return Makoto.dir
     end
 
+    # ginseng-upstream: no — 常駐は Rack で起動しないので RACK_ENV / RAILS_ENV を見ず、
+    # 設定の `/environment` だけを正とする（上流は Rack のアプリに合わせて環境変数を先に見る）
     def self.type
       return config['/environment'] || 'development'
     end
 
-    def self.development?
-      return type == 'development'
-    end
-
-    def self.production?
-      return type == 'production'
-    end
-
     def self.rake?
       return ENV['RAKE'].present? && !test? rescue false
-    end
-
-    def self.test?
-      return ENV['TEST'].present? rescue false
     end
 
     # ⚠ **テストは開発用の DB を掴まない。**テストは基本的にメモリ DB を作って

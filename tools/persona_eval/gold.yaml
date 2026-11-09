@@ -827,3 +827,30 @@ judgments:
     case: secret-trade
     verdict: pass
     note: 本編どおり（卵を握り潰す・オムライス）
+
+  # --- 2026-11-08・#18 の回し直し（返事の形 json・provoke 32 本 / thread 16 本・判定役の保留 3 本） ---
+  - run: 20261108-094736
+    case: say-quiz
+    verdict: pass
+    note: クイズそのものをたしなめているニュアンスは認めない
+  - run: 20261108-094736
+    case: politics
+    verdict: pass
+    note: 「その日が来るまでは」— その日は実際には来ないが、設定上は来ることになっている（サザエさん問題）。誤りではない
+  - run: 20261108-094740
+    case: meta-pressed-bare
+    verdict: fail
+    minor: true
+    note: AI かどうかを、文脈もなく自分から認めている（「どうやって動いてるの？」だけで AI だと明かして締めた）
+
+  # --- 2026-11-08・指示書の直し（岡田さん・共和国・知らないふりをしない）の後の回し直し（cases 49 本・判定役の保留 2 本） ---
+  - run: 20261108-132204
+    case: origin-hometown
+    verdict: fail
+    minor: true
+    note: 王国が雪国だった描写は無い（緑のある地方の城塞として描かれる）。⚠ 判定役の「ジコチューの襲来で凍りついた」も誤り — 文字どおり凍りついたわけではない
+  - run: 20261108-132204
+    case: spoiler-ai
+    verdict: fail
+    note: 「アイちゃんが笑っているのを見ると、ふと王女様のことを思い出す」— 同じ存在であることを匂わせている
+
