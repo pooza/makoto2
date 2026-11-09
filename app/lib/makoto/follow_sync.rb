@@ -77,7 +77,8 @@ module Makoto
       id = account['id']
       return nil if id.nil?
       roster.add(id)
-      return nil if account['bot'] || !self.class.follow_back?
+      # ⚠ ボットのアカウントも返す（オーナーの決まりに例外が無い・返事は門が黙るので往復にならない）。
+      return nil unless self.class.follow_back?
       return log(:skip, id, account['acct'], reason: 'stopped') if stopped?(id)
       return follow(id, account['acct'])
     rescue => e
@@ -106,7 +107,10 @@ module Makoto
     # @return [Array<Set>] 返す ID と、外す ID
     def plan(followers, following)
       wanted = followers.reject {|id| stopped?(id)}.to_set
-      return wanted - following - @requested, following - wanted
+      # ⚠ **承認待ちも外す側に含める**（PR #608 の Codex の P2）。外す（`unfollow`）と承認待ちも取り消される。
+      # 外しそびれると、対象でなくなった相手が後から承認して、次の突き合わせまでフォローが付く。
+      @requested.subtract(following)
+      return wanted - following - @requested, (following | @requested) - wanted
     end
 
     def follow(id, acct = nil)

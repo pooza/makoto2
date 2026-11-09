@@ -53,9 +53,24 @@ module Makoto
       assert_equal(['9'], @service.followed)
     end
 
-    def test_bots_are_not_followed_back
-      assert_nil(subject.on_follow({'id' => '9', 'acct' => 'bot', 'bot' => true}))
-      assert_empty(@service.followed)
+    # ⚠ ボットも返す（突き合わせと同じ扱いにする・PR #608 の Codex の P2）。
+    def test_bots_are_followed_back
+      follow_back!
+      subject.on_follow({'id' => '9', 'acct' => 'bot', 'bot' => true})
+
+      assert_equal(['9'], @service.followed)
+    end
+
+    # ⚠ **対象でなくなった相手への承認待ちは取り消す**（PR #608 の Codex の P2）。
+    def test_sync_cancels_pending_requests_of_former_followers
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+
+      assert_equal(['3'], subject.sync[:followed])
+      @followers = ['1', '2']
+
+      assert_equal(['3'], subject.sync[:unfollowed])
+      assert_equal(['3'], @service.unfollowed)
     end
 
     # ⚠ **返さない設定でも、一覧には足す**（#510 の門）。
