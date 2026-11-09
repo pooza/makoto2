@@ -97,11 +97,54 @@ module Makoto
       assert_equal(4, @repository.penalty('1')[:marks])
     end
 
-    def test_a_penalized_follower_is_ignored_until_it_expires
+    # 🔴 **ペナルティ中は、最初の 1 回だけ伝えて、あとは期限まで黙る**（2026-11-09・オーナー）。
+    def test_a_penalized_follower_is_told_once_then_ignored_until_it_expires
       gate.mark(account, reason: 'backstage', now: now)
+      decision = gate.decide(account, now: now + 60)
 
-      assert_equal([:silent, :penalty], gate.decide(account, now: now + 60).to_h.values)
+      assert_equal([:penalty_notice, :penalty], decision.to_h.values)
+      assert_true(decision.notice?)
+      gate.record(account, decision, now: now + 60)
+
+      assert_equal([:silent, :penalty], gate.decide(account, now: now + 120).to_h.values)
       assert_true(gate.decide(account, now: now + ChatGate::DAY + 1).respond?)
+    end
+
+    # ⚠ 新しい印でペナルティが延びたら、また 1 回伝える。
+    def test_a_new_mark_is_told_again
+      gate.mark(account, reason: 'backstage', now: now)
+      gate.record(account, gate.decide(account, now: now + 60), now: now + 60)
+      gate.mark(account, reason: 'impersonate', now: now + 120)
+
+      assert_equal(:penalty_notice, gate.decide(account, now: now + 180).action)
+    end
+
+    # 🔴 **ブロックリストに載った相手には、1 回だけ伝えて、あとは黙る**（#20・2026-11-09・オーナー）。
+    # ⚠ フォロワーでも・ペナルティ中でも、ブロックが先に効く。
+    def test_a_blocked_account_is_told_once_then_ignored
+      @repository.block('1', 'user1', note: 'test', at: now)
+      gate.mark(account, reason: 'impersonate', now: now)
+      decision = gate.decide(account, now: now + 60)
+
+      assert_equal([:block_notice, :blocked], decision.to_h.values)
+      gate.record(account, decision, now: now + 60)
+
+      assert_equal([:silent, :blocked], gate.decide(account, now: now + 120).to_h.values)
+      assert_equal([:silent, :blocked], gate.decide(account, now: now + (30 * ChatGate::DAY)).to_h.values)
+    end
+
+    # ⚠ 外せば元どおり。載せ直したら、また 1 回伝える。
+    def test_unblock_and_block_again
+      @repository.block('1', 'user1', at: now)
+      gate.record(account, gate.decide(account, now: now + 60), now: now + 60)
+      @repository.unblock(@repository.find_block_by_acct('@user1')[:account_id])
+
+      assert_true(gate.decide(account, now: now + 120).respond?)
+      @repository.block('1', 'user1', at: now + 180)
+
+      assert_equal(:block_notice, gate.decide(account, now: now + 240).action)
+      assert_nil(@repository.block('1', 'user1'))
+      assert_equal(1, @repository.all_blocks.size)
     end
 
     # ⚠ **消せば印の回数も 0 に戻る**（判定の間違いを直す）。

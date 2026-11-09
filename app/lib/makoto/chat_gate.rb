@@ -12,7 +12,8 @@ module Makoto
   # | 順 | 条件 | 答え |
   # | --- | --- | --- |
   # | 1 | `bot` の印が付いたアカウント | 黙る（ボット同士の応酬を止める） |
-  # | 2 | ペナルティの期間中 | 黙る |
+  # | 1' | ブロックリストに載っている（#20） | **返事をしないことを伝える**（決まった文）を 1 回だけ、あとは黙る |
+  # | 2 | ペナルティの期間中 | **しばらく返事をしないことを伝える**（決まった文）を 1 回だけ、あとは期限まで黙る |
   # | 3' | フォロワーかが分からない（一覧が一度も引けていない） | 黙る |
   # | 3 | フォロワーでない | **話せる条件を伝える**（決まった文）。⚠ その相手へは 1 日 1 回まで |
   # | 4 | 全体の 1 日の上限に届いた | 黙る（暴走したときの歯止め） |
@@ -20,11 +21,21 @@ module Makoto
   # | 6 | それ以外 | 返す（LLM を呼ぶ） |
   #
   # ⚠ **決まった文の中身はここに書かない**（正本は makoto-scripts・オーナーのレビュー）。
+  #
+  # 🔴 **黙るときは、理由を本人に一度は伝える**（1' と 2・2026-11-09・オーナー）。⚠ 表示しないまま実質ブロック
+  # するのは不誠実。返すのは未収載・DM なので、周りからは静か。
   class ChatGate
     include Package
 
     DAY = 86_400
     HOUR = 3600
+    # 決まった文を返す答えと、その原稿の type（正本は makoto-scripts の `chat.yaml`）。
+    NOTICES = {
+      ask_follow: 'chat_ask_follow',
+      limit_notice: 'chat_limit_notice',
+      block_notice: 'chat_block_notice',
+      penalty_notice: 'chat_penalty_notice',
+    }.freeze
 
     Decision = Data.define(:action, :reason) do
       # LLM を呼んで返す。
@@ -34,7 +45,7 @@ module Makoto
 
       # 決まった文を返す（LLM は呼ばない）。
       def notice?
-        return [:ask_follow, :limit_notice].include?(action)
+        return NOTICES.key?(action)
       end
 
       def silent?
@@ -53,7 +64,8 @@ module Makoto
     def decide(account, now: Time.now)
       id = account['id']
       return silent(:bot) if account['bot']
-      return silent(:penalty) if penalized?(id, now)
+      return blocked(id) if repository.blocked(id)
+      return penalized(id) if penalized?(id, now)
       follower = follower_state(id)
       return silent(:followers_unknown) if follower.nil?
       return not_follower(id, now) unless follower
@@ -93,6 +105,13 @@ module Makoto
       return until_at > now
     end
 
+    # 🔴 **強い窓の中で、受けてから締め切りを過ぎたか**（#599・窓の扱いは `CommentaryWindow.strong_cover?`）。
+    # ⚠ 門と違い、LLM を呼んだ後に見る（返事を捨てるかどうか）。
+    def late?(received_at, now = Time.now)
+      return false unless now - received_at > duration(config['/chat/commentary/deadline'])
+      return CommentaryWindow.strong_cover?(received_at, now)
+    end
+
     # n 回目の印のペナルティの長さ（秒）。
     def penalty_duration(marks)
       durations = Array(config['/chat/penalty'])
@@ -114,6 +133,23 @@ module Makoto
     rescue Ginseng::GatewayError, Ginseng::AuthError => e
       logger.warn(chat: 'gate', message: 'followers unknown', error_class: e.class.name)
       return nil
+    end
+
+    # ⚠ **伝えるのは載ってから 1 回だけ**（外して載せ直したら、また 1 回）。
+    def blocked(id)
+      return silent(:blocked) if noticed?(:block_notice, repository.blocked(id)[:blocked_at], id)
+      return Decision.new(action: :block_notice, reason: :blocked)
+    end
+
+    # ⚠ **伝えるのは印が付いてから 1 回だけ**（新しい印でペナルティが延びたら、また 1 回）。
+    def penalized(id)
+      return silent(:penalty) if noticed?(:penalty_notice, repository.penalty(id)[:marked_at], id)
+      return Decision.new(action: :penalty_notice, reason: :penalty)
+    end
+
+    # ⚠ `since` ちょうどに伝えた行も数える（`count` は `since` より後だけを見るので 1 秒戻す）。
+    def noticed?(kind, since, id)
+      return repository.count(kind, since - 1, account_id: id).positive?
     end
 
     def silent(reason)
@@ -164,7 +200,7 @@ module Makoto
 
     def duration(value)
       seconds = Fugit::Duration.parse(value.to_s)&.to_sec
-      raise Ginseng::ConfigError, "chat: bad penalty '#{value}'" unless seconds&.positive?
+      raise Ginseng::ConfigError, "chat: bad duration '#{value}'" unless seconds&.positive?
       return seconds
     end
   end

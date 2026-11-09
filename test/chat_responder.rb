@@ -131,6 +131,33 @@ module Makoto
     end
 
     # 🔴 **フォロワーでなければ、決まった文**（LLM は呼ばない）。⚠ 原稿が無ければ黙る。
+    # 🔴 **強い窓の中では、遅れた返事を出さない**（#599）。⚠ LLM は呼んだので数える。
+    # ⚠ 2026-11-08 は日曜（ニチアサの窓の中に受けた形）。
+    def test_a_late_reply_in_the_strong_window_is_dropped_but_counted
+      received_at = Time.parse('2026-11-08 08:40:00 +0900')
+
+      assert_equal(:late_in_window, responder.handle(notification, received_at))
+      assert_empty(@service.posts)
+      assert_equal(1, @repository.count(:respond, Time.now - 60))
+    end
+
+    # ⚠ 時刻を両方渡して決める（いまの時刻で結果が変わらないように）。
+    def test_late_depends_on_the_deadline_and_the_strong_window
+      subject = @gate
+      sunday = Time.parse('2026-11-08 08:40:00 +0900')
+      monday = Time.parse('2026-11-09 08:40:00 +0900')
+
+      assert_true(subject.late?(sunday, sunday + 31))
+      assert_false(subject.late?(sunday, sunday + 29))
+      # 窓の外は待ってでも返す。
+      assert_false(subject.late?(monday, monday + 120))
+      # 窓の終わり際に受け、窓の後に着く返事も捨てる。窓の始まる直前に受け、窓の中で着く返事も同じ。
+      assert_true(subject.late?(Time.parse('2026-11-08 08:59:50 +0900'),
+        Time.parse('2026-11-08 09:00:40 +0900')))
+      assert_true(subject.late?(Time.parse('2026-11-08 08:29:50 +0900'),
+        Time.parse('2026-11-08 08:30:40 +0900')))
+    end
+
     def test_a_non_follower_gets_the_scripted_notice
       assert_equal(:no_notice_script, responder.handle(notification(account_id: '2')))
       assert_empty(@service.posts)
@@ -219,10 +246,29 @@ module Makoto
       assert_equal(['direct'], @service.posts.map {|post| post[:visibility]})
     end
 
-    def test_a_penalized_account_gets_nothing
+    # 🔴 **ペナルティ中は 1 回だけ伝えて、あとは黙る**（2026-11-09・オーナー）。⚠ LLM は呼ばない。
+    def test_a_penalized_account_is_told_once
+      script('chat_penalty_notice', 'しばらくお返事はお休みします。', 'chat-penalty-notice-1')
       @gate.mark({'id' => '1', 'acct' => 'user1'}, reason: 'provoke')
+      subject = responder
 
-      assert_equal(:penalty, responder.handle(notification))
+      assert_equal(:penalty_notice, subject.handle(notification(id: '9')))
+      assert_equal(:penalty, subject.handle(notification(id: '10')))
+      assert_equal(['@user1 しばらくお返事はお休みします。'], @service.posts.map {|post| post[:text]})
+      assert_empty(@model.calls)
+    end
+
+    # 🔴 **ブロックリストに載った相手にも 1 回だけ伝える**（#20）。⚠ 原稿が無ければ黙る。
+    def test_a_blocked_account_is_told_once
+      @repository.block('1', 'user1')
+      subject = responder
+
+      assert_equal(:no_notice_script, subject.handle(notification(id: '9')))
+      script('chat_block_notice', 'これからはお返事できません。', 'chat-block-notice-1')
+
+      assert_equal(:block_notice, subject.handle(notification(id: '10')))
+      assert_equal(:blocked, subject.handle(notification(id: '11')))
+      assert_equal(1, @service.posts.size)
       assert_empty(@model.calls)
     end
 
