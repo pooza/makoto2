@@ -59,6 +59,7 @@ bin/makoto chat try TEXT  # 返事を作らせて表示する（投稿しない�
 bin/makoto chat penalties  # 悪戯の印が付いた相手と、ペナルティの期限
 bin/makoto chat forgive ACCT  # ペナルティと印を消す（判定の間違いを直す）
 bin/makoto chat block ACCT  # 返事をしない相手に載せる（unblock で外す・blocks で一覧）
+bin/makoto chat follow-sync  # 返す・外すフォローを表示する（--apply で外す数の歯止めを外して 1 回だけ通す・#614）
 bin/makoto chat ledger  # チャットボットに渡す台帳を表示する
 ```
 

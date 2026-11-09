@@ -66,6 +66,35 @@ module Makoto
       return parse_time(stored[:followers_unloaded_since])
     end
 
+    # 🔴 **外すフォローが歯止めを超えて止まっていること**（#614）。⚠ 歯止めの内に戻るか、人が通したら消える。
+    def record_follow_over_limit(count, limit, now: nil)
+      return update do |record|
+        since = record.dig(:follow_over_limit, :since) || (now || Time.now).getutc.iso8601
+        record.merge(follow_over_limit: {count:, limit:, since:})
+      end
+    end
+
+    def clear_follow_over_limit
+      return nil unless stored.key?(:follow_over_limit)
+      return update {|record| record.except(:follow_over_limit)}
+    end
+
+    # 🔴 **承認待ちのフォロー**（#606・PR #632 の Codex の P2）。⚠ 再起動をまたぎ、CLI からも見えるように。
+    def record_follow_requested(ids)
+      return update {|record| record.merge(follow_requested: Array(ids).map(&:to_s))}
+    end
+
+    def follow_requested
+      return Array(stored[:follow_requested]).map(&:to_s)
+    end
+
+    # @return [Hash, nil] `{count:, limit:, since: Time}`
+    def follow_over_limit
+      found = stored[:follow_over_limit]
+      return nil unless found.is_a?(Hash)
+      return found.merge(since: parse_time(found[:since]))
+    end
+
     # 死んでいる別スレッドの名前（#611）。⚠ tick ごとに書き直す（→ `Scheduler#record_tick`）。
     def dead_threads
       return Array(stored[:dead_threads]).map(&:to_s)

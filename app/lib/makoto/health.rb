@@ -218,6 +218,7 @@ module Makoto
       results.push(*stream_warnings) if alive?
       results.push(*chat_warnings) if alive?
       results.push(*thread_warnings) if alive?
+      results.push(*follow_warnings) if alive?
       results.push(*orphan_warnings)
       return results
     end
@@ -262,6 +263,15 @@ module Makoto
       unloaded = Heartbeat.followers_unloaded_since
       results.push("followers have not been loaded since #{unloaded.getlocal.iso8601}") if unloaded
       return results
+    end
+
+    # 🔴 **外すフォローが歯止めを超えて止まっている**（#614）。⚠ 再起動では直らないので、前の常駐の痕跡も言う。
+    def follow_warnings
+      found = Heartbeat.follow_over_limit
+      return [] unless found
+      since = found[:since]&.getlocal&.iso8601
+      held = "follow sync is holding #{found[:count]} unfollows (over the limit #{found[:limit]})"
+      return ["#{held} since #{since} — check with `makoto chat follow-sync`"]
     end
 
     # 🔴 **別スレッドが死んでいる**（#611）。⚠ 受信・返事・フォローの突き合わせは、死んでも常駐は落ちない。
