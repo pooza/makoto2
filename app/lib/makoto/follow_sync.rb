@@ -16,6 +16,9 @@ module Makoto
   class FollowSync
     include Package
 
+    # 待ちの設定が読めないときの待ち（秒・#611）。⚠ スレッドを死なせないための逃げ道。
+    FALLBACK_INTERVAL = 3600
+
     # @param service [MastodonService] ⚠ テストが差し替える
     # @param roster [FollowerRoster] ⚠ テストが差し替える
     # @param repository [ChatRepository] 止めている相手を引く先。⚠ テストが差し替える
@@ -62,10 +65,12 @@ module Makoto
       return nil
     end
 
+    # 🔴 **スレッドを死なせない**（#611）。⚠⚠ 以前は `interval` が `sync` の rescue の外にあり、設定が読めないと
+    # スレッドごと黙って死んだ（`report_on_exception` の出力は stderr ＝ `/dev/null`）。⚠ 読めなければ既定で待つ。
     def run
       until @stopping
         sync
-        @sleeper.call(interval)
+        @sleeper.call(wait)
       end
     end
 
@@ -174,6 +179,14 @@ module Makoto
 
     def unfollow_limit
       return config['/chat/follow/unfollow_limit'].to_i
+    end
+
+    def wait
+      return interval
+    rescue => e
+      logger.error(follow: 'sync', message: 'bad interval', error: e)
+      report_error(e, follow: 'sync')
+      return FALLBACK_INTERVAL
     end
 
     def interval

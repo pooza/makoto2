@@ -198,5 +198,27 @@ module Makoto
 
       assert_raises(Ginseng::ConfigError) {@model.system_blocks}
     end
+
+    # 🔴 **認証以外の失敗が続いたら痕跡に残す**（#611 → `Health#chat_warnings`）。⚠ 次に通れば消える。
+    def test_failures_are_counted_and_cleared
+      FileUtils.rm_f(Heartbeat.path)
+      body = {type: 'error', error: {type: 'invalid_request_error', message: 'credit balance is too low'}}.to_json
+      headers = {'Content-Type' => 'application/json'}
+      stub_request(:post, URL).to_return(status: 400, body: body, headers: headers)
+
+      2.times {assert_nil(@model.respond(MESSAGES))}
+
+      assert_equal(2, Heartbeat.chat_failures)
+      assert_not_nil(Heartbeat.chat_failed_since)
+
+      WebMock.reset!
+      stub_model
+      @model.respond(MESSAGES)
+
+      assert_equal(0, Heartbeat.chat_failures)
+      assert_nil(Heartbeat.chat_failed_since)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end

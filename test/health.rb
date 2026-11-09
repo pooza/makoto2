@@ -675,5 +675,53 @@ module Makoto
         assert_match(/\Aconfig is invalid \(2\): 1 つ目\z/, health.errors.first)
       end
     end
+
+    # 🔴 **LLM の API が続けて落ちたら言う**（#611）。⚠ 2 回までは言わない。⚠ 1 回通れば消える。
+    def test_repeated_chat_failures_are_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = 'sk-ant-test'
+      beat
+      2.times {Heartbeat.record_chat_failure(now: now)}
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+      Heartbeat.record_chat_failure(now: now + 60)
+
+      assert_equal(["chat API failed 3 times in a row (since #{now.getlocal.iso8601})"],
+        health(pid: Process.pid).chat_warnings)
+      Heartbeat.clear_chat_failures
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
+    # 🔴 **フォロワーの一覧が一度も引けていなければ言う**（#611）。⚠ その間、門は全員に黙る。
+    def test_unloaded_followers_are_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = 'sk-ant-test'
+      beat
+      Heartbeat.record_followers_unloaded(now: now)
+      Heartbeat.record_followers_unloaded(now: now + 3600)
+
+      assert_equal(["followers have not been loaded since #{now.getlocal.iso8601}"],
+        health(pid: Process.pid).chat_warnings)
+      Heartbeat.clear_followers_unloaded
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
+    # 🔴 **別スレッドが死んでいたら言う**（#611）。⚠ いまの常駐が書いたものだけ。⚠ 次の tick で書き直される。
+    def test_a_dead_thread_is_a_warning
+      Heartbeat.record_tick(now: now, dead_threads: ['makoto-chat'])
+      Heartbeat.touch(jobs: 1, now: now)
+
+      assert_equal(['thread makoto-chat is dead'], health(pid: Process.pid).thread_warnings)
+      assert_include(health(pid: Process.pid).warnings, 'thread makoto-chat is dead')
+      assert_empty(health(pid: Process.pid + 1).thread_warnings)
+      Heartbeat.record_tick(now: now, dead_threads: [])
+
+      assert_empty(health(pid: Process.pid).thread_warnings)
+      Heartbeat.record_tick(now: now)
+
+      assert_empty(health(pid: Process.pid).thread_warnings)
+    end
   end
 end

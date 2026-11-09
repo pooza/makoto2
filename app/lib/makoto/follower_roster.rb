@@ -85,16 +85,27 @@ module Makoto
         @loaded_at = @clock.call
       end
       logger.info(chat: 'followers', count: ids.size)
+      trace(:clear_followers_unloaded)
       return ids.size
     rescue => e
       # ⚠ 前の一覧があれば使い続ける。⚠⚠ **無ければ `include?` が例外にする**（→ クラスの冒頭）。
       logger.warn(chat: 'followers', message: 'could not refresh', error_class: e.class.name,
         error: e)
-      @mutex.synchronize do
+      loaded = @mutex.synchronize do
         @fetching = nil
         @loaded_at = @clock.call if @ids
+        !@ids.nil?
       end
+      # 🔴 **一度も引けていなければ痕跡に残す**（#611 → `makoto status`）。
+      trace(:record_followers_unloaded) unless loaded
       return nil
+    end
+
+    # ⚠ **痕跡が書けなくても一覧は止めない**（観測のためのもの）。
+    def trace(method)
+      Heartbeat.public_send(method)
+    rescue => e
+      logger.error(chat: 'followers', error: e)
     end
 
     def interval

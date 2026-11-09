@@ -94,9 +94,20 @@ module Makoto
       return @rejected.dup
     end
 
+    # 🔴 **見張る別スレッド**（#611）。`-> {name => Thread or nil}`。⚠ nil は起こしていない（切ってある）。
+    # ⚠ 常駐が渡す（→ `MakotoDaemon#start`）。
+    attr_writer :thread_watch
+
+    # 死んでいる別スレッドの名前。⚠ 見張りが無ければ nil（痕跡を書き直さない）。
+    def dead_threads
+      return nil unless @thread_watch
+      return @thread_watch.call.filter_map {|name, thread| name.to_s if thread && !thread.alive?}
+    end
+
     def clear
       @jobs.clear
       @rejected.clear
+      @thread_watch = nil
       return self
     end
 
@@ -125,7 +136,7 @@ module Makoto
     # であって、投稿の成否は別の痕跡が持つ（→ `Heartbeat` 冒頭の表）。
     # ⚠⚠ **書けなくても tick は止めない**（痕跡は観測のためのもの）。
     def record_tick
-      Heartbeat.record_tick
+      Heartbeat.record_tick(dead_threads:)
     rescue => e
       logger.error(scheduler: 'tick', error: e)
       report_error(e)

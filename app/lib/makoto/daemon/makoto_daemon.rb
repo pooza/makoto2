@@ -98,10 +98,8 @@ module Makoto
       # 🔴 **メンションの受信は別スレッド**（#29）。⚠⚠ **`Scheduler#exec` は戻らない**ので、その前に。
       # ⚠ **繋がらなくても常駐は止めない**（→ `MentionListener`）。
       # 🔴 **返事は受信とは別のスレッド**（#18 → `ChatResponder`）。⚠ キーが無い・切ってあるなら起こさない。
-      chat_responder&.start
       # 🔴 **フォローの突き合わせも別スレッド**（#606）。⚠ 切ってある・受信を切ってあるなら起こさない。
-      follow_sync.start
-      mention_listener.start
+      start_threads
       Scheduler.instance.exec
     rescue => e
       logger.error(daemon: app_name, error: e)
@@ -122,6 +120,16 @@ module Makoto
       follow_sync.stop
       chat_responder&.stop
       Scheduler.instance.shutdown
+    end
+
+    # 🔴 **別スレッドの生死を tick が見て痕跡に書く**（#611 → `makoto status`）。⚠ 起こしていないものは見ない。
+    def start_threads
+      chat_responder&.start
+      follow_sync.start
+      mention_listener.start
+      # ⚠ 名前はスレッド自身の名前（`makoto-chat` / `makoto-follow` / `makoto-stream`）。
+      workers = [chat_responder, follow_sync, mention_listener]
+      Scheduler.instance.thread_watch = -> {workers.filter_map {|w| w&.thread}.index_by(&:name)}
     end
 
     def monitor_server

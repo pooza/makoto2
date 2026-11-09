@@ -226,5 +226,24 @@ module Makoto
 
       assert_raise(Ginseng::ConfigError) {Scheduler.instance.register(Morning.new.job)}
     end
+
+    # 🔴 **死んだ別スレッドの名前を tick が痕跡に書く**（#611）。⚠ 起こしていない（nil）ものは数えない。
+    def test_dead_threads_are_recorded_on_tick
+      FileUtils.rm_f(Heartbeat.path)
+      dead = Thread.new {nil}.tap(&:join)
+      alive = Thread.new {sleep}
+      subject = Scheduler.instance
+
+      assert_nil(subject.dead_threads)
+      subject.thread_watch = -> {{'makoto-chat' => dead, 'makoto-stream' => alive, 'makoto-follow' => nil}}
+
+      assert_equal(['makoto-chat'], subject.dead_threads)
+      subject.tick
+
+      assert_equal(['makoto-chat'], Heartbeat.dead_threads)
+    ensure
+      alive&.kill
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end
