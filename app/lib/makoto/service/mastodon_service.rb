@@ -169,6 +169,27 @@ module Makoto
     #
     # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の
     # 投稿は引けるが、フォロワー限定と DM の会話が見えない。⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
+    # `since_id` より新しいメンションの通知を、古い順に（#610 → `MentionCatchUp`）。
+    # ⚠ `read:notifications` が要る。
+    # ⚠ **`since_id` は新しい側から `limit` 件**（`min_id` は古い側から）。上限を超えたら
+    # 古い側を落とす（古いほうは 15 分を超えて捨てる側なので）。
+    # @return [Array<Hash>]
+    def mentions_since(since_id, limit: 40)
+      query = URI.encode_www_form('types[]' => 'mention',
+        'since_id' => since_id.to_s, 'limit' => limit)
+      response = http.get("/api/v1/notifications?#{query}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      mentions = body.select {|entry| entry.is_a?(Hash) && entry['type'] == 'mention'}
+      return mentions.sort_by {|entry| entry['id'].to_i}
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
     def status_ancestors(id)
       path = "/api/v1/statuses/#{URI.encode_www_form_component(id.to_s)}/context"
       response = http.get(path, {

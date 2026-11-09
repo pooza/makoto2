@@ -316,5 +316,32 @@ module Makoto
 
       assert_false(ChatResponder.enabled?)
     end
+
+    # 🔴 **処理し終えた通知の ID を残す**（#610 → `MentionCatchUp`）。⚠ 返事をしなかった通知も。
+    def test_the_handled_notification_id_is_recorded
+      FileUtils.rm_f(Heartbeat.path)
+      subject = responder
+      subject.send(:handle_safely, notification.merge('id' => '21'), Time.now)
+
+      assert_equal('21', Heartbeat.notification_id)
+      subject.send(:handle_safely, notification(account_id: OWN).merge('id' => '22'), Time.now)
+
+      assert_equal('22', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # 🔴 **落ちたときも ID を残す**（PR #633 の Codex の P2）。
+    def test_the_notification_id_is_recorded_after_a_failure
+      FileUtils.rm_f(Heartbeat.path)
+      subject = responder
+      subject.define_singleton_method(:handle) {|*| raise Ginseng::GatewayError, 'mastodon returned 500'}
+      subject.define_singleton_method(:report_error) {|*, **| nil}
+      subject.send(:handle_safely, notification.merge('id' => '31'), Time.now)
+
+      assert_equal('31', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end

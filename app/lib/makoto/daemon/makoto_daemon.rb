@@ -126,6 +126,8 @@ module Makoto
     def start_threads
       chat_responder&.start
       follow_sync.start
+      # 🔴 **繋がったら取りこぼしに追いつく**（#610）。⚠ 返事をしないなら追いつかない。
+      mention_listener.catch_up = chat_responder && MentionCatchUp.new(handler: chat_responder)
       mention_listener.start
       # ⚠ 名前はスレッド自身の名前（`makoto-chat` / `makoto-follow` / `makoto-stream`）。
       workers = [chat_responder, follow_sync, mention_listener]

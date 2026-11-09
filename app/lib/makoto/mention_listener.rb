@@ -35,6 +35,9 @@ module Makoto
     # 奪い合う**（`:thump` だけで 1 時間 240 回）。⚠ 検知の閾値（`/streaming/stale`）より十分短いこと。
     RECORD_INTERVAL = 30
 
+    # 追いつけなかったときに、もう一度試すまでの間（秒・#610）。⚠ `:thump` は 15 秒ごとに届く。
+    CATCH_UP_RETRY = 60
+
     # SSE の Content-Type（#616）。
     EVENT_STREAM = 'text/event-stream'.freeze
 
@@ -42,6 +45,9 @@ module Makoto
     JOIN_TIMEOUT = 5
 
     attr_reader :thread, :failures
+
+    # 繋がったら呼ぶ（取りこぼしに追いつく・#610 → `MentionCatchUp`）。⚠ 返事をしないなら nil。
+    attr_writer :catch_up
 
     # @param service [MastodonService] ⚠ テストが差し替える
     # @param opener [#call] `(uri, headers) {|chunk| ...}` で塊を渡す。⚠ **テストが差し替える**
@@ -100,6 +106,8 @@ module Makoto
     # 1 回繋いで、切れるまで読む。⚠ **例外を上げない**（切れ方を数えて戻る）。
     def listen
       parser = ServerSentEvents.new
+      @connected = false
+      @catch_up_tried_at = nil
       uri = service.streaming_uri
       logger.info(stream: 'connect', host: uri.host, failures: @failures)
       @opener.call(uri, service.streaming_headers) do |chunk|
@@ -120,9 +128,13 @@ module Makoto
     end
 
     # 塊が 1 つ届いた。
+    #
+    # 🔴 **繋がって最初に何か届いたら、取りこぼしに追いつく**（#610）。⚠ 繋ぐ前に引くと、引いてから繋がるまでの
+    # 分を落とす。後に引けば、重なった分は返事の側（`seen?`）が畳む。
     def receive(chunk, parser)
       @failures = 0
       record_alive
+      catch_up unless @connected
       parser.feed(chunk) {|event| dispatch(event)}
     end
 
@@ -166,6 +178,14 @@ module Makoto
       return unless account.is_a?(Hash) && account['id']
       logger.info(stream: 'follow', notification_id: notification['id'], acct: account['acct'])
       follower.on_follow(account)
+    end
+
+    # 繋がって最初の 1 回。⚠ 引けなかったら（`false`）、次に何か届いたときにもう一度（間隔を空けて）。
+    def catch_up
+      clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return if @catch_up_tried_at && clock - @catch_up_tried_at < CATCH_UP_RETRY
+      @catch_up_tried_at = clock
+      @connected = @catch_up&.call != false
     end
 
     private

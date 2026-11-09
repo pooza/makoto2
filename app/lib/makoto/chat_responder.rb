@@ -92,21 +92,18 @@ module Makoto
     # ⚠ **TERM の trap から呼ばれる**ので Mutex を掴まない（→ `MentionListener#stop`）。
     def stop
       return nil unless @thread
-      @thread.kill
-      @thread.join(JOIN_TIMEOUT)
+      @thread.kill.join(JOIN_TIMEOUT)
       return nil
     rescue ThreadError
       return nil
     end
 
     # 受信の口から呼ばれる。⚠ **待たない**（積むだけ）。
-    def call(notification)
-      if @queue.size >= QUEUE_MAX
-        logger.warn(chat: 'queue', message: 'dropped', notification_id: notification['id'])
-        return nil
-      end
+    # @param received_at [Time] ⚠ 追いついた通知（#610）は投稿の時刻（窓の中の締め切りを効かせる）
+    def call(notification, received_at = Time.now)
       # ⚠ **受けた時刻を一緒に積む**（窓の中の締め切りは、待ち行列で待った時間も含めて測る → #599）。
-      @queue.push([notification, Time.now])
+      return @queue.push([notification, received_at]) && nil if @queue.size < QUEUE_MAX
+      logger.warn(chat: 'queue', message: 'dropped', notification_id: notification['id'])
       return nil
     end
 
@@ -131,12 +128,16 @@ module Makoto
 
     private
 
+    # 🔴 **処理し終えた通知の ID を残す**（#610 → `MentionCatchUp`）。⚠⚠ **落ちたときも残す**（PR #633 の Codex の
+    # P2）— 残さないと、再起動のあと追いついた同じ通知で LLM をもう一度呼び、回数も重ねて数える。
     def handle_safely(notification, received_at)
       handle(notification, received_at)
     rescue => e
       # ⚠⚠ **1 通の失敗で処理のスレッドを止めない。**
       logger.error(chat: 'respond', notification_id: notification['id'], error: e)
       report_error(e, chat: 'respond')
+    ensure
+      Heartbeat.checkpoint_notification(notification['id'])
     end
 
     def respond(account, status, decision, notification, received_at)

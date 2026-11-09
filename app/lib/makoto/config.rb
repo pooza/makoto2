@@ -21,6 +21,7 @@ module Makoto
     DURATION_KEYS = [
       '/chat/grace/window',
       '/chat/commentary/deadline',
+      '/chat/catch_up/max_age',
       '/chat/model/timeout',
       '/chat/followers/refresh',
       '/streaming/stale',
