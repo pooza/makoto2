@@ -193,7 +193,7 @@ module Makoto
 
     def test_the_thread_is_passed_to_the_model
       own = {'id' => OWN, 'acct' => 'makoto'}
-      @service.ancestors = [{'id' => '1', 'content' => '<p>おはよう！</p>', 'account' => own}]
+      @service.ancestors = [{'id' => '1', 'content' => '<p>おはよう！</p>', 'account' => own, 'visibility' => 'public'}]
       responder.handle(notification(reply_to: '1'))
 
       assert_equal([{role: 'user', content: "〔あなたの投稿〕\nおはよう！\n\n〔それへの返信〕\nこんにちは"}],
@@ -371,6 +371,26 @@ module Makoto
       worker.kill.join
 
       assert_equal('40', Heartbeat.notification_id)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
+
+    # 🔴 **積めたかを返し、処理し終えるまで起点はそれを越えない**（#637）。
+    def test_the_checkpoint_waits_for_queued_notifications
+      FileUtils.rm_f(Heartbeat.path)
+      Heartbeat.record_notification_id('10')
+      subject = responder
+      subject.define_singleton_method(:handle) {|*| :respond}
+
+      assert_true(subject.call(notification.merge('id' => '20')))
+      assert_true(subject.call(notification.merge('id' => '11')))
+      subject.send(:handle_safely, notification.merge('id' => '20'), Time.now)
+
+      assert_equal('10', Heartbeat.notification_id)
+
+      subject.send(:handle_safely, notification.merge('id' => '11'), Time.now)
+
+      assert_equal('20', Heartbeat.notification_id)
     ensure
       FileUtils.rm_f(Heartbeat.path)
     end

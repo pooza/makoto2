@@ -59,6 +59,9 @@ module Makoto
       @messages = messages
       @queue = Thread::Queue.new
       @seen = []
+      # まだ処理していない通知の ID（#637 → `Heartbeat.checkpoint_notification`）。
+      @pending = []
+      @pending_lock = Mutex.new
     end
 
     # 設定で応答を切っていないか。⚠ キーの有無は見ない（→ `.enabled?`）。
@@ -96,11 +99,18 @@ module Makoto
 
     # 受信の口から呼ばれる。⚠ **待たない**（積むだけ）。
     # @param received_at [Time] ⚠ 追いついた通知（#610）は投稿の時刻（窓の中の締め切りを効かせる）
+    # @return [Boolean] 積めたか（#637 — 追いつく側が数える）
     def call(notification, received_at = Time.now)
       # ⚠ **受けた時刻を一緒に積む**（窓の中の締め切りは、待ち行列で待った時間も含めて測る → #599）。
-      return @queue.push([notification, received_at]) && nil if @queue.size < QUEUE_MAX
+      queued = @pending_lock.synchronize do
+        next false unless @queue.size < QUEUE_MAX
+        @pending.push(notification['id'].to_s)
+        @queue.push([notification, received_at])
+        true
+      end
+      return true if queued
       logger.warn(chat: 'queue', message: 'dropped', notification_id: notification['id'])
-      return nil
+      return false
     end
 
     # 1 通を処理する（⚠ テストはこちらを直に呼ぶ）。
@@ -141,8 +151,18 @@ module Makoto
       report_error(e, chat: 'respond')
     ensure
       killed = Thread.current.status == 'aborting'
-      Heartbeat.checkpoint_notification(notification['id']) unless killed
+      checkpoint(notification['id']) unless killed
       @busy = false
+    end
+
+    # 🔴 **まだ処理していない通知を起点が越えない**（#637・PR #643 の Codex の P2 → `Heartbeat.checkpoint_notification`）。
+    def checkpoint(id)
+      pending = @pending_lock.synchronize do
+        index = @pending.index(id.to_s)
+        @pending.delete_at(index) if index
+        @pending.dup
+      end
+      Heartbeat.checkpoint_notification(id, pending:)
     end
 
     def respond(account, status, decision, notification, received_at)

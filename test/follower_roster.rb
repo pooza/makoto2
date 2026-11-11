@@ -119,5 +119,16 @@ module Makoto
     ensure
       FileUtils.rm_f(Heartbeat.path)
     end
+
+    # 🔴 **CLI の一覧は痕跡に書かない**（#640）。
+    def test_a_roster_without_record_does_not_trace
+      FileUtils.rm_f(Heartbeat.path)
+      roster = FollowerRoster.new(fetcher: -> {raise Ginseng::GatewayError, 'down'}, record: false)
+      roster.refresh
+
+      assert_nil(Heartbeat.followers_unloaded_since)
+    ensure
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end

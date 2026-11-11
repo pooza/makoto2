@@ -12,8 +12,11 @@ module Makoto
       FileUtils.rm_rf(@proc_dir)
     end
 
+    # ⚠ **今の時刻から取る**（落ちた記録は `failure_stale` で今と比べて古くなる・v1.0.2 のリリース前レビューの赤）。
+    # ⚠⚠ 固定した日付だと、その日から 7 日たつとテストが落ちた。
     def now
-      return Time.new(2026, 11, 4, 12, 0, 0, '+09:00')
+      @now ||= Time.at(Time.now.to_i).getlocal('+09:00')
+      return @now
     end
 
     def daemon(alive: true, pid: 4649)

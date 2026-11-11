@@ -17,11 +17,14 @@ module Makoto
   #   届いた通知で起点が進み、取りこぼした分が起点より前になって二度と引けない（→ `Heartbeat.hold_notification_id`）。
   #   ⚠ 受信の口は、次に何か届いたときにもう一度呼ぶ（間隔は `RETRY_INTERVAL` 以上 → `MentionListener`）
   # - ⚠ **例外を上げない**（受信を止めない）
+  # - 🔴 **積んだ分を処理し終えるまで、起点はそれを越えない**（#637 → `Heartbeat.checkpoint_notification`）。
+  #   ⚠ 起点を止めている間に処理し終えた分は除く（#635）
   class MentionCatchUp
     include Package
 
     # 1 回に引く上限。⚠ 15 分ぶんには十分（全体の上限は 1 日 150 回）。
-    LIMIT = 40
+    # 🔴 **返事の待ち行列の半分まで**（#637）。⚠⚠ 埋めると、その間に届いたライブのメンションが落ちる。
+    LIMIT = ChatResponder::QUEUE_MAX / 2
 
     # @param handler [#call] `(notification, received_at)` で積む（`ChatResponder`）
     # @param service [MastodonService] ⚠ テストが差し替える
@@ -67,14 +70,19 @@ module Makoto
       logger.error(stream: 'catch_up', error: e)
     end
 
+    # @return [Boolean] 積めたか（#637 — 待ち行列が溢れて落ちたぶんは数えない）
     def feed(notification, age)
+      # 🔴 **起点を止めている間に処理し終えたものは除く**（#635 → `Heartbeat.handled_notification?`）。
+      if Heartbeat.handled_notification?(notification['id'])
+        logger.info(stream: 'catch_up', result: 'handled', notification_id: notification['id'])
+        return false
+      end
       created_at = Time.parse(notification['created_at'].to_s)
       if @clock.call - created_at > age
         logger.info(stream: 'catch_up', result: 'stale', notification_id: notification['id'])
         return false
       end
-      @handler.call(notification, created_at)
-      return true
+      return @handler.call(notification, created_at) == true
     rescue ArgumentError
       return false
     end

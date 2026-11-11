@@ -136,10 +136,23 @@ module Makoto
     # であって、投稿の成否は別の痕跡が持つ（→ `Heartbeat` 冒頭の表）。
     # ⚠⚠ **書けなくても tick は止めない**（痕跡は観測のためのもの）。
     def record_tick
-      Heartbeat.record_tick(dead_threads:)
+      dead = dead_threads
+      report_dead_threads(dead)
+      Heartbeat.record_tick(dead_threads: dead)
     rescue => e
       logger.error(scheduler: 'tick', error: e)
       report_error(e)
+    end
+
+    # 🔴 **新しく死んだスレッドを見つけた 1 回だけ Sentry へ**（#639・Kuma の口より小さく済むほうを選んだ）。
+    # ⚠⚠ `makoto status` にしか出ないと、返事が止まっても次の同期まで気づかない。⚠ 続いていることは status が言う。
+    def report_dead_threads(dead)
+      return unless dead
+      (dead - Heartbeat.dead_threads).each do |name|
+        report_error(RuntimeError.new("thread #{name} is dead"), scheduler: 'thread_watch')
+      end
+    rescue => e
+      logger.error(scheduler: 'thread_watch', error: e)
     end
 
     def initialize

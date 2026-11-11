@@ -126,8 +126,12 @@ module Makoto
     private
 
     # ⚠ テストが差し替える（`@syncer`）。
+    # ⚠ **一覧は CLI 用に別に持ち、痕跡に書かない**（#640）。⚠ **見るだけなら承認待ちも書かない**（#636）。
     def syncer
-      @syncer ||= FollowSync.new
+      @syncer ||= FollowSync.new(
+        roster: FollowerRoster.new(record: false),
+        record: options[:apply] == true,
+      )
       return @syncer
     end
 

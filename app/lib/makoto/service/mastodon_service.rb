@@ -43,6 +43,8 @@ module Makoto
 
     # フォロワーの一覧を辿るページ数の上限（80 件ずつ ＝ 8,000 人）。⚠ 尽きたら例外（途中までを返さない）。
     FOLLOWER_MAX_PAGES = 100
+    # 関係を 1 回に聞く人数（#636）。⚠ `id[]` を並べるので、URL を長くしすぎない。
+    RELATIONSHIP_BATCH = 40
 
     # ginseng-upstream: no — モロヘイヤを経由して投稿するか（`/mastodon/mulukhiya`）はこのアプリの経路の設定
     def initialize(uri = nil, token = nil)
@@ -163,6 +165,25 @@ module Makoto
     # @return [Hash] relationship
     def unfollow(account_id)
       return relationship_action(account_id, 'unfollow')
+    end
+
+    # 相手ごとの関係（#636）。⚠ **`read:follows` が要る**（2026-11-08 に作り直したトークンにはある）。
+    # ⚠ 1 回に `RELATIONSHIP_BATCH` 人ずつ聞く。
+    # @return [Array<Hash>] relationship
+    def relationships(account_ids)
+      return Array(account_ids).map(&:to_s).uniq.each_slice(RELATIONSHIP_BATCH).flat_map do |ids|
+        query = URI.encode_www_form(ids.map {|id| ['id[]', id]})
+        response = http.get("/api/v1/accounts/relationships?#{query}", {
+          headers: direct_headers,
+          host_validator: ->(host) {host == http.base_uri.host},
+          follow_redirects: true,
+        })
+        body = response.parsed_response
+        raise_unexpected(body.class.name) unless body.is_a?(Array)
+        body.grep(Hash)
+      end
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
     end
 
     # `since_id` より新しいメンションの通知を、古い順に（#610 → `MentionCatchUp`）。
