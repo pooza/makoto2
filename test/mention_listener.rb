@@ -251,7 +251,9 @@ module Makoto
       listener.receive(':thump', parser)
 
       assert_equal(1, calls)
-      listener.instance_variable_set(:@catch_up_tried_at, 0)
+      # ⚠ 0 ではなく「今から間隔ぶん前」（単調時計は起動からの秒数で、立ち上げ直後の CI では 60 に満たない）。
+      ago = Process.clock_gettime(Process::CLOCK_MONOTONIC) - MentionListener::CATCH_UP_RETRY - 1
+      listener.instance_variable_set(:@catch_up_tried_at, ago)
       listener.receive(':thump', parser)
       listener.receive(':thump', parser)
 

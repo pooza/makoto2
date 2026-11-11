@@ -274,14 +274,77 @@ module Makoto
       assert_empty(@service.unfollowed)
     end
 
-    # 🔴 **断られた承認待ちには、次の突き合わせで返し直す**（#636）。
-    def test_a_declined_request_is_retried
+    # 🔴 **断られたら送り直さない**（v1.0.2 のリリース前レビューの赤）。⚠ 痕跡に残り、別のインスタンスも送らない。
+    def test_a_declined_request_is_not_resent
       @service.locked = ['3']
       @service.following = ['1', '2']
       subject.sync
       @service.pending = []
 
+      assert_empty(subject.sync[:followed])
+      assert_equal(['3'], Heartbeat.follow_declined)
+      assert_empty(Heartbeat.follow_requested)
+      another = FollowSync.new(service: @service, roster: @roster, repository: @repository)
+
+      assert_empty(another.sync[:followed])
+      assert_equal(['3'], @service.followed)
+    end
+
+    # 🔴 **断った人がフォローし直したら、また返す**（通知で）。
+    def test_a_declined_follower_is_followed_again_on_a_new_follow
+      follow_back!
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+      subject.sync
+      @service.pending = []
+      subject.sync
+      subject.on_follow({'id' => '3', 'acct' => 'shy'})
+
+      assert_equal(['3', '3'], @service.followed)
+      assert_empty(Heartbeat.follow_declined)
+    end
+
+    # ⚠ **止めている間にフォローし直しても忘れる**（解いたら返す・PR #649 の Codex の P2）。
+    def test_a_declined_follower_is_forgotten_even_while_stopped
+      follow_back!
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+      subject.sync
+      @service.pending = []
+      subject.sync
+      @repository.block('3', 'shy')
+      subject.on_follow({'id' => '3', 'acct' => 'shy'})
+      @repository.unblock('3')
+
       assert_equal(['3'], subject.sync[:followed])
+    end
+
+    # ⚠ 一覧から一度消えたら忘れる（常駐が止まっている間にフォローし直した人にも返す）。
+    def test_a_declined_follower_is_forgotten_after_leaving
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+      subject.sync
+      @service.pending = []
+      subject.sync
+      @followers = ['1', '2']
+      subject.sync
+      @followers = ['1', '2', '3']
+
+      assert_equal(['3'], subject.sync[:followed])
+    end
+
+    # ⚠ **関係が引けなくても、覚えている承認待ちで続ける**（v1.0.2 のリリース前レビューの黄）。
+    def test_sync_continues_without_relationships
+      @service.locked = ['3']
+      @service.following = ['1', '4']
+      subject.sync
+      @service.define_singleton_method(:relationships) {|_ids| raise Ginseng::GatewayError, 'down'}
+      @service.following = ['1', '2', '4']
+      result = subject.sync
+
+      assert_empty(result[:followed])
+      assert_equal(['4'], result[:unfollowed])
+      assert_equal(['3'], Heartbeat.follow_requested)
     end
 
     # 🔴 **応答の `requested` を当てにせず、関係が承認待ちなら送り直さない**（#636・2026-11-10 の本番）。
