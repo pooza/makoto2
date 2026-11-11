@@ -750,5 +750,37 @@ module Makoto
     ensure
       Scheduler.instance.clear
     end
+
+    # 🔴 **常駐の配線**（#638）: 返事をするときだけ追いつき、3 本のスレッドを名前で見張る。
+    def wire(daemon, responder)
+      listener = Struct.new(:catch_up, :thread) {def start = nil}.new
+      worker = Struct.new(:thread) {def start = nil}
+      follow = worker.new(Thread.new {nil}.tap {|t| t.name = 'makoto-follow'}.tap(&:join))
+      listener.thread = Thread.new {nil}.tap {|t| t.name = 'makoto-stream'}.tap(&:join)
+      daemon.define_singleton_method(:chat_responder) {responder}
+      daemon.define_singleton_method(:follow_sync) {follow}
+      daemon.define_singleton_method(:mention_listener) {listener}
+      daemon.send(:start_threads)
+      return listener
+    end
+
+    def test_threads_are_wired_with_a_responder
+      responder = Struct.new(:thread) {def start = nil}.new(Thread.new {nil}.tap {|t| t.name = 'makoto-chat'}.tap(&:join))
+      listener = wire(@daemon, responder)
+
+      assert_kind_of(MentionCatchUp, listener.catch_up)
+      assert_equal(['makoto-chat', 'makoto-follow', 'makoto-stream'], Scheduler.instance.dead_threads.sort)
+    ensure
+      Scheduler.instance.thread_watch = nil
+    end
+
+    def test_threads_are_wired_without_a_responder
+      listener = wire(@daemon, nil)
+
+      assert_nil(listener.catch_up)
+      assert_equal(['makoto-follow', 'makoto-stream'], Scheduler.instance.dead_threads.sort)
+    ensure
+      Scheduler.instance.thread_watch = nil
+    end
   end
 end

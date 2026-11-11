@@ -245,5 +245,21 @@ module Makoto
       alive&.kill
       FileUtils.rm_f(Heartbeat.path)
     end
+
+    # 🔴 **新しく死んだスレッドは 1 回だけ Sentry へ**（#639）。⚠ 次の tick では送らない。
+    def test_a_newly_dead_thread_is_reported_once
+      FileUtils.rm_f(Heartbeat.path)
+      dead = Thread.new {nil}.tap(&:join)
+      subject = Scheduler.instance
+      reported = []
+      subject.define_singleton_method(:report_error) {|error, **| reported.push(error.message)}
+      subject.thread_watch = -> {{'makoto-chat' => dead}}
+      2.times {subject.tick}
+
+      assert_equal(['thread makoto-chat is dead'], reported)
+    ensure
+      subject.singleton_class.remove_method(:report_error)
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end

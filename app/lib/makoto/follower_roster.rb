@@ -19,7 +19,10 @@ module Makoto
 
     # @param fetcher [#call] `-> Array<String>`。⚠ テストが差し替える
     # @param clock [#call] `-> Time`。⚠ テストが差し替える
-    def initialize(fetcher: nil, clock: nil)
+    # @param record [Boolean] 痕跡に書くか。⚠⚠ **常駐の一覧だけが書く**（#640）— CLI（別のプロセス）の一覧は
+    #   未取得から始まるので、失敗で常駐に偽の warning を立て、成功で常駐の本当の warning を消していた
+    def initialize(fetcher: nil, clock: nil, record: true)
+      @record = record
       @fetcher = fetcher || -> {MastodonService.new.follower_ids}
       @clock = clock || -> {Time.now}
       @ids = nil
@@ -103,6 +106,7 @@ module Makoto
 
     # ⚠ **痕跡が書けなくても一覧は止めない**（観測のためのもの）。
     def trace(method)
+      return unless @record
       Heartbeat.public_send(method)
     rescue => e
       logger.error(chat: 'followers', error: e)

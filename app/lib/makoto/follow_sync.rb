@@ -14,6 +14,11 @@ module Makoto
   # - ⚠ **鍵の掛かった相手へのフォローは承認待ちになり、フォロー中の一覧に出ない。**送り直さないように、
   #   承認待ちになった相手を覚えておく。🔴 **痕跡に残す**（PR #632 の Codex の P2）— 常駐のメモリだけだと、
   #   再起動で忘れて取り消せなくなり、`makoto chat follow-sync`（別のプロセス）からも見えない
+  # - 🔴 **承認待ちかは、突き合わせのたびに `relationships` で引き直す**（#636）。⚠⚠ 覚えておくだけだと、相手に
+  #   断られても集合から消えず、二度と返さなかった。⚠⚠ **フォローの応答の `requested` は当てにしない** — リモートの
+  #   相手で承認が返ってこないとき、応答は `requested: false` なのに関係は承認待ちで、毎時送り直していた
+  #   （2026-11-10 の本番・18〜20 人）。⚠ 返す前に関係を聞き、承認待ちなら送らない
+  # - ⚠ **見るだけの CLI は痕跡に書かない**（`record: false`・#636 / #640）
   class FollowSync
     include Package
 
@@ -24,7 +29,9 @@ module Makoto
     # @param roster [FollowerRoster] ⚠ テストが差し替える
     # @param repository [ChatRepository] 止めている相手を引く先。⚠ テストが差し替える
     # @param sleeper [#call] 待ち。⚠ テストが差し替える
-    def initialize(service: nil, roster: nil, repository: nil, sleeper: nil)
+    # @param record [Boolean] 痕跡に書くか。⚠ 見るだけの CLI は false（#636）
+    def initialize(service: nil, roster: nil, repository: nil, sleeper: nil, record: true)
+      @record = record
       @service = service
       @roster = roster
       @repository = repository
@@ -134,8 +141,27 @@ module Makoto
       wanted = followers.reject {|id| stopped?(id)}.to_set
       # ⚠ **承認待ちも外す側に含める**（PR #608 の Codex の P2）。外す（`unfollow`）と承認待ちも取り消される。
       # 外しそびれると、対象でなくなった相手が後から承認して、次の突き合わせまでフォローが付く。
-      requested = @mutex.synchronize {requested_change {@requested.subtract(following)}}
+      requested = refresh_requested(wanted - following, following)
       return wanted - following - requested, (following | requested) - wanted
+    end
+
+    # 🔴 **承認待ちを `relationships` で引き直す**（#636 → クラスの冒頭）。⚠ 聞くのは、返す候補と覚えている承認待ち。
+    # ⚠ 聞いている間に受信のスレッドが足したぶんは残す（聞いた ID だけを差し替える）。
+    # @return [Set] 承認待ち
+    def refresh_requested(candidates, following)
+      known = @mutex.synchronize {@requested.dup}
+      asked = (candidates | known) - following
+      found = pending_ids(asked)
+      return @mutex.synchronize do
+        requested_change {@requested.subtract(asked | following).merge(found)}
+      end
+    end
+
+    def pending_ids(ids)
+      return Set.new if ids.empty?
+      return service.relationships(ids.to_a).filter_map do |relationship|
+        relationship['id'].to_s if relationship['requested'] && !relationship['following']
+      end.to_set
     end
 
     def apply(to_follow, to_unfollow)
@@ -159,7 +185,9 @@ module Makoto
     def follow(id, acct = nil)
       relationship = service.follow(id)
       # ⚠ 受信のスレッド（`on_follow`）と突き合わせのスレッドの両方から来るので、鍵を掛ける。
-      if relationship['requested'] && !relationship['following']
+      # ⚠ **`requested` は当てにしない**（#636 → クラスの冒頭）。フォロー中にならなければ承認待ちとみなし、
+      # 次の突き合わせで関係を聞き直す。
+      unless relationship['following']
         @mutex.synchronize {requested_change {@requested.add(id.to_s)}}
       end
       return log(:follow, id, acct, requested: relationship['requested'] == true)
@@ -195,12 +223,13 @@ module Makoto
     def requested_change
       before = @requested.dup
       yield
-      trace(:record_follow_requested, @requested.to_a.sort) unless before == @requested
+      trace(:record_follow_requested, @requested.to_a.sort) if @record && before != @requested
       return @requested.dup
     end
 
     # ⚠ **痕跡が書けなくても突き合わせは止めない**（観測のためのもの）。
     def trace(method, *)
+      return unless @record
       Heartbeat.public_send(method, *)
     rescue => e
       logger.error(follow: 'sync', error: e)
