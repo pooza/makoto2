@@ -76,9 +76,8 @@ module Makoto
     # ginseng-upstream: no — 常駐は `command` のプロセスを起こさず、同じプロセスでスケジューラ・監視・SSE を回す（`stop` も同じ）
     def start(args = [])
       # ⚠ **`revision` はここで固定される**（#242 → `Package.revision`）。
-      logger.info(
-        daemon: app_name, version: Package.version, revision: Package.revision, message: 'start',
-      )
+      logger.info(daemon: app_name, version: Package.version, revision: Package.revision,
+        message: 'start')
       # 🔴 **Sentry の `release` にリビジョンまで載せる**（#347）。
       tag_sentry_release
       # 🔴 **設定を起動時に 1 回検証する**（#99）。⚠ **止めない**（→ `validate_config`）。
@@ -119,6 +118,9 @@ module Makoto
     # ginseng-upstream: no — `start` と同じ（同じプロセスで回しているものを止める）
     def stop
       logger.info(daemon: app_name, version: Package.version, message: 'stop')
+      # 🔴 **畳む前に見張りを外す**（v1.0.2 のリリース前レビュー）。⚠⚠ 外さないと、止めたスレッドを
+      # 次の tick が「死んだ」と見て、再起動のたびに Sentry へ誤報する（#639）。
+      Scheduler.instance.thread_watch = nil
       monitor_server.stop
       # ⚠ **受信のスレッドも畳む**（#29・孤児を残さない）。
       mention_listener.stop

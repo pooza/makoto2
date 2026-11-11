@@ -44,6 +44,30 @@ module Makoto
       assert_nil(@service.lookup_account('nobody'))
     end
 
+    # #636 の関係。⚠ `RELATIONSHIP_BATCH` 人ずつ聞き、重複は 1 回にする。
+    def test_relationships
+      ids = (1..(MastodonService::RELATIONSHIP_BATCH + 1)).map(&:to_s)
+      pattern = %r{/api/v1/accounts/relationships\?}
+      stub_request(:get, pattern).to_return do |request|
+        found = URI.decode_www_form(request.uri.query).map(&:last)
+        {status: 200, headers: {'Content-Type' => 'application/json'},
+         body: found.map {|id| {id:, following: false, requested: id == '1'}}.to_json}
+      end
+      found = @service.relationships(ids + ['1'])
+
+      # ⚠ WebMock はクエリを並べ替えるので、順は見ない。
+      assert_equal(ids.sort, found.map {|relationship| relationship['id']}.sort)
+      assert_true(found.find {|relationship| relationship['id'] == '1'}['requested'])
+      assert_requested(:get, pattern, times: 2)
+    end
+
+    def test_relationships_raises_on_a_bad_shape
+      stub_request(:get, %r{/api/v1/accounts/relationships\?})
+        .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: '{}')
+
+      assert_raise(Ginseng::GatewayError) {@service.relationships(['1'])}
+    end
+
     def test_post_status_in_reply_to
       stub_request(:post, @url)
         .to_return(status: 200, headers: {'Content-Type' => 'application/json'}, body: {

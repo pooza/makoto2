@@ -18,6 +18,10 @@ module Makoto
   #   断られても集合から消えず、二度と返さなかった。⚠⚠ **フォローの応答の `requested` は当てにしない** — リモートの
   #   相手で承認が返ってこないとき、応答は `requested: false` なのに関係は承認待ちで、毎時送り直していた
   #   （2026-11-10 の本番・18〜20 人）。⚠ 返す前に関係を聞き、承認待ちなら送らない
+  # - 🔴 **断られたら、送り直さない**（v1.0.2 のリリース前レビューの赤）。⚠⚠ 引き直すだけだと、断った人に
+  #   毎時リクエストが届く。承認待ちだった相手が、フォロー中にも承認待ちにもなっていなければ断られたとみなし、
+  #   痕跡に残す。⚠ **その人がフォローし直したら（通知・または一覧から一度消えたら）忘れて、また返す**
+  # - ⚠ **関係が引けなければ、覚えている承認待ちで続ける**（同じレビューの黄）。返す・外すを止めない
   # - ⚠ **見るだけの CLI は痕跡に書かない**（`record: false`・#636 / #640）
   class FollowSync
     include Package
@@ -37,6 +41,7 @@ module Makoto
       @repository = repository
       @sleeper = sleeper || ->(seconds) {sleep(seconds)}
       @requested = Heartbeat.follow_requested.to_set
+      @declined = Heartbeat.follow_declined.to_set
       @mutex = Mutex.new
       @stopping = false
     end
@@ -94,6 +99,8 @@ module Makoto
       # ⚠ ボットのアカウントも返す（オーナーの決まりに例外が無い・返事は門が黙るので往復にならない）。
       return nil unless self.class.follow_back?
       return log(:skip, id, account['acct'], reason: 'stopped') if stopped?(id)
+      # ⚠ フォローし直してくれたので、断られたことは忘れる。
+      @mutex.synchronize {declined_change {@declined.delete(id.to_s)}}
       return follow(id, account['acct'])
     rescue => e
       logger.error(follow: 'on_follow', error: e)
@@ -141,27 +148,42 @@ module Makoto
       wanted = followers.reject {|id| stopped?(id)}.to_set
       # ⚠ **承認待ちも外す側に含める**（PR #608 の Codex の P2）。外す（`unfollow`）と承認待ちも取り消される。
       # 外しそびれると、対象でなくなった相手が後から承認して、次の突き合わせまでフォローが付く。
-      requested = refresh_requested(wanted - following, following)
-      return wanted - following - requested, (following | requested) - wanted
+      requested = refresh_requested(wanted - following, following, wanted)
+      # ⚠ 断った人のうち、フォロワーでなくなった人は忘れる（フォローし直したら、また返す）。
+      declined = @mutex.synchronize {declined_change {@declined &= followers}}
+      return wanted - following - requested - declined, (following | requested) - wanted
     end
 
     # 🔴 **承認待ちを `relationships` で引き直す**（#636 → クラスの冒頭）。⚠ 聞くのは、返す候補と覚えている承認待ち。
     # ⚠ 聞いている間に受信のスレッドが足したぶんは残す（聞いた ID だけを差し替える）。
     # @return [Set] 承認待ち
-    def refresh_requested(candidates, following)
+    def refresh_requested(candidates, following, wanted)
       known = @mutex.synchronize {@requested.dup}
       asked = (candidates | known) - following
       found = pending_ids(asked)
+      return known unless found
       return @mutex.synchronize do
+        decline((known & wanted) - following - found)
         requested_change {@requested.subtract(asked | following).merge(found)}
       end
     end
 
+    # @return [Set, nil] ⚠ 引けなければ nil（→ 覚えている承認待ちで続ける）
+    # ⚠ 空なら聞かない（`relationships` が 1 回も叩かない）。
     def pending_ids(ids)
-      return Set.new if ids.empty?
       return service.relationships(ids.to_a).filter_map do |relationship|
         relationship['id'].to_s if relationship['requested'] && !relationship['following']
       end.to_set
+    rescue => e
+      logger.warn(follow: 'sync', message: 'could not get relationships',
+        error_class: e.class.name, error: e)
+      return nil
+    end
+
+    # 承認待ちだったのに、フォロー中にも承認待ちにもなっていない相手は断った。⚠ `@mutex` の中で呼ぶ。
+    def decline(ids)
+      ids.each {|id| log(:declined, id)}
+      declined_change {@declined.merge(ids)}
     end
 
     def apply(to_follow, to_unfollow)
@@ -190,7 +212,7 @@ module Makoto
       unless relationship['following']
         @mutex.synchronize {requested_change {@requested.add(id.to_s)}}
       end
-      return log(:follow, id, acct, requested: relationship['requested'] == true)
+      return log(:follow, id, acct, requested: !relationship['following'])
     end
 
     def unfollow(id)
@@ -225,6 +247,15 @@ module Makoto
       yield
       trace(:record_follow_requested, @requested.to_a.sort) if @record && before != @requested
       return @requested.dup
+    end
+
+    # 断った相手を変えて、変わっていたら痕跡に書く。⚠ `@mutex` の中で呼ぶ。
+    # @return [Set] 変えたあとの写し
+    def declined_change
+      before = @declined.dup
+      yield
+      trace(:record_follow_declined, @declined.to_a.sort) if @record && before != @declined
+      return @declined.dup
     end
 
     # ⚠ **痕跡が書けなくても突き合わせは止めない**（観測のためのもの）。

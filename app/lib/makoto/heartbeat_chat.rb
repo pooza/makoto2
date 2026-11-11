@@ -88,6 +88,15 @@ module Makoto
       return Array(stored[:follow_requested]).map(&:to_s)
     end
 
+    # 🔴 **フォロー返しを断った相手**（v1.0.2 のリリース前レビューの赤）。⚠ 送り直さないために、再起動をまたいで覚える。
+    def record_follow_declined(ids)
+      return update {|record| record.merge(follow_declined: Array(ids).map(&:to_s))}
+    end
+
+    def follow_declined
+      return Array(stored[:follow_declined]).map(&:to_s)
+    end
+
     # @return [Hash, nil] `{count:, limit:, since: Time}`
     def follow_over_limit
       found = stored[:follow_over_limit]
