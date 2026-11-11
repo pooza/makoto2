@@ -2,8 +2,8 @@ module Makoto
   class FollowSyncTest < TestCase
     # Mastodon の代わり。フォローした・外した ID を覚える。
     class FakeService
-      attr_accessor :following, :locked, :refused
-      attr_reader :followed, :unfollowed
+      attr_accessor :following, :locked, :refused, :pending
+      attr_reader :followed, :unfollowed, :asked
 
       def initialize(following: [])
         @following = following
@@ -11,6 +11,16 @@ module Makoto
         @refused = []
         @followed = []
         @unfollowed = []
+        @pending = []
+        @asked = []
+      end
+
+      # ⚠ 承認待ちは `@pending`（鍵の相手にフォローすると入り、外すと出る・断られたらテストが消す）。
+      def relationships(ids)
+        @asked.push(ids.map(&:to_s).sort)
+        return ids.map do |id|
+          {'id' => id.to_s, 'following' => @following.include?(id.to_s), 'requested' => @pending.include?(id.to_s)}
+        end
       end
 
       def following_ids
@@ -22,11 +32,13 @@ module Makoto
         raise Ginseng::AuthError, 'mastodon returned 403' if @refused.include?(id.to_s)
         @followed.push(id.to_s)
         locked = @locked.include?(id.to_s)
+        @pending |= [id.to_s] if locked
         return {'id' => id.to_s, 'following' => !locked, 'requested' => locked}
       end
 
       def unfollow(id)
         @unfollowed.push(id.to_s)
+        @pending.delete(id.to_s)
         return {'id' => id.to_s, 'following' => false}
       end
     end
@@ -260,6 +272,36 @@ module Makoto
       assert_equal(['4'], to_unfollow.to_a)
       assert_empty(@service.followed)
       assert_empty(@service.unfollowed)
+    end
+
+    # 🔴 **断られた承認待ちには、次の突き合わせで返し直す**（#636）。
+    def test_a_declined_request_is_retried
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+      subject.sync
+      @service.pending = []
+
+      assert_equal(['3'], subject.sync[:followed])
+    end
+
+    # 🔴 **応答の `requested` を当てにせず、関係が承認待ちなら送り直さない**（#636・2026-11-10 の本番）。
+    def test_a_remote_pending_request_is_not_resent
+      @service.following = ['1', '2']
+      @service.pending = ['3']
+
+      assert_empty(subject.sync[:followed])
+      assert_empty(@service.followed)
+      assert_equal(['3'], Heartbeat.follow_requested)
+    end
+
+    # ⚠ **見るだけなら痕跡に書かない**（#636）。
+    def test_a_preview_without_record_does_not_write
+      @service.following = ['1', '2']
+      @service.pending = ['3']
+      viewer = FollowSync.new(service: @service, roster: @roster, repository: @repository, record: false)
+
+      assert_empty(viewer.preview[0].to_a)
+      assert_empty(Heartbeat.follow_requested)
     end
   end
 end

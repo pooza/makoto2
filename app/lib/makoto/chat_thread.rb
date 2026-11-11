@@ -25,6 +25,11 @@ module Makoto
   # 公開・未収載でない祖先は会話に入れない。**⚠ 返事の公開範囲は、渡した投稿のうち最も狭いものに合わせる
   # （→ `visibility`）。⚠ 根（`root_id`）は落とす前の祖先で決める（会話を閉じた記録の鍵を変えない）
   #
+  # 🔴 **MAKOTO 自身の DM も、話しかけた本人が宛先にいるときだけ渡す**（#641）。⚠⚠ リモートの相手は、MAKOTO が
+  # 第三者に返した DM の URI を `inReplyTo` に入れてメンションできる。Mastodon は見えるかを確かめずに会話をつなぐので、
+  # その DM が祖先として返り、中身の言い換えが相手へ漏れうる。⚠ 実地では確かめていない（塞ぐほうが安い）。
+  # ⚠ MAKOTO のフォロワー限定は渡す（話しかけられるのはフォロワーだけ・門 → 本人にも見えている）
+  #
   # ⚠⚠ **本文をログに出さない**（メンバーの書いたもの）。
   class ChatThread
     include Package
@@ -100,7 +105,11 @@ module Makoto
     def hidden?(entry)
       return false if OPEN_VISIBILITIES.include?(entry['visibility'].to_s)
       author = entry.dig('account', 'id').to_s
-      return ![@own_id, @status.dig('account', 'id').to_s].include?(author)
+      speaker = @status.dig('account', 'id').to_s
+      return false if author == speaker
+      return true unless author == @own_id
+      return false if entry['visibility'].to_s == 'private'
+      return Array(entry['mentions']).grep(Hash).none? {|mention| mention['id'].to_s == speaker}
     end
 
     def message(entry)

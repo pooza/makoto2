@@ -2,7 +2,7 @@ module Makoto
   class ChatThreadTest < TestCase
     OWN = '100'.freeze
 
-    # @param options [Hash] `acct:` / `reply_to:` / `visibility:`（既定は公開）
+    # @param options [Hash] `acct:` / `reply_to:` / `visibility:`（既定は公開）/ `to:`（宛先のアカウント ID）
     def post(id, account_id, html, **options)
       return {
         'id' => id,
@@ -10,6 +10,7 @@ module Makoto
         'visibility' => options.fetch(:visibility, 'public'),
         'content' => html,
         'account' => {'id' => account_id, 'acct' => options.fetch(:acct, "user#{account_id}")},
+        'mentions' => Array(options[:to]).map {|id| {'id' => id}},
       }
     end
 
@@ -101,6 +102,23 @@ module Makoto
         {role: 'user', content: 'どう思う？'},
       ], thread.messages)
       assert_equal('1', thread.root_id)
+    end
+
+    # 🔴 **MAKOTO の閉じた投稿も、話しかけた本人が宛先にいなければ渡さない**（#641）。
+    def test_own_closed_posts_to_others_are_not_passed
+      ancestors = [post('1', OWN, '<p>あなただけに</p>', acct: 'makoto', visibility: 'direct', to: '2')]
+      thread = ChatThread.new(mention('<p>@makoto 何て？</p>', reply_to: '1'), ancestors, own_id: OWN)
+
+      assert_equal([{role: 'user', content: '何て？'}], thread.messages)
+      assert_equal('public', thread.visibility)
+    end
+
+    def test_own_direct_posts_to_the_speaker_are_passed
+      ancestors = [post('1', OWN, '<p>内緒ね</p>', acct: 'makoto', visibility: 'direct', to: '1')]
+      thread = ChatThread.new(mention('<p>@makoto うん</p>', reply_to: '1'), ancestors, own_id: OWN)
+
+      assert_equal('direct', thread.visibility)
+      assert_includes(thread.messages.first[:content], '内緒ね')
     end
 
     # 🔴 **公開範囲は渡した投稿のうち最も狭いもの**（#613）。⚠ 渡さなかった投稿は数えない。

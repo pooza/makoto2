@@ -34,7 +34,7 @@ module Makoto
       @queued = []
       @service = FakeService.new(notifications)
       return MentionCatchUp.new(
-        handler: ->(notification, received_at) {@queued.push([notification['id'], received_at])},
+        handler: ->(notification, received_at) {@queued.push([notification['id'], received_at]) && true},
         service: @service,
         clock: -> {NOW},
       )
@@ -97,6 +97,45 @@ module Makoto
       Heartbeat.checkpoint_notification('20')
 
       assert_equal('20', Heartbeat.notification_id)
+    end
+
+    # 🔴 **起点を止めている間に処理し終えたものは除く**（#635）。
+    def test_handled_notifications_are_skipped
+      Heartbeat.record_notification_id('10')
+      Heartbeat.hold_notification_id(now: NOW)
+      Heartbeat.checkpoint_notification('12')
+
+      assert_equal(1, catch_up([mention('11', 1), mention('12', 1)]).call)
+      assert_equal(['11'], @queued.map(&:first))
+    end
+
+    # 🔴 **積めなかった分は数えない・引くのは待ち行列の半分まで**（#637）。
+    def test_dropped_notifications_are_not_counted
+      Heartbeat.record_notification_id('10')
+      @service = FakeService.new([mention('11', 1), mention('12', 1)])
+      subject = MentionCatchUp.new(handler: ->(n, _) {n['id'] == '11'}, service: @service, clock: -> {NOW})
+
+      assert_equal(1, subject.call)
+      assert_equal([['10', ChatResponder::QUEUE_MAX / 2]], @service.calls)
+    end
+
+    # 🔴 **積んだ分を処理し終えるまで、起点はそれを越えない**（#637・PR #643 の Codex の P2）。
+    # 起点 10・ライブの 20 が先・追いついた 11 / 12 が後ろ → 20 を処理しても起点は 10 のまま。
+    def test_the_checkpoint_does_not_pass_pending_notifications
+      Heartbeat.record_notification_id('10')
+      Heartbeat.checkpoint_notification('20', pending: ['11', '12'])
+
+      assert_equal('10', Heartbeat.notification_id)
+      assert_true(Heartbeat.handled_notification?('20'))
+
+      Heartbeat.checkpoint_notification('11', pending: ['12'])
+
+      assert_equal('11', Heartbeat.notification_id)
+
+      Heartbeat.checkpoint_notification('12', pending: [])
+
+      assert_equal('20', Heartbeat.notification_id)
+      assert_false(Heartbeat.handled_notification?('20'))
     end
   end
 end
