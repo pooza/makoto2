@@ -304,6 +304,21 @@ module Makoto
       assert_empty(Heartbeat.follow_declined)
     end
 
+    # ⚠ **止めている間にフォローし直しても忘れる**（解いたら返す・PR #649 の Codex の P2）。
+    def test_a_declined_follower_is_forgotten_even_while_stopped
+      follow_back!
+      @service.locked = ['3']
+      @service.following = ['1', '2']
+      subject.sync
+      @service.pending = []
+      subject.sync
+      @repository.block('3', 'shy')
+      subject.on_follow({'id' => '3', 'acct' => 'shy'})
+      @repository.unblock('3')
+
+      assert_equal(['3'], subject.sync[:followed])
+    end
+
     # ⚠ 一覧から一度消えたら忘れる（常駐が止まっている間にフォローし直した人にも返す）。
     def test_a_declined_follower_is_forgotten_after_leaving
       @service.locked = ['3']

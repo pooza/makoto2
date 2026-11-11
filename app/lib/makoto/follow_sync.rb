@@ -96,11 +96,12 @@ module Makoto
       id = account['id']
       return nil if id.nil?
       roster.add(id)
+      # ⚠ **フォローし直してくれたので、断られたことは忘れる。**返すかどうかの判定より先に（止めている間に
+      # フォローし直した人も、解いたあとの突き合わせで返す・PR #649 の Codex の P2）。
+      @mutex.synchronize {declined_change {@declined.delete(id.to_s)}}
       # ⚠ ボットのアカウントも返す（オーナーの決まりに例外が無い・返事は門が黙るので往復にならない）。
       return nil unless self.class.follow_back?
       return log(:skip, id, account['acct'], reason: 'stopped') if stopped?(id)
-      # ⚠ フォローし直してくれたので、断られたことは忘れる。
-      @mutex.synchronize {declined_change {@declined.delete(id.to_s)}}
       return follow(id, account['acct'])
     rescue => e
       logger.error(follow: 'on_follow', error: e)
