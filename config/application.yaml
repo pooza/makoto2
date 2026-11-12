@@ -712,6 +712,11 @@ chat:
     - 1d
     - 3d
     - 7d
+  tools:
+    # 🔴 **曲とプリキュアを道具で引かせる**（#623・→ `ChatTools`）。⚠ 困ったら false にして再起動（道具なしで答える）。
+    enabled: true
+    # ⚠ **道具を呼べる往復の上限。**超えたら道具なしで答えさせる。⚠ 1 往復ごとに呼び出しが 1 回増える。
+    max_rounds: 2
   # 🔴 **返事を作る LLM**（#18・→ `ChatModel`）。⚠⚠ **全機能で同じモデル**（docs「LLM プロバイダとモデル」）。
   # ⚠ effort `low` は #19 の評価で決めた値。⚠ 書き換えたら評価を回し直す（`tools/persona_eval/run.py`）。
   model:

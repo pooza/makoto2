@@ -4973,6 +4973,11 @@ gem 'ginseng-style', github: 'pooza/ginseng-style', tag: 'v1.1.4', require: fals
   - 🔴 **止め方は `/chat/enabled: false` ＋ 再起動**（受信は続く）。⚠ キーが無ければ `true` でも返さず、`makoto status` が警告する。⚠ **キーが通らなくなったら（401 / 403）`warning: chat API key was rejected at …`** — ⚠ 再起動では直らないので `errors` ではなく `warnings`（Sentry の警告と同じ理由）。次に 1 回通れば消える
   - 🔴 **黙り続ける状態も `makoto status` の warning に出す**（#611・v1.0.1）: `thread makoto-chat|makoto-follow|makoto-stream is dead`（死んだスレッドは自分で書けないので、毎分の tick が見て痕跡に書く・起き上がったときに消す）／`chat API failed N times in a row`（認証以外の失敗が 3 回続いた・1 回通れば消える）／`followers have not been loaded since …`（門が全員に黙る状態）／`mention catch-up has been failing since …`（#610）／`follow sync is holding …`（#614）。⚠ どれも Kuma（HTTP）には出ない。🔴 **スレッドの死は、死んだときに 1 回だけ Sentry へも送る**（#639・`1.0.2`）。⚠ 常駐を畳むときは先に見張りを外す（外さないと、止めたスレッドを死んだと誤報する・v1.0.2 のリリース前レビュー）
 - 🔴 **`1.0` のリリースの前にやること**（チャットボットを本番で始める日）: ① 本番のトークンを 7 スコープで作り直す（→ 上の「フォロワーかは」の節）② プロフィールに「お返事は AI が作っています」を足す（#18・2026-10-20）③ makoto-scripts の `chat.yaml` を本番に入れる（レシピの `message import`）④ ステージングで本物のメンションに返事が付くのを見る ⑤ rubicon に makoto-scripts のチェックアウトがあり、台帳（`/chat/ledger/path`）が読めること（`makoto chat ledger`）⑥ フォロー返しの初回の差（2026-11-09 の実測で返す 31・外す 3）がログの `follow: sync` と合うこと
+- 🔴 **曲とプリキュアは道具で引かせる**（#623 / #622・2026-11-13）。`Makoto::ChatTools` の 2 つ — `search_songs`（makoto2 の曲データの歌の曲・新しい順・同じ曲は 1 つ・最大 8 曲）と `lookup_precure`（cure-api の `/girls` を名前・変身前の名前・声優で引く・最大 5 人・一覧は 1 日覚える）。⚠ **作品を引く道具は持たせない** — cure-api の `/series` は作品名しか返さない（放送期間・登場するプリキュアが無い・2026-11-13 実測）。🔴 **ドキプリは本人の記憶、それ以外は引いて分かった範囲でだけ話す**（指示書の「歌」の節。「曲名に乗るならこの 2 曲」は「自分の持ち歌で曲名を出すなら」に絞り、お勧めを訊かれたら引いた曲名で答えてよいにした・#622）
+  - ⚠ **往復は `/chat/tools/max_rounds`（2）まで**。最後の回は `tool_choice: none` で答えさせる。⚠ 道具を使わない会話は 1 回のまま（約 $0.003・キャッシュも効いたまま）。使う回は 1 往復増えて 約 $0.008〜0.011（手元の 4 問の実測・2026-11-13）
+  - ⚠ **引けなくても例外を上げない**（モデルには `is_error` で返し、返事は止めない）。⚠ 引いた語と結果はログに出さない（道具の名前と件数だけ）。🔴 **止め方は `/chat/tools/enabled: false` ＋ 再起動**（道具なしで答える）
+  - ⚠⚠ **応答のブロックはそのまま返す** — `to_h` は SDK の属性名（`caller_`）で送って 400 になる（2026-11-13 に手元で踏んだ）
+  - ⚠ **評価の道具（`run.py`）は道具を持たない**（Batches で 1 回ずつ投げる作りなので、往復を回せない）。道具の効き目は `chat try` とステージングで見る
 - **試すのは `bin/makoto chat try TEXT [--thread FILE]`**（投稿しない・門も通らない・⚠ **課金あり**）
 - ⚠ **Ruby SDK の出力形式の属性名は `format_`**（`api_name: :format`）。⚠ ハッシュの `format:` が API の `format` に乗ることは、webmock で本文を見るテストで確かめてある（`test/chat_model.rb`）
 

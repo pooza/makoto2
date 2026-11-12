@@ -27,6 +27,14 @@ module Makoto
   # 別の相手が読めなくなる。⚠ **指示書に時刻や相手の名前を混ぜない**（混ぜた所から先は毎回書き直し）。
   # ⚠ 効いているかはログの `cache_read` / `cache_write` で見る（指示書が短すぎると黙って効かない）。
   #
+  # ## 🔴 曲とプリキュアは道具で引く（#623・2026-11-13）
+  #
+  # 道具（→ `ChatTools`）を持たせ、要るときだけモデルに呼ばせる。呼ばれたら引いて結果を返し、もう一度呼ぶ。
+  # ⚠ **往復は `/chat/tools/max_rounds` まで。**最後の回は `tool_choice: none` で答えさせる（道具を呼び続けて
+  # 返事が出ない形を作らない）。⚠ 道具を使わない会話は 1 回のまま（費用も変わらない）。
+  # ⚠ **道具の定義は指示書より前に並ぶ**（キャッシュの順は tools → system）ので、毎回同じものを渡す。
+  # ⚠ 使用量は往復ぶんを足して 1 つにする（ログと見積もりは 1 応答で 1 行）。
+  #
   # ⚠⚠ **相手の本文も返事の本文もログに出さない**（長さと印と使用量だけ）。
   class ChatModel
     include Package
@@ -55,9 +63,11 @@ module Makoto
 
     # @param client [Anthropic::Client, nil] ⚠ テストが差し替える
     # @param ledger [Ledger, nil] ⚠ テストが差し替える（手元に makoto-scripts があると結果が変わるため）
-    def initialize(client: nil, ledger: nil)
+    # @param tools [ChatTools, nil] ⚠ テストが差し替える
+    def initialize(client: nil, ledger: nil, tools: nil)
       @client = client
       @ledger = ledger
+      @tools = tools
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -70,9 +80,9 @@ module Makoto
     # @param messages [Array<Hash>] `{role:, content:}` の並び。⚠ **最後は相手の投稿（`user`）**
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
-      response = client.messages.create(**params(messages), request_options: request_options)
+      reply = converse(messages.dup)
       Heartbeat.clear_chat_failures
-      return parse(response)
+      return reply
     rescue Anthropic::Errors::AuthenticationError, Anthropic::Errors::PermissionDeniedError => e
       # 🔴 **キーの期限切れ・取り消し**（→ `HeartbeatChat`）。⚠ 再試行しても直らないので、痕跡に残して黙る。
       Heartbeat.record_chat_auth_failure
@@ -89,8 +99,9 @@ module Makoto
       return nil
     end
 
-    def params(messages)
-      return {
+    # @param last [Boolean] 道具を呼べる最後の回を過ぎた（`tool_choice: none` で答えさせる）
+    def params(messages, last: false)
+      params = {
         model: setting('name'),
         max_tokens: setting('max_tokens'),
         system_: system_blocks,
@@ -100,6 +111,10 @@ module Makoto
         },
         messages: messages,
       }
+      return params unless tools_enabled?
+      params[:tools] = ChatTools::DEFINITIONS
+      params[:tool_choice] = {type: :none} if last
+      return params
     end
 
     # ⚠ **起動時に一度だけ読む**（書き換えたら再起動）。⚠ HTML のコメントは渡さない（書き手向けの注記）。
@@ -132,6 +147,55 @@ module Makoto
 
     private
 
+    # 道具を呼ばれたら引いて返し、もう一度呼ぶ（→ クラスの冒頭）。
+    def converse(messages)
+      usage = {}
+      max_rounds.succ.times do |round|
+        last = round >= max_rounds
+        response = client.messages.create(**params(messages, last:), request_options:)
+        usage = add_usage(usage, usage_of(response))
+        return parse(response, usage) unless response.stop_reason == :tool_use && !last
+        # ⚠⚠ **ブロックはそのまま返す**（`to_h` は SDK の属性名 `caller_` で送って 400 になる・2026-11-13）。
+        messages.push({role: 'assistant', content: response.content})
+        messages.push({role: 'user', content: run_tools(response)})
+      end
+    end
+
+    def tools_enabled?
+      return config['/chat/tools/enabled'] == true
+    end
+
+    def max_rounds
+      return tools_enabled? ? config['/chat/tools/max_rounds'].to_i : 0
+    end
+
+    # ⚠ **呼ばれた道具の結果は、1 つの user のメッセージにまとめて返す**（分けると並べて呼ばなくなる）。
+    def run_tools(response)
+      return response.content.select {|block| block.type == :tool_use}.map do |block|
+        result = tools.call(block.name, block.input.to_h.transform_keys(&:to_s))
+        logger.info(chat: 'tool', tool: block.name, count: result.count, error: result.error?)
+        {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: result.content,
+          is_error: result.error?,
+        }
+      end
+    end
+
+    def add_usage(total, usage)
+      return usage if total.empty?
+      return total unless usage.any?
+      merged = total.merge(usage) do |key, a, b|
+        key == :model ? b : a.to_i + b.to_i
+      end
+      return merged
+    end
+
+    def tools
+      return @tools ||= ChatTools.new
+    end
+
     def cache_control
       ttl = setting('cache_ttl').to_s
       raise Ginseng::ConfigError, "chat: bad cache ttl '#{ttl}'" unless ['5m', '1h'].include?(ttl)
@@ -155,8 +219,7 @@ module Makoto
       return {extra_headers: {'anthropic-workspace-id' => workspace.to_s}}
     end
 
-    def parse(response)
-      usage = usage_of(response)
+    def parse(response, usage = usage_of(response))
       unless response.stop_reason == :end_turn
         return failed(response, usage, message: "stopped: #{response.stop_reason}")
       end
