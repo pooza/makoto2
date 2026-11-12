@@ -50,7 +50,7 @@ module Makoto
     def recent_posts(now = Time.now)
       since = now - (setting('hours').to_f * 60 * 60)
       posts = statuses(now).filter_map do |status|
-        at = Time.parse(status['created_at'].to_s).getlocal
+        at = Time.parse(status['created_at'].to_s)
         next unless at >= since
         next unless VISIBILITIES.include?(status['visibility'])
         text = self.class.text_of(status)
@@ -62,8 +62,11 @@ module Makoto
       return posts.first(setting('max_posts').to_i)
     end
 
+    # 🔴 **ホストの TZ ではなく `/scheduler/timezone` で出す**（PR #665 の Codex の P2）— UTC のホストでは
+    # 日曜 08:40 が土曜 23:40 になり、実況の曜日を取り違える（→ `MessageSelector#date_of` と同じ正本）。
     def self.format_time(time, date: false)
-      time = time.getlocal
+      zone = TZInfo::Timezone.get(Config.instance['/scheduler/timezone'])
+      time = zone.utc_to_local(time.getutc)
       clock = time.strftime('%H:%M')
       return clock unless date
       return "#{time.strftime('%Y-%m-%d')}（#{WEEKDAYS[time.wday]}）#{clock}"
