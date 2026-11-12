@@ -566,6 +566,19 @@ properties:
             type: string
         required:
           - max_age
+      # 曲とプリキュアを引く道具（#623・→ `ChatTools`）。
+      tools:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          max_rounds:
+            type: integer
+            minimum: 0
+            maximum: 5
+        required:
+          - enabled
+          - max_rounds
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object
