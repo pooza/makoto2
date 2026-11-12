@@ -207,6 +207,25 @@ module Makoto
       raise classify(e)
     end
 
+    # 自分の最近の投稿（#624・チャットボットの記憶）。⚠ **新しい順。**⚠ **返信は除く**（会話の返事を記憶にしない）。
+    # ⚠ 経路の設定に関わらず直で聞く（→ `#account`）。
+    # @return [Array<Hash>]
+    def own_statuses(limit: 10)
+      id = URI.encode_www_form_component(account['id'].to_s)
+      query = URI.encode_www_form('exclude_replies' => 'true', 'exclude_reblogs' => 'true',
+        'limit' => limit)
+      response = http.get("/api/v1/accounts/#{id}/statuses?#{query}", {
+        headers: direct_headers,
+        host_validator: ->(host) {host == http.base_uri.host},
+        follow_redirects: true,
+      })
+      body = response.parsed_response
+      raise_unexpected(body.class.name) unless body.is_a?(Array)
+      return body.grep(Hash)
+    rescue Ginseng::GatewayError => e
+      raise classify(e)
+    end
+
     # 返信の祖先（前のやりとり・#18）。⚠ **古い順。**⚠ **投稿しない**ので副作用は無い。
     #
     # 🔴 **`read:statuses` が要る**（2026-11-08 にトークンを作り直した）。⚠ トークンが無くても公開・未収載の

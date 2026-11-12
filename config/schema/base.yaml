@@ -566,6 +566,27 @@ properties:
             type: string
         required:
           - max_age
+      # いまと最近の自分の投稿（#624 / #652・→ `ChatMemory`）。
+      memory:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          hours:
+            type: integer
+            minimum: 1
+            maximum: 72
+          max_posts:
+            type: integer
+            minimum: 1
+            maximum: 20
+          refresh:
+            type: string
+        required:
+          - enabled
+          - hours
+          - max_posts
+          - refresh
       # 曲とプリキュアを引く道具（#623・→ `ChatTools`）。
       tools:
         type: object

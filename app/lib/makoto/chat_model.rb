@@ -64,10 +64,12 @@ module Makoto
     # @param client [Anthropic::Client, nil] ⚠ テストが差し替える
     # @param ledger [Ledger, nil] ⚠ テストが差し替える（手元に makoto-scripts があると結果が変わるため）
     # @param tools [ChatTools, nil] ⚠ テストが差し替える
-    def initialize(client: nil, ledger: nil, tools: nil)
+    # @param memory [ChatMemory, nil] ⚠ テストが差し替える
+    def initialize(client: nil, ledger: nil, tools: nil, memory: nil)
       @client = client
       @ledger = ledger
       @tools = tools
+      @memory = memory
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -80,6 +82,7 @@ module Makoto
     # @param messages [Array<Hash>] `{role:, content:}` の並び。⚠ **最後は相手の投稿（`user`）**
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
+      @system = system_blocks + memory_blocks
       reply = converse(messages.dup)
       Heartbeat.clear_chat_failures
       return reply
@@ -104,7 +107,7 @@ module Makoto
       params = {
         model: setting('name'),
         max_tokens: setting('max_tokens'),
-        system_: system_blocks,
+        system_: @system || system_blocks,
         output_config: {
           effort: setting('effort'),
           format: {type: :json_schema, schema: SCHEMA},
@@ -159,6 +162,17 @@ module Makoto
         messages.push({role: 'assistant', content: response.content})
         messages.push({role: 'user', content: run_tools(response)})
       end
+    end
+
+    # 🔴 **いまと最近の自分の投稿は、キャッシュの印より後ろに足す**（#624 / #652 → `ChatMemory`）。
+    # ⚠ 1 回の返事の中（道具の往復）では同じものを使う。
+    def memory_blocks
+      return [] unless config['/chat/memory/enabled'] == true
+      return [{type: 'text', text: memory.to_prompt}]
+    end
+
+    def memory
+      return @memory ||= ChatMemory.new
     end
 
     def tools_enabled?
