@@ -5,10 +5,25 @@ module Makoto
     URL = 'https://api.anthropic.com/v1/messages'.freeze
     MESSAGES = [{role: 'user', content: 'おはよう！'}].freeze
 
+    # 自分の投稿を引く口の代わり（#624）。⚠ 本物は Mastodon を引く。
+    class FakeService
+      def initialize(statuses = [])
+        @statuses = statuses
+      end
+
+      def own_statuses(**)
+        return @statuses
+      end
+    end
+
     def setup
       super
       config['/anthropic/api_key'] = 'sk-ant-test'
-      @model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'))
+      @model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory)
+    end
+
+    def fake_memory(statuses = [])
+      return ChatMemory.new(service: FakeService.new(statuses))
     end
 
     def response_body(reply: '{"reply":"おはようございます。","marks":[]}', stop_reason: 'end_turn',
@@ -77,7 +92,10 @@ module Makoto
         assert_equal('json_schema', body.dig('output_config', 'format', 'type'))
         assert_equal(ChatModel::MARKS, body.dig('output_config', 'format', 'schema', 'properties', 'marks',
           'items', 'enum'))
-        assert_equal(2, body['system'].size)
+        # ⚠ 3 つ目は「いま」（#624 / #652）。🔴 キャッシュの印より後ろ（→ 下の 2 行）。
+        assert_equal(3, body['system'].size)
+        assert_match(/## いま/, body['system'][2]['text'])
+        assert_nil(body['system'][2]['cache_control'])
         assert_match(/剣崎真琴（キュアソード）として/, body['system'][0]['text'])
         assert_match(/`impersonate`/, body['system'][1]['text'])
         # ⚠ 書き手向けの注記（HTML のコメント）は渡さない。
@@ -139,7 +157,7 @@ module Makoto
       config['/chat/model/max_retries'] = 0
       stub_request(:post, URL).to_timeout
 
-      assert_nil(ChatModel.new.respond(MESSAGES))
+      assert_nil(ChatModel.new(memory: fake_memory).respond(MESSAGES))
     end
 
     # 🔴 **キーが通らなくなったら痕跡に残す**（→ `Health#chat_warnings`）。⚠ 次に通れば消える。
@@ -221,6 +239,41 @@ module Makoto
       FileUtils.rm_f(Heartbeat.path)
     end
 
+    # 🔴 **最近の自分の投稿を、キャッシュの印より後ろに渡す**（#624）。⚠ 返信でない公開・未収載の投稿だけ。
+    def test_it_passes_recent_own_posts_after_the_cache_mark
+      now = Time.now
+      statuses = [
+        {'created_at' => (now - 3600).utc.iso8601, 'visibility' => 'public',
+         'content' => '<p>今日の 1 曲は「こころをこめて」です。 <a href="https://music.apple.com/x">https://music.apple.com/x</a></p>'},
+        {'created_at' => (now - 7200).utc.iso8601, 'visibility' => 'direct', 'content' => '<p>内緒の話</p>'},
+        {'created_at' => (now - (50 * 3600)).utc.iso8601, 'visibility' => 'public', 'content' => '<p>おととい</p>'},
+      ]
+      stub_model
+      ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory(statuses)).respond(MESSAGES)
+
+      assert_requested(:post, URL) do |request|
+        memory = JSON.parse(request.body)['system'].last
+
+        assert_nil(memory['cache_control'])
+        assert_include(memory['text'], '今日の 1 曲は「こころをこめて」です。')
+        assert_not_include(memory['text'], 'music.apple.com')
+        assert_not_include(memory['text'], '内緒の話')
+        assert_not_include(memory['text'], 'おととい')
+        true
+      end
+    end
+
+    # ⚠ **切れば渡さない**（困ったときの止め方）。
+    def test_memory_can_be_turned_off
+      config['/chat/memory/enabled'] = false
+      stub_model
+      @model.respond(MESSAGES)
+
+      assert_requested(:post, URL) do |request|
+        JSON.parse(request.body)['system'].size == 2
+      end
+    end
+
     # 道具を呼ぶ応答（#623）。
     def tool_use_body
       return {
@@ -245,7 +298,7 @@ module Makoto
 
     def model_with_tools
       tools = ChatTools.new(tracks: TrackRepository.new(track_db))
-      return ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), tools: tools)
+      return ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), tools: tools, memory: fake_memory)
     end
 
     # 🔴 **道具を呼んだら、引いた結果を返してもう一度呼ぶ**（#623）。⚠ 使用量は往復ぶんを足す。
