@@ -4622,6 +4622,17 @@ nginx の `/makoto` ロケーションが Mastodon フォークの vhost に残�
 
 ✅ **実例**（2026-08-20）: **#100（429 で `Retry-After` を見ない）を `pooza/ginseng-core#525` として上流へ出した。**⚠ **#95（`return` の多行チェイン）は上流に既に判断があった**ので**makoto2 側はクローズ**（→ 下記「lint の設定」）。
 
+#### ✅ 追随した（2026-11-15・#670）— core 7.0.0 → 7.0.1・fediverse 8.0.0 → 9.0.0
+
+| 変わったこと | makoto2 に当たるか |
+| --- | --- |
+| core 7.0.1（🔴 security）: マスクを `Logger#add` の 1 か所で通す（`unknown` / `add` の直呼びが平文で出ていた・上流 `#759` / `#761`）・`error` のバックトレースの行の URL もマスク（`#762`） | makoto2 は `unknown` / `add` を直に呼んでいない（grep）。`Makoto::Logger` は `Package` を足すだけで、水準のメソッドも `create_entry` も上書きしていない（上流の言う「二重に JSON になる」形は無い） |
+| fediverse 9.0.0（⚠ 破壊的）: `PleromaService#streaming_uri` にトークンが載らない・`streaming_protocols` を足した | 当たらない。Mastodon だけで、`streaming_uri` は `MastodonService` の自前（トークンはヘッダ） |
+
+- 🔴 **テストが 1 件落ちた**（`test_every_severity_goes_through_the_exit`・`info` で `SECRET` が平文）。⚠⚠ **上流の漏れではなく、テストの観測の位置のずれ** — テストは `add` を差し替えて出力を拾っていたが、7.0.1 からマスクは `add` の中で通るので、差し替えでマスクごと飛ばしていた。観測を `Syslog::Logger.syslog`（syslog に渡る文字列）へ移したら通った（アサーション 3410 → 3419）
+- ✅ `bundle update --conservative` で動いたのは core と fediverse だけ
+- ✅ 下見の全文（`live setlist --date=2027-11-04 --mc --body --limit=160` の 740 行・`morning preview`）が前後で一致。1392 tests / 0 failures・rubocop 0・`config:lint` OK
+
 #### ✅ 追随した（2026-11-07・#525）— core 5.0.0 → 5.1.0
 
 上流 [`ginseng-core#739`](https://github.com/pooza/ginseng-core/issues/739) が v5.1.0 で閉じたので取り込んだ（minor・破壊的変更なし）。
