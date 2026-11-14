@@ -119,6 +119,42 @@ module Makoto
       assert_equal([['10', ChatResponder::QUEUE_MAX / 2]], @service.calls)
     end
 
+    # ⚠ **落としたぶんは結果のログに `dropped` で出す**（#648）。
+    def test_dropped_notifications_are_logged
+      Heartbeat.record_notification_id('10')
+      @service = FakeService.new([mention('11', 1), mention('12', 1)])
+      subject = MentionCatchUp.new(handler: ->(n, _) {n['id'] == '11'}, service: @service, clock: -> {NOW})
+      logged = recording(subject)
+      subject.call
+
+      assert_equal([{stream: 'catch_up', since: '10', found: 2, queued: 1, dropped: 1}], logged)
+    end
+
+    # 🔴 **上限に当たったら warn**（#647）。⚠ 下回っていれば出さない。
+    def test_hitting_the_limit_is_logged
+      Heartbeat.record_notification_id('10')
+      found = Array.new(MentionCatchUp::LIMIT) {|i| mention((11 + i).to_s, 1)}
+      subject = catch_up(found)
+      logged = recording(subject)
+      subject.call
+
+      assert_include(logged, {stream: 'catch_up', message: 'limit reached', since: '10', found: MentionCatchUp::LIMIT,
+        limit: MentionCatchUp::LIMIT})
+      subject = catch_up(found.take(MentionCatchUp::LIMIT - 1))
+      logged = recording(subject)
+      subject.call
+
+      assert_empty(logged.select {|entry| entry[:message] == 'limit reached'})
+    end
+
+    def recording(subject)
+      logged = []
+      recorder = Object.new
+      [:info, :warn].each {|level| recorder.define_singleton_method(level) {|payload| logged.push(payload)}}
+      subject.define_singleton_method(:logger) {recorder}
+      return logged
+    end
+
     # 🔴 **積んだ分を処理し終えるまで、起点はそれを越えない**（#637・PR #643 の Codex の P2）。
     # 起点 10・ライブの 20 が先・追いついた 11 / 12 が後ろ → 20 を処理しても起点は 10 のまま。
     def test_the_checkpoint_does_not_pass_pending_notifications

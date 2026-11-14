@@ -49,9 +49,13 @@ module Makoto
 
     def fetch(since, age)
       notifications = service.mentions_since(since, limit: LIMIT)
-      queued = notifications.count {|notification| feed(notification, age)}
+      warn_limit(since, notifications.size)
+      results = notifications.map {|notification| feed(notification, age)}
       Heartbeat.release_notification_id
-      logger.info(stream: 'catch_up', since:, found: notifications.size, queued:)
+      queued = results.count(:queued)
+      # ⚠ **積めなかった（待ち行列が溢れた）ぶんを分けて出す**（#648）。⚠ 済み・古いものは 1 件ずつ出している
+      logger.info(stream: 'catch_up', since:, found: notifications.size, queued:,
+        dropped: results.count(:dropped))
       return queued
     rescue => e
       logger.warn(stream: 'catch_up', message: 'could not catch up', error_class: e.class.name,
@@ -70,21 +74,28 @@ module Makoto
       logger.error(stream: 'catch_up', error: e)
     end
 
-    # @return [Boolean] 積めたか（#637 — 待ち行列が溢れて落ちたぶんは数えない）
+    # 🔴 **上限に当たったら言う**（#647）。⚠⚠ それより古いメンションは黙って落ちる（新しい側から `LIMIT` 件だけ引く）。
+    def warn_limit(since, found)
+      return if found < LIMIT
+      logger.warn(stream: 'catch_up', message: 'limit reached', since:, found:, limit: LIMIT)
+    end
+
+    # @return [Symbol] `:queued` / `:dropped`（待ち行列が溢れた・#637 / #648）/ `:handled` / `:stale` /
+    #   `:invalid`
     def feed(notification, age)
       # 🔴 **起点を止めている間に処理し終えたものは除く**（#635 → `Heartbeat.handled_notification?`）。
       if Heartbeat.handled_notification?(notification['id'])
         logger.info(stream: 'catch_up', result: 'handled', notification_id: notification['id'])
-        return false
+        return :handled
       end
       created_at = Time.parse(notification['created_at'].to_s)
       if @clock.call - created_at > age
         logger.info(stream: 'catch_up', result: 'stale', notification_id: notification['id'])
-        return false
+        return :stale
       end
-      return @handler.call(notification, created_at) == true
+      return @handler.call(notification, created_at) == true ? :queued : :dropped
     rescue ArgumentError
-      return false
+      return :invalid
     end
 
     def max_age

@@ -261,5 +261,26 @@ module Makoto
       subject.singleton_class.remove_method(:report_error)
       FileUtils.rm_f(Heartbeat.path)
     end
+
+    # 🔴 **殺した例外（原因）を送る**（#646）。
+    def test_the_cause_of_a_dead_thread_is_reported
+      FileUtils.rm_f(Heartbeat.path)
+      dead = Thread.new do
+        Thread.current.report_on_exception = false
+        raise Ginseng::GatewayError, 'boom'
+      end
+      assert_raise(Ginseng::GatewayError) {dead.join}
+      subject = Scheduler.instance
+      reported = []
+      subject.define_singleton_method(:report_error) {|error, **tags| reported.push([error.class, error.message, tags])}
+      subject.thread_watch = -> {{'makoto-chat' => dead}}
+      subject.tick
+
+      assert_equal([[Ginseng::GatewayError, 'boom', {scheduler: 'thread_watch', thread: 'makoto-chat'}]], reported)
+    ensure
+      subject.singleton_class.remove_method(:report_error)
+      subject.thread_watch = nil
+      FileUtils.rm_f(Heartbeat.path)
+    end
   end
 end
