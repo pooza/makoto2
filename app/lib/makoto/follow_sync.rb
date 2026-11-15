@@ -187,7 +187,11 @@ module Makoto
       declined_change {@declined.merge(ids)}
     end
 
+    # 🔴 **外す直前に、いまのフォロワーを見直す**（#666・pooza/hadlar#4 の Codex の P2）。⚠⚠ `plan` の写しを取った後に
+    # 受信のスレッド（`on_follow`）が足したフォロワーは、承認待ち（`requested`）にだけ入って外す側に回る — 鍵の相手が
+    # フォローした直後に、返したばかりの申請を取り消していた。⚠ 止めている相手は、いまのフォロワーでも外す。
     def apply(to_follow, to_unfollow)
+      to_unfollow = to_unfollow.reject {|id| roster.ids&.include?(id.to_s) && !stopped?(id)}
       unfollowed = to_unfollow.select {|id| attempt(:unfollow, id)}
       followed = to_follow.select {|id| attempt(:follow, id)}
       failed = (to_follow.size + to_unfollow.size) - (followed.size + unfollowed.size)

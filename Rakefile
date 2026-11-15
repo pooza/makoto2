@@ -3,7 +3,6 @@ ENV['RAKE'] = 'yes'
 
 require 'makoto'
 module Makoto
-  Sequel.connect(Environment.dsn)
   load_tasks
   # ⚠ **gem が配る `cert:update` / `cert:check`**（#138 / 上流 `pooza/ginseng-core#512`）。
   #

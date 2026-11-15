@@ -518,7 +518,7 @@ package:
     - tkoishi@b-shock.co.jp
   license: MIT
   url: https://github.com/pooza/makoto2
-  version: 1.0.2
+  version: 1.1.0
 message:
   # 記念日。⚠⚠ **旧データの `birthday` 23 件は `month` / `day` が全行 NULL で、
   # 「11/4 に出す」判定は日付列ではなく type の側で行われていた。**その日付の正本が
@@ -712,6 +712,20 @@ chat:
     - 1d
     - 3d
     - 7d
+  memory:
+    # 🔴 **いまの日時と、最近の自分の投稿を渡す**（#624 / #652・→ `ChatMemory`）。⚠ 指示書のキャッシュの後ろに
+    # 足すので、毎回ふつうの単価で読まれる。⚠ 困ったら false にして再起動（指示書と台帳だけで答える）。
+    enabled: true
+    # ⚠ 何時間前までの投稿を渡すか。⚠ 日課は 1 日 4 本（朝挨拶 1・曲紹介 3）。
+    hours: 24
+    max_posts: 6
+    # ⚠ 引いた投稿を覚えておく長さ（メンションのたびに引かない）。
+    refresh: 5m
+  tools:
+    # 🔴 **曲とプリキュアを道具で引かせる**（#623・→ `ChatTools`）。⚠ 困ったら false にして再起動（道具なしで答える）。
+    enabled: true
+    # ⚠ **道具を呼べる往復の上限。**超えたら道具なしで答えさせる。⚠ 1 往復ごとに呼び出しが 1 回増える。
+    max_rounds: 2
   # 🔴 **返事を作る LLM**（#18・→ `ChatModel`）。⚠⚠ **全機能で同じモデル**（docs「LLM プロバイダとモデル」）。
   # ⚠ effort `low` は #19 の評価で決めた値。⚠ 書き換えたら評価を回し直す（`tools/persona_eval/run.py`）。
   model:

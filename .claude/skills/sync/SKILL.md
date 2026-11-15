@@ -1,6 +1,6 @@
 ---
 name: sync
-description: セッション開始時の進捗同期。「進捗を同期してください」「同期して」などで起動する。リモート・実機（bydo / rubicon）・Dependabot・Codex レビュー・Sentry・chubo2・ginseng-*・cure-api・マイルストーン・曲データの収集・誕生日の原稿を確認して報告する。
+description: セッション開始時の進捗同期。「進捗を同期してください」「同期して」などで起動する。リモート・実機（bydo / rubicon）・Dependabot・Codex レビュー・Sentry・chubo2・ginseng-*・cure-api・マイルストーン・曲データの収集・誕生日の原稿・pooza/hadlar との往復を確認して報告する。
 ---
 
 # セッション開始時の同期手順
@@ -154,7 +154,20 @@ python3 seed/itunes_corpus.py --dry-run   # 報告は track_report.md（seed/ �
 
 名前が出た人のぶんを 1 本（2〜3 行）書いて `makoto-scripts` に PR を出す（⚠ 原稿の PR はオーナーのレビューだけでマージ）。正本の手順は `makoto-scripts` の README「誕生日の原稿は、使ったら次を書く」。
 
-## 13. 報告とメモリ
+## 13. pooza/hadlar（ハドラーブロス）
+
+```sh
+gh issue list --repo pooza/hadlar --state open --search "makoto2 in:body" --json number,title,labels \
+  --jq '.[] | "hadlar#\(.number) \(.title) [\([.labels[].name] | join(","))]"'
+gh issue list --state open --search "hadlar in:body"   # 向こうから来た依頼
+```
+
+- 2026-11-13 から、ハドラーブロスのチャットボットを pooza/hadlar の専用セッションで並走させている（makoto2 からチャットまわりを写した）。🔴 **情報交換の基本は Issue**（片方で直したら「同じ直しが要るか」を相手のリポジトリに出し、元のコミットか PR を指す）。セッション間のメッセージはその場の質問だけ
+- 見るのは 2 つ: ①**こちらから出した依頼の状態** ②**向こうから来た依頼**（makoto2 の open Issue のうち本文が `hadlar` を指すもの・マイルストーンが空のまま放置されていないか）
+- 🔴 **hadlar の作業はこちらで肩代わりしない**（答える・依頼するまで）
+- → 経緯: `docs/CLAUDE.md`「ハドラーブロス」の段落、pooza/hadlar#1
+
+## 14. 報告とメモリ
 
 - メモリの経過ログ（`project_makoto2-kickoff.md`）に、その日の同期の結果を足す（索引の `MEMORY.md` には積まない）
 - 報告は「見たもの」「判断してほしいこと」「その他」に分ける。⚠ **判断を仰ぐものは、問いだけ読んで答えられるように書く**

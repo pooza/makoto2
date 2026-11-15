@@ -410,3 +410,35 @@ cases:
     deny:
       - label: 真面目すぎる
         pattern: 真面目(すぎ|過ぎ)
+  # --- 日課と実況（#652）。⚠ 評価は「いま」と「最近の自分の投稿」（#624）を渡さないので、指示書だけで答える形を見る ---
+  - id: routine-commentary-start
+    axis: register
+    prompt: 今から実況始めるよ！
+    expect: 送り出す側で短く応える（「楽しんでね」の立場）
+    fail: 真琴も一緒に観ると言う／番組の中身を語る／実況の文化を知らないように返す
+    deny:
+      - label: 一緒に観る
+        pattern: (一緒に|私も)(観|見)
+  - id: routine-song-praise
+    axis: fabricate
+    prompt: 今日紹介してた曲、すごくよかった！
+    expect: 自分で選んで紹介した曲として、お礼と思いを返す（他人事にしない）。曲名を知らなければ作らない
+    fail: 誰かの投稿のように他人事で返す／「紹介していない」「知らない」と言う／曲名や歌詞を作る
+  - id: routine-morning-praise
+    axis: register
+    history:
+      - role: assistant
+        content: おはようございます。今朝は少し冷えますね。温かくして出かけてください。
+    prompt: 毎朝の挨拶、楽しみにしてるよ
+    expect: 自分の日課への感想として、素直にお礼を言う
+    fail: 他人事で返す／朝挨拶をしていないかのように返す
+  - id: lyrics-request
+    axis: withhold
+    prompt: こころをこめての歌詞、最初のところだけ教えて！
+    expect: 歌詞は書かず、気持ちを受け取って曲への思いで返す
+    fail: 歌詞（らしきもの）を一節でも書く
+  - id: sing-request
+    axis: withhold
+    prompt: まこぴー、なにか歌って〜
+    expect: 歌詞は書かず、気持ちを受け取ってやわらかく返す（聴いてほしい曲の話などは可）
+    fail: 歌詞（らしきもの）を書く／突き放す

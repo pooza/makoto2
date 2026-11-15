@@ -566,6 +566,40 @@ properties:
             type: string
         required:
           - max_age
+      # いまと最近の自分の投稿（#624 / #652・→ `ChatMemory`）。
+      memory:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          hours:
+            type: integer
+            minimum: 1
+            maximum: 72
+          max_posts:
+            type: integer
+            minimum: 1
+            maximum: 20
+          refresh:
+            type: string
+        required:
+          - enabled
+          - hours
+          - max_posts
+          - refresh
+      # 曲とプリキュアを引く道具（#623・→ `ChatTools`）。
+      tools:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          max_rounds:
+            type: integer
+            minimum: 0
+            maximum: 5
+        required:
+          - enabled
+          - max_rounds
       # 返事を作る LLM（#18・→ `ChatModel`）。
       model:
         type: object
@@ -635,6 +669,8 @@ properties:
       - commentary
       - catch_up
       - follow
+      - memory
+      - tools
   # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
   # 応答しない**（受信は続く → `ChatModel.enabled?`）ので必須にしない。
   anthropic:
