@@ -201,6 +201,24 @@ module Makoto
       assert_equal(['3'], @service.followed)
     end
 
+    # 🔴 **突き合わせの最中にフォローした鍵の相手の申請を取り消さない**（#666・pooza/hadlar@6796a57 から写した）。
+    def test_a_follow_during_the_sync_is_not_cancelled
+      follow_back!
+      @service.locked = ['9']
+      sync = subject
+      service = @service
+      original = service.method(:relationships)
+      service.define_singleton_method(:relationships) do |ids|
+        sync.on_follow({'id' => '9', 'acct' => 'locked'})
+        original.call(ids)
+      end
+      sync.sync
+
+      assert_equal(['9'], @service.followed - ['1', '2', '3'])
+      assert_empty(@service.unfollowed)
+      assert_include(@service.pending, '9')
+    end
+
     def test_follow_notification_reaches_the_follower
       follow_back!
       listener = MentionListener.new(service: Object.new, follower: subject)

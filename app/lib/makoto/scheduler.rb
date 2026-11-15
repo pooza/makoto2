@@ -146,13 +146,33 @@ module Makoto
 
     # 🔴 **新しく死んだスレッドを見つけた 1 回だけ Sentry へ**（#639・Kuma の口より小さく済むほうを選んだ）。
     # ⚠⚠ `makoto status` にしか出ないと、返事が止まっても次の同期まで気づかない。⚠ 続いていることは status が言う。
+    #
+    # 🔴 **殺した例外（原因）を送る**（#646）。⚠⚠ stderr は `/dev/null` なので、名前だけでは何で死んだかが残らない。
+    # ⚠ 例外で死んでいなければ（`kill` や本体が終わった）、従来どおり名前だけの `RuntimeError`。
     def report_dead_threads(dead)
       return unless dead
+      threads = @thread_watch&.call || {}
       (dead - Heartbeat.dead_threads).each do |name|
-        report_error(RuntimeError.new("thread #{name} is dead"), scheduler: 'thread_watch')
+        cause = thread_cause(threads[name] || threads[name.to_sym])
+        entry = {scheduler: 'thread_watch', thread: name, message: 'dead', error: cause}
+        logger.error(entry.compact)
+        error = cause || RuntimeError.new("thread #{name} is dead")
+        report_error(error, scheduler: 'thread_watch', thread: name)
       end
     rescue => e
       logger.error(scheduler: 'thread_watch', error: e)
+    end
+
+    # 死んだスレッドを殺した例外。⚠ 例外で死んでいなければ nil。
+    #
+    # ⚠⚠ **`join` は、スレッドを殺した例外を呼んだ側で上げ直す。**`StandardError` 以外（`NoMemoryError` など）で
+    # 死んでいても、ここで受けないと tick のスレッドまで道連れにするので、`Exception` まで受ける。
+    def thread_cause(thread)
+      return nil unless thread
+      thread.join(0)
+      return nil
+    rescue Exception => e # rubocop:disable Lint/RescueException
+      return e
     end
 
     def initialize
