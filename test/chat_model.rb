@@ -243,8 +243,11 @@ module Makoto
     def test_it_passes_recent_own_posts_after_the_cache_mark
       now = Time.now
       statuses = [
-        {'created_at' => (now - 3600).utc.iso8601, 'visibility' => 'public',
-         'content' => '<p>今日の 1 曲は「こころをこめて」です。 <a href="https://music.apple.com/x">https://music.apple.com/x</a></p>'},
+        {
+          'created_at' => (now - 3600).utc.iso8601,
+          'visibility' => 'public',
+          'content' => '<p>今日の 1 曲は「こころをこめて」です。 <a href="https://music.apple.com/x">https://music.apple.com/x</a></p>',
+        },
         {'created_at' => (now - 7200).utc.iso8601, 'visibility' => 'direct', 'content' => '<p>内緒の話</p>'},
         {'created_at' => (now - (50 * 3600)).utc.iso8601, 'visibility' => 'public', 'content' => '<p>おととい</p>'},
       ]
@@ -290,10 +293,11 @@ module Makoto
 
     def stub_tool_then_reply
       headers = {'Content-Type' => 'application/json'}
-      return stub_request(:post, URL)
-          .to_return(status: 200, body: tool_use_body, headers: headers)
-          .then.to_return(status: 200, body: response_body(reply: '{"reply":"この曲はどうかな。","marks":[]}'),
-            headers: headers)
+      reply = response_body(reply: '{"reply":"この曲はどうかな。","marks":[]}')
+      stub = stub_request(:post, URL)
+        .to_return(status: 200, body: tool_use_body, headers: headers)
+        .then.to_return(status: 200, body: reply, headers: headers)
+      return stub
     end
 
     def model_with_tools

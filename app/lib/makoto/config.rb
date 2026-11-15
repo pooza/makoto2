@@ -24,6 +24,7 @@ module Makoto
       '/chat/catch_up/max_age',
       '/chat/model/timeout',
       '/chat/followers/refresh',
+      '/chat/memory/refresh',
       '/streaming/stale',
       '/streaming/retry/base',
       '/streaming/retry/max',
