@@ -226,15 +226,28 @@ module Makoto
 
     # 実際に syslog へ渡る手前の値。⚠ **`create_message` を直に呼ぶだけでは
     # 「その severity が出口を通っているか」を見られない**（#97 はまさにそこが穴だった）。
+    #
+    # 🔴 **拾うのは `add` の下（`Syslog::Logger.syslog` に渡る文字列）。**ginseng-core 7.0.1（#759）から
+    # マスクは `add` の中で通るので、`add` を差し替えるとマスクごと飛ばして平文を拾う（#670 で踏んだ）。
     def emitted(severity, payload)
-      recorder = []
-      subject = Logger.new
-      subject.define_singleton_method(:add) do |_level, message = nil, progname = nil|
-        recorder.push(message || progname)
-        next true
-      end
+      recorder = Class.new do
+        attr_reader :lines
+
+        def initialize
+          @lines = []
+        end
+
+        def log(_priority, _format, line)
+          @lines.push(line)
+        end
+      end.new
+      subject = Logger.new # ⚠ 作るときは本物の syslog を読む（`facility`）ので、差し替えはその後
+      original = Syslog::Logger.syslog
+      Syslog::Logger.syslog = recorder
       subject.send(severity, payload)
-      return recorder.first.to_s
+      return recorder.lines.first.to_s
+    ensure
+      Syslog::Logger.syslog = original if original
     end
 
     # ⚠ 出す水準は設定から出す（#80 の黄 9）。
