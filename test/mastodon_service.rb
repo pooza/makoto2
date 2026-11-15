@@ -32,6 +32,29 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {@service.status_ancestors('9')}
     end
 
+    # #624 のチャットボットの記憶。⚠ 返信・ブーストを除いて引く。⚠ Hash でない要素は捨てる。
+    def test_own_statuses
+      base = config['/mastodon/url']
+      json = {'Content-Type' => 'application/json'}
+      stub_request(:get, "#{base}/api/v1/accounts/verify_credentials")
+        .to_return(status: 200, headers: json, body: {id: '7'}.to_json)
+      url = "#{base}/api/v1/accounts/7/statuses?exclude_replies=true&exclude_reblogs=true&limit=12"
+      stub_request(:get, url).to_return(status: 200, headers: json, body: [{id: '2'}, 'x', {id: '1'}].to_json)
+
+      assert_equal(['2', '1'], @service.own_statuses(limit: 12).map {|status| status['id']})
+      assert_requested(:get, url)
+    end
+
+    def test_own_statuses_raises_on_a_bad_shape
+      base = config['/mastodon/url']
+      json = {'Content-Type' => 'application/json'}
+      stub_request(:get, "#{base}/api/v1/accounts/verify_credentials")
+        .to_return(status: 200, headers: json, body: {id: '7'}.to_json)
+      stub_request(:get, %r{/api/v1/accounts/7/statuses\?}).to_return(status: 200, headers: json, body: '{}')
+
+      assert_raise(Ginseng::GatewayError) {@service.own_statuses}
+    end
+
     # #20 の `makoto chat block`。⚠ 見つからなければ nil（404 は例外にしない）。
     def test_lookup_account
       url = "#{config['/mastodon/url']}/api/v1/accounts/lookup?acct=user1"

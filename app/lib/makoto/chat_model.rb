@@ -187,7 +187,8 @@ module Makoto
     def run_tools(response)
       return response.content.select {|block| block.type == :tool_use}.map do |block|
         result = tools.call(block.name, block.input.to_h.transform_keys(&:to_s))
-        logger.info(chat: 'tool', tool: block.name, count: result.count, error: result.error?)
+        # ⚠ 欄の名前は `error` にしない — `rehearsal report` が `error` の真の行を赤に数える（1.1 のリリース前レビュー）。
+        logger.info(chat: 'tool', tool: block.name, count: result.count, failed: result.error?)
         {
           type: 'tool_result',
           tool_use_id: block.id,

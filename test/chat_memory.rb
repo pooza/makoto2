@@ -19,8 +19,11 @@ module Makoto
     NOW = Time.new(2026, 11, 15, 8, 40, 0, '+09:00')
 
     def status(text, hours_ago:, visibility: 'public')
-      return {'created_at' => (NOW - (hours_ago * 3600)).utc.iso8601, 'visibility' => visibility,
-              'content' => "<p>#{text}</p>"}
+      return {
+        'created_at' => (NOW - (hours_ago * 3600)).utc.iso8601,
+        'visibility' => visibility,
+        'content' => "<p>#{text}</p>",
+      }
     end
 
     # 🔴 **いまの日時は曜日つきで渡す**（#652 — 実況の振りに、いつの何の実況かを分からせる）。
@@ -64,6 +67,15 @@ module Makoto
     # 🔴 **引けなくても止めない**（「いま」だけを渡す）。
     def test_a_failure_leaves_only_now
       service = FakeService.new(error: Ginseng::GatewayError.new('down'))
+      prompt = ChatMemory.new(service:).to_prompt(NOW)
+
+      assert_include(prompt, '## いま')
+      assert_not_include(prompt, '最近の自分の投稿')
+    end
+
+    # 🔴 **`GatewayError` でない失敗（400 / 404 など）でも止めない**（1.1 のリリース前レビュー）。
+    def test_a_not_found_also_leaves_only_now
+      service = FakeService.new(error: Ginseng::NotFoundError.new('gone'))
       prompt = ChatMemory.new(service:).to_prompt(NOW)
 
       assert_include(prompt, '## いま')

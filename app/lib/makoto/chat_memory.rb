@@ -1,5 +1,5 @@
 module Makoto
-  # チャットボットに渡す「いま」と「最近の自分の投稿」（#624 / #652）。→ `ChatModel#system_blocks_for`
+  # チャットボットに渡す「いま」と「最近の自分の投稿」（#624 / #652）。→ `ChatModel#memory_blocks`
   #
   # ## 🔴 キャッシュの印より後ろに置く
   #
@@ -86,8 +86,9 @@ module Makoto
       @posts = service.own_statuses(limit: [setting('max_posts').to_i * 2, 40].min)
       @fetched_at = now
       return @posts
-    rescue Ginseng::GatewayError, Ginseng::AuthError => e
-      # ⚠ **失敗は覚えない**（次のメンションで引き直す）。前に引けたものがあればそれを使う。
+    rescue => e
+      # 🔴 **何で落ちても返事は止めない**（1.1 のリリース前レビュー）— 400 / 404 は `GatewayError` ではなく、
+      # 受けを絞ると返事ごと落ちていた。⚠ **失敗は覚えない**（次のメンションで引き直す）。前に引けたものがあればそれを使う。
       logger.warn(chat: 'memory', message: 'own statuses unavailable', error_class: e.class.name)
       return @posts || []
     end

@@ -45,7 +45,7 @@ module Makoto
     # 長さで切っても守れない**（**原稿 606 本の中央値は 28 字**）。
     def test_tags_outside_the_allowlist_are_dropped
       event = error_event(StandardError.new('boom'))
-      event.tags = {post: 'song', phase: 'notify', daemon: 'makoto2', body: PROBE_VALUE}
+      event.tags = {post: 'song', phase: 'notify', daemon: 'makoto2', thread: 'makoto-chat', body: PROBE_VALUE}
       scrubbed = @scrubber.scrub(event)
 
       assert_equal(SentryScrubber::ALLOWED_TAGS, scrubbed.tags.keys.map(&:to_s))
