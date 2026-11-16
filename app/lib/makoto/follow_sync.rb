@@ -191,13 +191,18 @@ module Makoto
     # 受信のスレッド（`on_follow`）が足したフォロワーは、承認待ち（`requested`）にだけ入って外す側に回る — 鍵の相手が
     # フォローした直後に、返したばかりの申請を取り消していた。⚠ 止めている相手は、いまのフォロワーでも外す。
     def apply(to_follow, to_unfollow)
-      to_unfollow = to_unfollow.reject {|id| roster.ids&.include?(id.to_s) && !stopped?(id)}
-      unfollowed = to_unfollow.select {|id| attempt(:unfollow, id)}
+      # 🔴 **1 人ずつ、外す直前に確かめ直す**（#680 の緑）— ループの前の 1 回だけでは、前の相手を外している間に
+      # 外す対象の相手がフォローし直す（`on_follow`）と、返した申請を取り消していた。
+      outcomes = to_unfollow.to_h {|id| [id, still_following?(id) ? :kept : attempt(:unfollow, id)]}
+      unfollowed = outcomes.keys.select {|id| outcomes[id] == true}
       followed = to_follow.select {|id| attempt(:follow, id)}
-      failed = (to_follow.size + to_unfollow.size) - (followed.size + unfollowed.size)
-      logger.info(follow: 'sync', followed: followed.size, unfollowed: unfollowed.size, failed:)
+      failed = (to_follow.size - followed.size) + outcomes.values.count(false)
+      logger.info(follow: 'sync', followed: followed.size, unfollowed: unfollowed.size, failed:,
+        kept: outcomes.values.count(:kept))
       return {followed: followed.to_a, unfollowed: unfollowed.to_a}
     end
+
+    def still_following?(id) = roster.ids&.include?(id.to_s) && !stopped?(id)
 
     # @return [Boolean] できたか。⚠ 例外を上げない（→ `sync`）
     def attempt(action, id)
@@ -277,9 +282,7 @@ module Makoto
       return gate.penalized?(id)
     end
 
-    def unfollow_limit
-      return config['/chat/follow/unfollow_limit'].to_i
-    end
+    def unfollow_limit = config['/chat/follow/unfollow_limit'].to_i
 
     def wait
       return interval

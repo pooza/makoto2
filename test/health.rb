@@ -711,6 +711,21 @@ module Makoto
       assert_empty(health(pid: Process.pid).chat_warnings)
     end
 
+    # 🔴 **チャットの記憶が引けなければ言う**（#680 の B4）。⚠ 引けたら消える。
+    def test_unavailable_chat_memory_is_a_warning
+      config['/chat/enabled'] = true
+      config['/anthropic/api_key'] = 'sk-ant-test'
+      beat
+      Heartbeat.record_chat_memory_unavailable(now: now)
+      Heartbeat.record_chat_memory_unavailable(now: now + 60)
+
+      assert_equal(["chat memory has been unavailable since #{now.getlocal.iso8601}"],
+        health(pid: Process.pid).chat_warnings)
+      Heartbeat.clear_chat_memory_unavailable
+
+      assert_empty(health(pid: Process.pid).chat_warnings)
+    end
+
     # 🔴 **別スレッドが死んでいたら言う**（#611）。⚠ いまの常駐が書いたものだけ。⚠ 次の tick で書き直される。
     def test_a_dead_thread_is_a_warning
       Heartbeat.record_tick(now: now, dead_threads: ['makoto-chat'])

@@ -2,7 +2,8 @@ module Makoto
   class ChatToolsTest < TestCase
     GIRLS = [
       {girl_name: 'cure_black', precure_name: 'キュアブラック', human_name: '美墨 なぎさ', cast_name: '本名 陽子'},
-      {girl_name: 'cure_sky', precure_name: 'キュアスカイ', human_name: 'ソラ・ハレワタール', cast_name: '関根 明良'},
+      {girl_name: 'cure_sky', precure_name: 'キュアスカイ', human_name: 'ソラ・ハレワタール', cast_name: '関根 明良',
+       title: 'ひろがるスカイ！プリキュア'},
     ].freeze
 
     def setup
@@ -75,6 +76,31 @@ module Makoto
 
     def test_an_unknown_tool_is_an_error_result
       assert_true(@tools.call('drop_tables', {}).error?)
+    end
+
+    # ⚠ 全角の空白だけの語は空とみなす（#680 の緑・関係ない人を返していた）。⚠ 作品名も返す。
+    def test_lookup_precure_ignores_blank_queries_and_returns_the_title
+      stub_girls
+
+      assert_equal([], rows(@tools.call('lookup_precure', {'query' => '　'})))
+      assert_equal('ひろがるスカイ！プリキュア', rows(@tools.call('lookup_precure', {'query' => 'スカイ'})).first['title'])
+    end
+
+    # 🔴 **引けなかったら、しばらく cure-api を引きに行かない**（#680 の B1）。⚠ そのあいだは Sentry へ送らない。
+    def test_a_failure_backs_off
+      stub_request(:get, girls_url).to_return(status: 503)
+
+      assert_true(@tools.call('lookup_precure', {'query' => 'キュアスカイ'}).error?)
+      assert_true(@tools.call('lookup_precure', {'query' => 'キュアスカイ'}).error?)
+      assert_requested(:get, girls_url, times: 1)
+    end
+
+    # ⚠ 外の口は短く待ち、リトライしない（#680 の B1）。
+    def test_the_default_http_waits_briefly
+      http = ChatTools.new.send(:http)
+
+      assert_equal(config['/chat/lookup/timeout'], http.timeout)
+      assert_equal(0, http.retry_limit)
     end
   end
 end

@@ -346,6 +346,31 @@ module Makoto
       end
     end
 
+    # 🔴 **往復の途中で落ちても、それまでに使ったぶんをログに残す**（#680 の B2）。
+    def test_a_failure_after_a_tool_keeps_the_usage
+      headers = {'Content-Type' => 'application/json'}
+      stub_request(:post, URL)
+        .to_return(status: 200, body: tool_use_body, headers: headers)
+        .then.to_return(status: 400, body: {type: 'error', error: {type: 'invalid_request_error', message: 'x'}}.to_json,
+          headers: headers)
+      model = model_with_tools
+      errors = []
+      model.define_singleton_method(:logger) do
+        logger = Object.new
+        logger.define_singleton_method(:error) {|entry| errors.push(entry)}
+        logger.define_singleton_method(:info) {|*| nil}
+        logger.define_singleton_method(:warn) {|*| nil}
+        logger
+      end
+
+      assert_nil(model.respond(MESSAGES))
+      assert_equal(100, errors.last[:input_tokens])
+      assert_equal(5700, errors.last[:cache_read])
+      assert_predicate(errors.last[:cost], :positive?)
+    ensure
+      Heartbeat.clear_chat_failures
+    end
+
     # 🔴 **道具の定義は毎回同じものを渡す**（キャッシュの順は tools → system）。
     def test_it_offers_the_tools
       stub_model

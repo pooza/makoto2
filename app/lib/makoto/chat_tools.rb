@@ -17,9 +17,16 @@ module Makoto
   # 引けなければ `Result#error?` で返し、モデルには「引けなかった」と伝える（`is_error`）。⚠ 返事は止めない —
   # 指示書が「引いて分かった範囲でだけ話す」と決めているので、引けなければ曲名を挙げずにかわす。
   #
+  # 🔴 **cure-api は短く待ち、引けなければ `/chat/lookup/backoff` のあいだ引きに行かない**（#680 の B1 → `ChatLookup`）。
+  # ⚠ そのあいだの失敗は Sentry へ送らない（止まっている間、道具の失敗ごとに 1 件ずつ積まない）。
+  #
   # ⚠⚠ **引いた語も結果もログに出さない**（相手の投稿の一部になりうる）。道具の名前と件数だけ。
   class ChatTools
     include Package
+    include ChatLookup
+
+    # cure-api を引かずにいるあいだの失敗（→ クラスの冒頭）。
+    class BackingOff < StandardError; end
 
     # ⚠ 歌の曲だけ（劇伴・カラオケ・インストは「お勧めの曲」にならない）。
     SONG_KINDS = ['vocal', 'tv_size'].freeze
@@ -79,11 +86,14 @@ module Makoto
       @http = http
       @girls = nil
       @girls_at = nil
+      @girls_failed_at = nil
     end
 
     # @return [Result] ⚠ **例外を上げない**（→ クラスの冒頭）
     def call(name, input)
-      query = input.is_a?(Hash) ? (input['query'] || input[:query]).to_s.strip : ''
+      # ⚠ 全角の空白も落とす（`String#strip` は U+3000 を落とさず、関係ない人を返していた・#680 の緑）。
+      query = input.is_a?(Hash) ? (input['query'] || input[:query]).to_s : ''
+      query = query.gsub(/\A[[:space:]]+|[[:space:]]+\z/, '')
       case name.to_s
       when 'search_songs' then return found(search_songs(query))
       when 'lookup_precure' then return found(lookup_precure(query))
@@ -91,7 +101,7 @@ module Makoto
       end
     rescue => e
       logger.warn(chat: 'tool', tool: name.to_s, message: 'failed', error_class: e.class.name)
-      report_error(e, chat: 'tool', tool: name.to_s)
+      report_error(e, chat: 'tool', tool: name.to_s) unless e.is_a?(BackingOff)
       return failed('引けませんでした')
     end
 
@@ -121,7 +131,7 @@ module Makoto
       needle = CureApiService.normalize(query)
       hits = girls.select do |girl|
         GIRL_NAME_KEYS.any? do |key|
-          CureApiService.normalize(girl[key].to_s).delete(' ').include?(needle.delete(' '))
+          CureApiService.normalize(girl[key].to_s).include?(needle)
         end
       end
       return hits.first(PRECURE_LIMIT).map do |girl|
@@ -129,7 +139,9 @@ module Makoto
           precure: girl['precure_name'],
           name: girl['human_name'],
           cast: girl['cast_name'],
-        }
+          # ⚠ 作品名（#680 の緑・#675 の前に）。
+          title: girl['title'],
+        }.compact
       end
     end
 
@@ -144,8 +156,17 @@ module Makoto
     end
 
     # ⚠ **引けたときだけ覚える**（失敗を覚えると、不通が常駐の寿命ぶん続く → `CureApiService#singer_names`）。
+    # ⚠ 引けなければ、前に引けた一覧があればそれを使う（`/girls` が変わるのは新番組のときだけ）。
     def girls
       return @girls if @girls && @girls_at && (Time.now - @girls_at) < GIRLS_TTL
+      if backing_off?(@girls_failed_at)
+        return @girls if @girls
+        raise BackingOff, 'cure-api: backing off'
+      end
+      return fetch_girls
+    end
+
+    def fetch_girls
       url = config['/cure_api/url'].to_s
       raise Ginseng::ConfigError, '/cure_api/url is missing' if url.empty?
       records = http.get("#{url}/girls").parsed_response
@@ -153,7 +174,11 @@ module Makoto
         raise Ginseng::GatewayError, 'cure-api: unexpected /girls'
       end
       @girls_at = Time.now
+      @girls_failed_at = nil
       return @girls = records
+    rescue
+      @girls_failed_at = Time.now
+      raise
     end
 
     def escape_like(value)
@@ -165,7 +190,7 @@ module Makoto
     end
 
     def http
-      return @http ||= HTTP.new
+      return @http ||= quick(HTTP.new)
     end
   end
 end
