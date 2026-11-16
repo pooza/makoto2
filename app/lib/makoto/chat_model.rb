@@ -65,11 +65,13 @@ module Makoto
     # @param ledger [Ledger, nil] ⚠ テストが差し替える（手元に makoto-scripts があると結果が変わるため）
     # @param tools [ChatTools, nil] ⚠ テストが差し替える
     # @param memory [ChatMemory, nil] ⚠ テストが差し替える
-    def initialize(client: nil, ledger: nil, tools: nil, memory: nil)
+    # @param song_facts [ChatSongFacts, nil] ⚠ テストが差し替える
+    def initialize(client: nil, ledger: nil, tools: nil, memory: nil, song_facts: nil)
       @client = client
       @ledger = ledger
       @tools = tools
       @memory = memory
+      @song_facts = song_facts
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -82,9 +84,10 @@ module Makoto
     # @param messages [Array<Hash>] `{role:, content:}` の並び。⚠ **最後は相手の投稿（`user`）**
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
-      @system = system_blocks + memory_blocks
+      # ⚠ 1 回の返事の中（道具の往復）では同じものを渡す。
+      system = system_blocks + memory_blocks + song_blocks(messages)
       @usage = {}
-      reply = converse(messages.dup)
+      reply = converse(messages.dup, system)
       Heartbeat.clear_chat_failures
       return reply
     rescue Anthropic::Errors::AuthenticationError, Anthropic::Errors::PermissionDeniedError => e
@@ -105,12 +108,14 @@ module Makoto
       return nil
     end
 
+    # @param system [Array<Hash>] 指示書・台帳と、その後ろの記憶など（→ `#respond`）。⚠ 前の返事のものを持ち越さない
+    #   （#680 の緑 — 隠れた引数にしていたので、単独で呼ぶと前回の「いま」が残った）
     # @param last [Boolean] 道具を呼べる最後の回を過ぎた（`tool_choice: none` で答えさせる）
-    def params(messages, last: false)
+    def params(messages, system: system_blocks, last: false)
       params = {
         model: setting('name'),
         max_tokens: setting('max_tokens'),
-        system_: @system || system_blocks,
+        system_: system,
         output_config: {
           effort: setting('effort'),
           format: {type: :json_schema, schema: SCHEMA},
@@ -154,11 +159,11 @@ module Makoto
     private
 
     # 道具を呼ばれたら引いて返し、もう一度呼ぶ（→ クラスの冒頭）。
-    def converse(messages)
+    def converse(messages, system)
       usage = {}
       max_rounds.succ.times do |round|
         last = round >= max_rounds
-        response = client.messages.create(**params(messages, last:), request_options:)
+        response = client.messages.create(**params(messages, system:, last:), request_options:)
         usage = @usage = add_usage(usage, usage_of(response))
         return parse(response, usage) unless response.stop_reason == :tool_use && !last
         # ⚠⚠ **ブロックはそのまま返す**（`to_h` は SDK の属性名 `caller_` で送って 400 になる・2026-11-13）。
@@ -176,6 +181,17 @@ module Makoto
 
     def memory
       return @memory ||= ChatMemory.new
+    end
+
+    # 🔴 **会話に出てきた曲の名義を、曲データで引いて渡す**（#668 → `ChatSongFacts`）。⚠ 引けたときだけ・
+    # キャッシュの印より後ろ（会話ごとに変わる）。
+    def song_blocks(messages)
+      text = song_facts.to_prompt(messages)
+      return text ? [{type: 'text', text: text}] : []
+    end
+
+    def song_facts
+      return @song_facts ||= ChatSongFacts.new
     end
 
     def tools_enabled?
