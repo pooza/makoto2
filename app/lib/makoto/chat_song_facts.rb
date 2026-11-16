@@ -21,7 +21,8 @@ module Makoto
   class ChatSongFacts
     include Package
 
-    TITLE = /^Title:[ \t]*(.+?)[ \t]*$/
+    # ⚠ 話し手が 2 人以上いると、発言の頭に `acct: ` が付く（→ `ChatThread#message`・PR #688 の Codex の P2）。
+    TITLE = /^(?:[\w.@-]+: )?Title:[ \t]*(.+?)[ \t]*$/
     ARTIST = /^Artist:[ \t]*(.+?)[ \t]*$/
     # 1 回の返事で引く曲の上限（費用の歯止め・ふつうは 1 曲）。
     MAX_TITLES = 3
@@ -56,7 +57,8 @@ module Makoto
     # @return [Array<Fact>]
     def facts_of(messages)
       pairs = messages.flat_map {|message| pairs_of(message[:content].to_s)}
-      pairs = pairs.uniq {|title, _| TrackImporter.dedupe_key(title)}.first(MAX_TITLES)
+      # ⚠ 同じ曲が何度か出たら、新しい投稿の名義で比べる（PR #688 の Codex の P2）。
+      pairs = pairs.reverse.uniq {|title, _| TrackImporter.dedupe_key(title)}.first(MAX_TITLES)
       facts = pairs.filter_map {|title, posted| fact(title, posted)}
       logger.info(chat: 'song_facts', titles: pairs.size, facts: facts.size) if pairs.any?
       return facts

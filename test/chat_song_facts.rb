@@ -67,9 +67,26 @@ module Makoto
     def test_artists_are_paired_with_the_title_before_them
       text = prompt("Title: テストのうた My True Love!\nTitle: HEART GOES ON\nArtist: 工藤真由")
 
-      assert_include(text, '「テストのうた My True Love!」: テスト歌手')
+      lines = text.lines.map(&:chomp)
+
+      assert_include(lines, '- 「テストのうた My True Love!」: テスト歌手')
+      assert_include(lines, '- 「HEART GOES ON」: 池田 彩 & 工藤真由（投稿の「Artist: 工藤真由」は名義が欠けている）')
+    end
+
+    # ⚠ 話し手が 2 人以上だと発言の頭に acct が付く（PR #688 の Codex の P2）。
+    def test_titles_after_a_speaker_label_are_read
+      text = prompt("bob: #{nowplaying('HEART GOES ON', '工藤真由')}")
+
       assert_include(text, '（投稿の「Artist: 工藤真由」は名義が欠けている）')
-      assert_not_include(text, 'Artist: 工藤真由」は名義が欠けている）\n- 「テストのうた')
+    end
+
+    # ⚠ 同じ曲が何度か出たら、新しい投稿の名義で比べる（PR #688 の Codex の P2）。
+    def test_the_newest_credit_is_compared
+      complete = nowplaying('HEART GOES ON', '池田彩&工藤真由')
+      missing = nowplaying('HEART GOES ON', '工藤真由')
+
+      assert_include(prompt(complete, missing), '名義が欠けている')
+      assert_nil(prompt(missing, complete))
     end
 
     # 🔴 **引けなくても返事は止めない**（nil を返すだけ）。
