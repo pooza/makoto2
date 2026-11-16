@@ -266,6 +266,24 @@ module Makoto
       end
     end
 
+    # 🔴 **話題の曲の名義を、記憶のさらに後ろに渡す**（#668 → `ChatSongFacts`）。⚠ 引けなければ足さない。
+    def test_it_passes_song_facts_after_the_memory
+      facts = Object.new
+      def facts.to_prompt(messages) = messages.last[:content].include?('Title:') ? '## 話題の曲の名義（曲データ）' : nil
+      stub_model
+      model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory, song_facts: facts)
+      model.respond([{role: 'user', content: "Title: HEART GOES ON\nArtist: 工藤真由"}])
+      model.respond(MESSAGES)
+
+      bodies = []
+      assert_requested(:post, URL, times: 2) {|request| bodies.push(JSON.parse(request.body)['system'])}
+
+      assert_equal('## 話題の曲の名義（曲データ）', bodies.first.last['text'])
+      assert_nil(bodies.first.last['cache_control'])
+      assert_include(bodies.first[-2]['text'], '## いま')
+      assert_include(bodies.last.last['text'], '## いま')
+    end
+
     # ⚠ **切れば渡さない**（困ったときの止め方）。
     def test_memory_can_be_turned_off
       config['/chat/memory/enabled'] = false
