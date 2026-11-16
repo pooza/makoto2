@@ -262,6 +262,24 @@ module Makoto
       assert_false(@repository.closed_thread?('9', '1'))
     end
 
+    # 🔴 **オーナーへの知らせが落ちても、相手への返事は出す**（#671・pooza/hadlar#14）。
+    def test_an_owner_notice_failure_does_not_drop_the_reply
+      @model.reply = reply('そういうのは、ちょっと。', ['provoke'])
+      subject = responder
+
+      assert_equal(:respond, subject.handle(notification(id: '9')))
+      posts = @service.posts
+      @service.define_singleton_method(:post_status) do |text, **options|
+        raise Ginseng::GatewayError, 'mastodon returned 422' if options[:visibility] == 'direct'
+        posts.push(options.merge(text: text))
+        return {'id' => "posted-#{posts.size}"}
+      end
+
+      assert_equal(:respond, subject.handle(notification(id: '10')))
+      assert_true(@gate.penalized?('1'))
+      assert_equal(['@user1 そういうのは、ちょっと。'] * 2, posts.map {|post| post[:text]})
+    end
+
     # ⚠ **猶予は種類ごと**（舞台裏の 1 回目のあとの、言わせようとした 1 回目は印にしない）。
     def test_grace_is_counted_per_kind
       subject = responder
