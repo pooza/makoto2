@@ -65,11 +65,13 @@ module Makoto
     # @param ledger [Ledger, nil] ⚠ テストが差し替える（手元に makoto-scripts があると結果が変わるため）
     # @param tools [ChatTools, nil] ⚠ テストが差し替える
     # @param memory [ChatMemory, nil] ⚠ テストが差し替える
-    def initialize(client: nil, ledger: nil, tools: nil, memory: nil)
+    # @param song_facts [ChatSongFacts, nil] ⚠ テストが差し替える
+    def initialize(client: nil, ledger: nil, tools: nil, memory: nil, song_facts: nil)
       @client = client
       @ledger = ledger
       @tools = tools
       @memory = memory
+      @song_facts = song_facts
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -82,7 +84,7 @@ module Makoto
     # @param messages [Array<Hash>] `{role:, content:}` の並び。⚠ **最後は相手の投稿（`user`）**
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
-      @system = system_blocks + memory_blocks
+      @system = system_blocks + memory_blocks + song_blocks(messages)
       reply = converse(messages.dup)
       Heartbeat.clear_chat_failures
       return reply
@@ -173,6 +175,17 @@ module Makoto
 
     def memory
       return @memory ||= ChatMemory.new
+    end
+
+    # 🔴 **会話に出てきた曲の名義を、曲データで引いて渡す**（#668 → `ChatSongFacts`）。⚠ 引けたときだけ・
+    # キャッシュの印より後ろ（会話ごとに変わる）。
+    def song_blocks(messages)
+      text = song_facts.to_prompt(messages)
+      return text ? [{type: 'text', text: text}] : []
+    end
+
+    def song_facts
+      return @song_facts ||= ChatSongFacts.new
     end
 
     def tools_enabled?
