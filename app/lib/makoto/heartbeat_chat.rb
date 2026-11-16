@@ -66,6 +66,24 @@ module Makoto
       return parse_time(stored[:followers_unloaded_since])
     end
 
+    # 🔴 **チャットの記憶（自分の投稿）が引けないこと**（#680 の B4）。⚠ 引けたら消える。
+    def record_chat_memory_unavailable(now: nil)
+      return update do |record|
+        record.merge(chat_memory_unavailable_since: record[:chat_memory_unavailable_since] ||
+          (now || Time.now).getutc.iso8601)
+      end
+    end
+
+    # ⚠ **書いてあるときだけ書き直す**（返事のたびに鍵を取りに行かない）。
+    def clear_chat_memory_unavailable
+      return nil unless stored.key?(:chat_memory_unavailable_since)
+      return update {|record| record.except(:chat_memory_unavailable_since)}
+    end
+
+    def chat_memory_unavailable_since
+      return parse_time(stored[:chat_memory_unavailable_since])
+    end
+
     # 🔴 **外すフォローが歯止めを超えて止まっていること**（#614）。⚠ 歯止めの内に戻るか、人が通したら消える。
     def record_follow_over_limit(count, limit, now: nil)
       return update do |record|

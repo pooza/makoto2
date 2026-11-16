@@ -83,6 +83,7 @@ module Makoto
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
       @system = system_blocks + memory_blocks
+      @usage = {}
       reply = converse(messages.dup)
       Heartbeat.clear_chat_failures
       return reply
@@ -96,8 +97,10 @@ module Makoto
     rescue Anthropic::Errors::APIError => e
       # 🔴 **続けて落ちていることを痕跡に残す**（#611 → `HeartbeatChat`）。
       Heartbeat.record_chat_failure
+      # 🔴 **往復の途中で落ちても、それまでに使ったぶんを残す**（#680 の B2）— 請求額との突き合わせがずれる。
+      spent = @usage.to_h.empty? ? {} : {**@usage, cost: cost(@usage)}
       logger.error(chat: 'model', message: 'request failed', error_class: e.class.name,
-        status: e.respond_to?(:status) ? e.status : nil, error: e)
+        status: e.respond_to?(:status) ? e.status : nil, **spent, error: e)
       report_error(e, chat: 'model')
       return nil
     end
@@ -156,7 +159,7 @@ module Makoto
       max_rounds.succ.times do |round|
         last = round >= max_rounds
         response = client.messages.create(**params(messages, last:), request_options:)
-        usage = add_usage(usage, usage_of(response))
+        usage = @usage = add_usage(usage, usage_of(response))
         return parse(response, usage) unless response.stop_reason == :tool_use && !last
         # ⚠⚠ **ブロックはそのまま返す**（`to_h` は SDK の属性名 `caller_` で送って 400 になる・2026-11-13）。
         messages.push({role: 'assistant', content: response.content})

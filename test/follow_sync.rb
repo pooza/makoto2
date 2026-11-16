@@ -219,6 +219,23 @@ module Makoto
       assert_include(@service.pending, '9')
     end
 
+    # 🔴 **外している最中にフォローし直した相手は外さない**（#680 の緑）— 外す直前に 1 人ずつ確かめ直す。
+    def test_a_follow_while_unfollowing_others_is_not_cancelled
+      follow_back!
+      @roster.refresh
+      sync = subject
+      plan = {follow: [], unfollow: ['7', '8']}
+      service = @service
+      original = service.method(:unfollow)
+      service.define_singleton_method(:unfollow) do |id|
+        sync.on_follow({'id' => '8', 'acct' => 'back'}) if id == '7'
+        original.call(id)
+      end
+      sync.send(:apply, plan[:follow], plan[:unfollow])
+
+      assert_equal(['7'], @service.unfollowed)
+    end
+
     def test_follow_notification_reaches_the_follower
       follow_back!
       listener = MentionListener.new(service: Object.new, follower: subject)

@@ -3,7 +3,7 @@ module Makoto
   #
   # ## 🔴 キャッシュの印より後ろに置く
   #
-  # 指示書＋台帳（約 9.4k トークン）は誰へも同じなのでキャッシュしている。ここは毎回変わる（時刻）・日に何度も
+  # 指示書＋台帳は誰へも同じなのでキャッシュしている（大きさは `makoto chat try` の `cache write` で数える）。ここは毎回変わる（時刻）・日に何度も
   # 変わる（投稿）ので、⚠⚠ **その前に置くとキャッシュが毎回外れる。**最後の塊として、印を付けずに足す。
   # ⚠ そのぶんは毎回ふつうの単価で読まれる（数百トークン・1 応答 約 $0.001〜0.003 増える）。
   #
@@ -17,8 +17,13 @@ module Makoto
   #
   # 投稿が引けなければ「いま」だけを渡す（ログに残す）。⚠ 引けたものは `/chat/memory/refresh` のあいだ覚える
   # （メンションのたびに Mastodon を引かない）。
+  #
+  # 🔴 **短く待ち、引けなければ `/chat/lookup/backoff` のあいだ引きに行かない**（#680 の B1 → `ChatLookup`）。
+  # 🔴 **引けない状態が続いたら気づけるようにする**（#680 の B4）— 引けなくなった 1 回目だけ Sentry へ送り、
+  # 続いていることは `makoto status` の warning が言う（→ `Health#chat_trace_warnings`）。⚠ 1 回引ければ消える。
   class ChatMemory
     include Package
+    include ChatLookup
 
     WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'].freeze
     # ⚠ 1 本の上限（字）。曲紹介はリンクを除けば 150 字ほど。
@@ -31,6 +36,7 @@ module Makoto
       @service = service
       @posts = nil
       @fetched_at = nil
+      @failed_at = nil
     end
 
     # @param now [Time]
@@ -83,14 +89,28 @@ module Makoto
 
     def statuses(now)
       return @posts if @posts && @fetched_at && (now - @fetched_at) < refresh_seconds
+      return @posts || [] if backing_off?(@failed_at, now)
       @posts = service.own_statuses(limit: [setting('max_posts').to_i * 2, 40].min)
       @fetched_at = now
+      @failed_at = nil
+      Heartbeat.clear_chat_memory_unavailable
       return @posts
     rescue => e
       # 🔴 **何で落ちても返事は止めない**（1.1 のリリース前レビュー）— 400 / 404 は `GatewayError` ではなく、
-      # 受けを絞ると返事ごと落ちていた。⚠ **失敗は覚えない**（次のメンションで引き直す）。前に引けたものがあればそれを使う。
+      # 受けを絞ると返事ごと落ちていた。前に引けたものがあればそれを使う。
       logger.warn(chat: 'memory', message: 'own statuses unavailable', error_class: e.class.name)
+      unavailable(e, now)
       return @posts || []
+    end
+
+    # ⚠ 痕跡を書けなくても返事は止めない。
+    def unavailable(error, now)
+      @failed_at = now
+      first = Heartbeat.chat_memory_unavailable_since.nil?
+      Heartbeat.record_chat_memory_unavailable(now:)
+      report_error(error, chat: 'memory') if first
+    rescue => e
+      logger.error(chat: 'memory', error: e)
     end
 
     def refresh_seconds
@@ -104,7 +124,7 @@ module Makoto
     end
 
     def service
-      return @service ||= MastodonService.new
+      return @service ||= MastodonService.new.tap {|service| quick(service.http)}
     end
   end
 end
