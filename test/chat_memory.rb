@@ -18,6 +18,11 @@ module Makoto
 
     NOW = Time.new(2026, 11, 15, 8, 40, 0, '+09:00')
 
+    setup do
+      # ⚠ ニュースは test/chat_news.rb で見る。ここでは Mastodon を引かない。
+      config['/chat/news/enabled'] = false
+    end
+
     teardown do
       Heartbeat.clear_chat_memory_unavailable
     end

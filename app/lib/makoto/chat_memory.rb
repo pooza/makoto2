@@ -18,6 +18,8 @@ module Makoto
   # 投稿が引けなければ「いま」だけを渡す（ログに残す）。⚠ 引けたものは `/chat/memory/refresh` のあいだ覚える
   # （メンションのたびに Mastodon を引かない）。
   #
+  # 最近のニュースの見出し（#653 → `ChatNews`）も、この塊の後ろに足す（`/chat/news/enabled`・引けたときだけ）。
+  #
   # 🔴 **短く待ち、引けなければ `/chat/lookup/backoff` のあいだ引きに行かない**（#680 の B1 → `ChatLookup`）。
   # 🔴 **引けない状態が続いたら気づけるようにする**（#680 の B4）— 引けなくなった 1 回目だけ Sentry へ送り、
   # 続いていることは `makoto status` の warning が言う（→ `Health#chat_trace_warnings`）。⚠ 1 回引ければ消える。
@@ -32,8 +34,10 @@ module Makoto
     VISIBILITIES = ['public', 'unlisted'].freeze
 
     # @param service [MastodonService, nil] ⚠ テストが差し替える
-    def initialize(service: nil)
+    # @param news [ChatNews, nil] ⚠ テストが差し替える
+    def initialize(service: nil, news: nil)
       @service = service
+      @news = news
       @posts = nil
       @fetched_at = nil
       @failed_at = nil
@@ -49,6 +53,8 @@ module Makoto
           'あなた（真琴）が自分で投稿したもの。自分のしたこととして話してよい。', '')
         posts.each {|post| lines.push("- #{post[:at]}　#{post[:text]}")}
       end
+      headlines = news_prompt(now)
+      lines.push('', headlines) if headlines
       return lines.join("\n")
     end
 
@@ -111,6 +117,11 @@ module Makoto
       report_error(error, chat: 'memory') if first
     rescue => e
       logger.error(chat: 'memory', error: e)
+    end
+
+    def news_prompt(now)
+      return nil unless config['/chat/news/enabled'] == true
+      return (@news ||= ChatNews.new).to_prompt(now)
     end
 
     def refresh_seconds
