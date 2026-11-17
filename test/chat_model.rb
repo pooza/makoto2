@@ -19,6 +19,8 @@ module Makoto
     def setup
       super
       config['/anthropic/api_key'] = 'sk-ant-test'
+      # ⚠ ニュースは別のテストで見る（→ test/chat_news.rb）。ここでは Mastodon を引かない。
+      config['/chat/news/enabled'] = false
       @model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory)
     end
 

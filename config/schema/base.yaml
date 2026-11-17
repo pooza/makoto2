@@ -587,6 +587,39 @@ properties:
           - hours
           - max_posts
           - refresh
+      # 最近のニュースの見出し（#653・→ `ChatNews`）。
+      news:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          url:
+            type: string
+            pattern: ^https://
+          account:
+            type: string
+            minLength: 1
+          tag:
+            type: string
+            minLength: 1
+          days:
+            type: integer
+            minimum: 1
+            maximum: 14
+          max_items:
+            type: integer
+            minimum: 1
+            maximum: 30
+          refresh:
+            type: string
+        required:
+          - enabled
+          - url
+          - account
+          - tag
+          - days
+          - max_items
+          - refresh
       # 返事の途中で引く外の口の待ち（#680 の B1・→ `ChatLookup`）。
       lookup:
         type: object
@@ -683,6 +716,7 @@ properties:
       - catch_up
       - follow
       - memory
+      - news
       - lookup
       - tools
   # LLM の API キー（#18）。⚠ **秘密情報なので config/local.yaml にだけ書く。**⚠ **無ければチャットボットは
