@@ -36,6 +36,9 @@ module Makoto
     GIRLS_TTL = 24 * 60 * 60
     # `/girls` のうち、名前で当てる列。
     GIRL_NAME_KEYS = ['precure_name', 'human_name', 'cast_name'].freeze
+    # 名義の空白を落として当てる（曲データは「池田 彩 & 工藤真由」も「宮本佳那子」もある）。
+    ARTIST_WITHOUT_SPACES = Sequel.function(:replace,
+      Sequel.function(:replace, :artist_name, ' ', ''), '　', '')
 
     DEFINITIONS = [
       {
@@ -43,6 +46,7 @@ module Makoto
         description: <<~TEXT.strip,
           プリキュアの歌の曲データ（配信されている歌）を引く。新しい順に最大 #{SONG_LIMIT} 曲を返す。
           曲名・歌手名・収録盤のどれかに含まれる語で絞れる。語を空にすると、いちばん新しい曲から返す。
+          歌手のあだ名（くどまゆ など）は、歌手辞書にあれば本名に読み替えて引く。
           最近の曲やお勧めの曲を訊かれたとき、知らない曲名を確かめたいときに使う。
         TEXT
         input_schema: {
@@ -84,9 +88,8 @@ module Makoto
     def initialize(tracks: nil, http: nil)
       @tracks = tracks
       @http = http
-      @girls = nil
-      @girls_at = nil
-      @girls_failed_at = nil
+      # cure-api の一覧（`/girls` と `/singers`）。⚠ 引けた時刻と、引けなかった時刻を一覧ごとに持つ。
+      @lists = {}
     end
 
     # @return [Result] ⚠ **例外を上げない**（→ クラスの冒頭）
@@ -106,14 +109,7 @@ module Makoto
     end
 
     def search_songs(query)
-      records = tracks.dataset.where(kind: SONG_KINDS)
-      unless query.empty?
-        pattern = "%#{escape_like(query)}%"
-        records = records.where(
-          Sequel.ilike(:name, pattern) | Sequel.ilike(:artist_name, pattern) |
-          Sequel.ilike(:collection_name, pattern),
-        )
-      end
+      records = narrow(tracks.dataset.where(kind: SONG_KINDS), query)
       rows = records.reverse(:release_date, :id).limit(SONG_LIMIT * 5).all
       rows = rows.uniq {|row| row[:dedupe_key]}.first(SONG_LIMIT)
       return rows.map do |row|
@@ -155,29 +151,66 @@ module Makoto
       return Result.new(content: message, count: 0, error: message)
     end
 
-    # ⚠ **引けたときだけ覚える**（失敗を覚えると、不通が常駐の寿命ぶん続く → `CureApiService#singer_names`）。
-    # ⚠ 引けなければ、前に引けた一覧があればそれを使う（`/girls` が変わるのは新番組のときだけ）。
-    def girls
-      return @girls if @girls && @girls_at && (Time.now - @girls_at) < GIRLS_TTL
-      if backing_off?(@girls_failed_at)
-        return @girls if @girls
-        raise BackingOff, 'cure-api: backing off'
+    def narrow(records, query)
+      if (singer = singer_by_nickname(query))
+        # ⚠ あだ名は本名に読み替えて、名義だけで引く（#669）。
+        return records.where(Sequel.ilike(ARTIST_WITHOUT_SPACES, "%#{escape_like(singer)}%"))
       end
-      return fetch_girls
+      return records if query.empty?
+      pattern = "%#{escape_like(query)}%"
+      return records.where(
+        Sequel.ilike(:name, pattern) | Sequel.ilike(:artist_name, pattern) |
+        Sequel.ilike(:collection_name, pattern),
+      )
     end
 
-    def fetch_girls
+    # あだ名（cure-api の `/singers` の `nicknames`）に当たった歌手の名前（空白なし）。⚠ 当たらなければ nil（#669）。
+    #
+    # 🔴 **2 人以上に当たるあだ名は読み替えない**（取り違えるより、語のまま引く）。⚠ あだ名を推測で本名に結びつけない。
+    # ⚠ `/singers` が引けなくても、道具は止めない（語のまま引く）。
+    def singer_by_nickname(query)
+      return nil if query.empty?
+      needle = CureApiService.normalize(query)
+      hits = list('singers').select do |singer|
+        Array(singer['nicknames']).any? {|nickname| CureApiService.normalize(nickname) == needle}
+      end
+      return hits.one? ? CureApiService.normalize(hits.first['name']) : nil
+    rescue => e
+      logger.warn(chat: 'tool', tool: 'search_songs', message: 'nicknames unavailable',
+        error_class: e.class.name)
+      return nil
+    end
+
+    def girls
+      return list('girls')
+    end
+
+    # cure-api の一覧（`girls` / `singers`）。⚠ どちらも変わるのは新番組・辞書の手入れのときだけなので、`GIRLS_TTL` 持つ。
+    #
+    # ⚠ **引けたときだけ覚える**（失敗を覚えると、不通が常駐の寿命ぶん続く → `CureApiService#singer_names`）。
+    # ⚠ 引けなければ、前に引けた一覧があればそれを使う。
+    def list(path)
+      state = @lists[path] ||= {}
+      return state[:records] if state[:records] && state[:at] && (Time.now - state[:at]) < GIRLS_TTL
+      if backing_off?(state[:failed_at])
+        return state[:records] if state[:records]
+        raise BackingOff, 'cure-api: backing off'
+      end
+      return fetch_list(path, state)
+    end
+
+    def fetch_list(path, state)
       url = config['/cure_api/url'].to_s
       raise Ginseng::ConfigError, '/cure_api/url is missing' if url.empty?
-      records = http.get("#{url}/girls").parsed_response
+      records = http.get("#{url}/#{path}").parsed_response
       unless records.is_a?(Array) && records.all?(Hash)
-        raise Ginseng::GatewayError, 'cure-api: unexpected /girls'
+        raise Ginseng::GatewayError, "cure-api: unexpected /#{path}"
       end
-      @girls_at = Time.now
-      @girls_failed_at = nil
-      return @girls = records
+      state[:at] = Time.now
+      state[:failed_at] = nil
+      return state[:records] = records
     rescue
-      @girls_failed_at = Time.now
+      state[:failed_at] = Time.now
       raise
     end
 
