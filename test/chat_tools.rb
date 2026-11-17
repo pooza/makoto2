@@ -109,8 +109,10 @@ module Makoto
 
       def read(url)
         @urls.push(url)
-        return {title: '感謝祭', text: '本文'}
+        return {title: '感謝祭', text: @text || '本文'}
       end
+
+      attr_writer :text
     end
 
     # 🔴 **読みに行く先は、見出しに当たった記事の URL だけ**（#654）。
@@ -124,6 +126,18 @@ module Makoto
       assert_equal(['https://news.example/a'], article.urls)
       assert_equal(0, tools.call('read_news', {'query' => 'https://evil.example/'}).count)
       assert_equal(['https://news.example/a'], article.urls)
+    end
+
+    # ⚠ 本文がほとんど取れなかったら、別の見出しへ回らせる。
+    def test_read_news_notes_a_thin_article
+      config['/chat/news/enabled'] = true
+      article = FakeArticle.new
+      tools = ChatTools.new(tracks: TrackRepository.new(track_db), news: FakeNews.new, article:)
+
+      assert_include(rows(tools.call('read_news', {'query' => '感謝祭'})).first['note'], '別の見出し')
+      article.text = 'あ' * ChatTools::THIN_ARTICLE_LENGTH
+
+      assert_nil(rows(tools.call('read_news', {'query' => '感謝祭'})).first['note'])
     end
 
     def test_read_news_is_an_error_when_news_is_disabled
