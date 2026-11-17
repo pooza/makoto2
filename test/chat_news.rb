@@ -74,6 +74,24 @@ module Makoto
       assert_equal(['新しい', '2 本目'], titles)
     end
 
+    # 🔴 **記事の URL は投稿から取り出す**（カード → タグでないリンク）。
+    def test_link_of
+      assert_equal('https://card.example/', ChatNews.link_of({'card' => {'url' => 'https://card.example/'}}))
+      tag = '<a href="https://precure.ml/tags/x" class="mention hashtag">#x</a>'
+      content = "<p>題 #{tag} <a href=\"https://news.example/a\">news</a></p>"
+
+      assert_equal('https://news.example/a', ChatNews.link_of({'content' => content}))
+      assert_nil(ChatNews.link_of({'content' => '<p>リンクなし</p>'}))
+    end
+
+    def test_find_matches_a_part_of_the_headline
+      news = ChatNews.new(service: FakeService.new([headline('名探偵プリキュア！感謝祭 開催決定', 'A', hours_ago: 1)]))
+
+      assert_equal('https://example.com/a', news.find('感謝祭', NOW).url)
+      assert_nil(news.find('知らない話', NOW))
+      assert_nil(news.find('', NOW))
+    end
+
     # ⚠ 出典が無い・長い「 - 」は題の一部として残す。
     def test_split_headline
       assert_equal(['題', 'TRILL'], ChatNews.split_headline('題 - TRILL https://x.example/ #タグ'))
