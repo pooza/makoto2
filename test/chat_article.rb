@@ -46,6 +46,13 @@ module Makoto
       assert_raise(Ginseng::GatewayError) {article.read('https://news.example/a.pdf')}
     end
 
+    # 🔴 **大きすぎる応答は読むのをやめる**（受け取りながら数える・PR #693 の Codex の P2）。
+    def test_read_stops_at_the_byte_limit
+      stub_request(:get, 'https://news.example/big').to_return(html_response('a' * (ChatArticle::MAX_BYTES + 1)))
+
+      assert_raise(Ginseng::TooLargeError) {article.read('https://news.example/big')}
+    end
+
     # 🔴 **内側のアドレスへは行かない**（リダイレクトの先も含めて）。
     def test_read_refuses_private_addresses
       stub_request(:get, 'https://news.example/r')

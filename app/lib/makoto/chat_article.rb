@@ -20,7 +20,8 @@ module Makoto
 
     # 返す本文の上限（字）。⚠ 記事の要点は始めのほうにある。⚠ 1 回読むと入力が 2,000 トークンほど増える。
     ARTICLE_MAX_LENGTH = 1500
-    # 読む HTML の上限（バイト）。⚠ これを超えたら先頭だけを見る。
+    # 読む HTML の上限（バイト）。🔴 **受け取りながら数え、超えたら読むのをやめる**（`max_bytes`・PR #693 の Codex の P2）。
+    # ⚠ 受け取ってから切ると、大きい応答や流し続ける相手でメモリが青天井になり、返事のスレッドも塞がる。
     MAX_BYTES = 1_000_000
     # 本文として見ない要素。
     NOISE = 'script, style, noscript, nav, header, footer, aside, form, iframe, svg, button'.freeze
@@ -35,10 +36,11 @@ module Makoto
     # @param url [String] ⚠ **増子が配信した URL だけを渡す**（→ クラスの冒頭）
     # @return [Hash] `{title:, text:}` ⚠ 読めなければ例外
     def read(url)
-      response = http.get(url, {host_validator: @validator || Ginseng::PublicHost.validator})
+      validator = @validator || Ginseng::PublicHost.validator
+      response = http.get(url, {host_validator: validator, max_bytes: MAX_BYTES})
       type = response.headers['content-type'].to_s
       raise Ginseng::GatewayError, "news: not html (#{type})" unless type.include?('html')
-      return self.class.extract(response.body.to_s.byteslice(0, MAX_BYTES))
+      return self.class.extract(response.body.to_s)
     end
 
     # HTML から題と本文を取り出す。
