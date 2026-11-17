@@ -37,6 +37,9 @@ module Makoto
     GIRLS_TTL = 24 * 60 * 60
     # `/girls` のうち、名前で当てる列。
     GIRL_NAME_KEYS = ['precure_name', 'human_name', 'cast_name'].freeze
+    # これより短い本文は「ほとんど読めなかった」とみなす（字・#654）。
+    THIN_ARTICLE_LENGTH = 200
+    THIN_ARTICLE_NOTE = '本文がほとんど読めなかった（画像だけのページなど）。同じ話題の別の見出しの記事を読んでもよい'.freeze
     # 名義の空白を落として当てる（曲データは「池田 彩 & 工藤真由」も「宮本佳那子」もある）。
     ARTIST_WITHOUT_SPACES = Sequel.function(:replace,
       Sequel.function(:replace, :artist_name, ' ', ''), '　', '')
@@ -171,8 +174,11 @@ module Makoto
       headline = (@news ||= ChatNews.new).find(query)
       return [] unless headline
       article = (@article ||= ChatArticle.new).read(headline.url)
-      return [{headline: headline.title, source: headline.source, at: headline.at,
-               title: article[:title], text: article[:text]}.compact]
+      row = {headline: headline.title, source: headline.source, at: headline.at,
+             title: article[:title], text: article[:text]}
+      # ⚠ 本文がほとんど取れない記事がある（画像だけのページなど・2026-11-18 に st2 で踏んだ）。別の見出しへ回らせる。
+      row[:note] = THIN_ARTICLE_NOTE if article[:text].length < THIN_ARTICLE_LENGTH
+      return [row.compact]
     end
 
     private
