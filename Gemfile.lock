@@ -261,6 +261,7 @@ DEPENDENCIES
   ginseng-core!
   ginseng-fediverse!
   ginseng-style!
+  nokogiri
   puma
   rubocop-sequel
   rufus-scheduler

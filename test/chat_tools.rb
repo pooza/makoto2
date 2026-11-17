@@ -91,6 +91,47 @@ module Makoto
       assert_false(@tools.call('search_songs', {'query' => 'しまうま'}).error?)
     end
 
+    # read_news の見出し（`ChatNews` の代わり）。
+    class FakeNews
+      def find(query)
+        return nil unless query.include?('感謝祭')
+        return ChatNews::Headline.new(at: '2026-11-16（月）13:35', title: '感謝祭 開催', source: 'A',
+          url: 'https://news.example/a')
+      end
+    end
+
+    class FakeArticle
+      attr_reader :urls
+
+      def initialize
+        @urls = []
+      end
+
+      def read(url)
+        @urls.push(url)
+        return {title: '感謝祭', text: '本文'}
+      end
+    end
+
+    # 🔴 **読みに行く先は、見出しに当たった記事の URL だけ**（#654）。
+    def test_read_news_reads_only_the_headline_url
+      config['/chat/news/enabled'] = true
+      article = FakeArticle.new
+      tools = ChatTools.new(tracks: TrackRepository.new(track_db), news: FakeNews.new, article:)
+      result = tools.call('read_news', {'query' => '感謝祭'})
+
+      assert_equal('本文', rows(result).first['text'])
+      assert_equal(['https://news.example/a'], article.urls)
+      assert_equal(0, tools.call('read_news', {'query' => 'https://evil.example/'}).count)
+      assert_equal(['https://news.example/a'], article.urls)
+    end
+
+    def test_read_news_is_an_error_when_news_is_disabled
+      config['/chat/news/enabled'] = false
+
+      assert_true(@tools.call('read_news', {'query' => '感謝祭'}).error?)
+    end
+
     # ⚠ LIKE の記号は文字として扱う（`%` で全部に当たらない）。
     def test_search_songs_escapes_like_wildcards
       assert_equal(0, @tools.call('search_songs', {'query' => '%'}).count)

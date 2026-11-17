@@ -381,7 +381,7 @@ module Makoto
       assert_requested(:post, URL) do |request|
         body = JSON.parse(request.body)
 
-        assert_equal(['search_songs', 'lookup_precure'], body['tools'].map {|tool| tool['name']})
+        assert_equal(['search_songs', 'lookup_precure', 'read_news'], body['tools'].map {|tool| tool['name']})
         assert_false(body.key?('tool_choice'))
         true
       end

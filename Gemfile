@@ -19,6 +19,8 @@ gem 'sqlite3'
 gem 'tzinfo'
 # 監視の口（MonitorServer）を常駐の中で起こすためだけに使う（#84）。
 # ⚠ WebUI ではない。⚠⚠ 管理コンソールは作らないという決定は変えていない。
+# サンクルミエール通信の記事の本文を取り出す（#654 → `ChatArticle`）。⚠ sanitize の依存として入っていたものを自分で宣言する。
+gem 'nokogiri'
 gem 'puma'
 gem 'thor'
 # リハーサルで日付だけを騙すために使う（#110）。⚠⚠ **本番の group に置く。**
