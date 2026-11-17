@@ -9,6 +9,7 @@ module Makoto
     def setup
       super
       @tools = ChatTools.new(tracks: TrackRepository.new(track_db))
+      stub_singers
     end
 
     def girls_url
@@ -18,6 +19,26 @@ module Makoto
     def stub_girls(body = GIRLS.to_json)
       return stub_request(:get, girls_url).to_return(status: 200, body: body,
         headers: {'Content-Type' => 'application/json'})
+    end
+
+    SINGERS = [
+      {name: '池田 彩', members: [], nicknames: ['あやさん']},
+      {name: '工藤 真由', members: [], nicknames: ['くどまゆ', 'くどうしゃん', 'まゆちゃん']},
+      {name: '五條 真由美', members: [], nicknames: ['まいこ', 'まゆちゃん']},
+    ].freeze
+
+    def singers_url
+      return "#{config['/cure_api/url']}/singers"
+    end
+
+    def stub_singers(body = SINGERS.to_json)
+      return stub_request(:get, singers_url).to_return(status: 200, body: body,
+        headers: {'Content-Type' => 'application/json'})
+    end
+
+    def add_track(id, name, artist, released)
+      track_db[:track].insert(id: id, name: name, artist_name: artist, kind: 'vocal',
+        release_date: Date.parse(released), dedupe_key: TrackImporter.dedupe_key(name))
     end
 
     def rows(result)
@@ -41,6 +62,33 @@ module Makoto
       titles = rows(@tools.call('search_songs', {'query' => 'しまうま'})).map {|row| row['title']}
 
       assert_equal(['しまうまグルグル'], titles)
+    end
+
+    # 🔴 **あだ名は本名に読み替えて、名義で引く**（#669・名義の空白の有無は問わない）。
+    def test_search_songs_reads_a_nickname_as_the_singer
+      stub_singers
+      add_track(2001, 'HEART GOES ON', '池田 彩 & 工藤真由', '2011-01-26')
+      add_track(2002, 'くどまゆのうた', 'だれか', '2011-01-27')
+      titles = rows(@tools.call('search_songs', {'query' => 'くどまゆ'})).map {|row| row['title']}
+
+      assert_equal(['HEART GOES ON'], titles)
+    end
+
+    # 🔴 **2 人以上に当たるあだ名・辞書に無い語は、語のまま引く**（推測で本名に結びつけない）。
+    def test_search_songs_keeps_ambiguous_or_unknown_words
+      stub_singers
+      add_track(2001, 'HEART GOES ON', '池田 彩 & 工藤真由', '2011-01-26')
+      add_track(2002, 'まゆちゃんのうた', 'だれか', '2011-01-27')
+
+      assert_equal(['まゆちゃんのうた'], rows(@tools.call('search_songs', {'query' => 'まゆちゃん'})).map {|row| row['title']})
+      assert_equal(['しまうまグルグル'], rows(@tools.call('search_songs', {'query' => 'しまうま'})).map {|row| row['title']})
+    end
+
+    # ⚠ `/singers` が引けなくても、道具は止めない（語のまま引く）。
+    def test_search_songs_survives_without_singers
+      stub_request(:get, singers_url).to_return(status: 503)
+
+      assert_false(@tools.call('search_songs', {'query' => 'しまうま'}).error?)
     end
 
     # ⚠ LIKE の記号は文字として扱う（`%` で全部に当たらない）。
