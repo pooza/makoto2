@@ -25,6 +25,7 @@ module Makoto
   class ChatTools
     include Package
     include ChatLookup
+    include ChatCureLists
 
     # cure-api を引かずにいるあいだの失敗（→ クラスの冒頭）。
     class BackingOff < StandardError; end
@@ -98,6 +99,13 @@ module Makoto
       },
     ].freeze
 
+    # 渡す道具の定義。🔴 **ニュースを切っている間は `read_news` を渡さない**（呼ばれるたびに設定エラーが Sentry に
+    # 積まれていた・v1.2.0 のリリース前レビューの黄）。
+    def self.definitions
+      return DEFINITIONS if Config.instance['/chat/news/enabled'] == true
+      return DEFINITIONS.reject {|definition| definition[:name] == 'read_news'}
+    end
+
     Result = Data.define(:content, :count, :error) do
       def error?
         return !error.nil?
@@ -161,8 +169,8 @@ module Makoto
           precure: girl['precure_name'],
           name: girl['human_name'],
           cast: girl['cast_name'],
-          # ⚠ 作品名（#680 の緑・#675 の前に）。
-          title: girl['title'],
+          # 🔴 **cure-api の `title` は作品名ではなく称号**（「光の使者」など・101 人中 25 人）なので渡さない。
+          # ⚠ 作品名と取り違えて答えていた（v1.2.0 のリリース前レビューの赤）。作品名は #675（cure-api#400）の後。
         }.compact
       end
     end
@@ -174,8 +182,13 @@ module Makoto
       headline = (@news ||= ChatNews.new).find(query)
       return [] unless headline
       article = (@article ||= ChatArticle.new).read(headline.url)
-      row = {headline: headline.title, source: headline.source, at: headline.at,
-             title: article[:title], text: article[:text]}
+      row = {
+        headline: headline.title,
+        source: headline.source,
+        at: headline.at,
+        title: article[:title],
+        text: article[:text],
+      }
       # ⚠ 本文がほとんど取れない記事がある（画像だけのページなど・2026-11-18 に st2 で踏んだ）。別の見出しへ回らせる。
       row[:note] = THIN_ARTICLE_NOTE if article[:text].length < THIN_ARTICLE_LENGTH
       return [row.compact]
@@ -223,35 +236,6 @@ module Makoto
 
     def girls
       return list('girls')
-    end
-
-    # cure-api の一覧（`girls` / `singers`）。⚠ どちらも変わるのは新番組・辞書の手入れのときだけなので、`GIRLS_TTL` 持つ。
-    #
-    # ⚠ **引けたときだけ覚える**（失敗を覚えると、不通が常駐の寿命ぶん続く → `CureApiService#singer_names`）。
-    # ⚠ 引けなければ、前に引けた一覧があればそれを使う。
-    def list(path)
-      state = @lists[path] ||= {}
-      return state[:records] if state[:records] && state[:at] && (Time.now - state[:at]) < GIRLS_TTL
-      if backing_off?(state[:failed_at])
-        return state[:records] if state[:records]
-        raise BackingOff, 'cure-api: backing off'
-      end
-      return fetch_list(path, state)
-    end
-
-    def fetch_list(path, state)
-      url = config['/cure_api/url'].to_s
-      raise Ginseng::ConfigError, '/cure_api/url is missing' if url.empty?
-      records = http.get("#{url}/#{path}").parsed_response
-      unless records.is_a?(Array) && records.all?(Hash)
-        raise Ginseng::GatewayError, "cure-api: unexpected /#{path}"
-      end
-      state[:at] = Time.now
-      state[:failed_at] = nil
-      return state[:records] = records
-    rescue
-      state[:failed_at] = Time.now
-      raise
     end
 
     def escape_like(value)

@@ -374,14 +374,16 @@ module Makoto
     end
 
     # 🔴 **道具の定義は毎回同じものを渡す**（キャッシュの順は tools → system）。
+    # ⚠ ニュースを切っている間は `read_news` を渡さない（→ `ChatTools.definitions`）。
     def test_it_offers_the_tools
+      config['/chat/news/enabled'] = false
       stub_model
       @model.respond(MESSAGES)
 
       assert_requested(:post, URL) do |request|
         body = JSON.parse(request.body)
 
-        assert_equal(['search_songs', 'lookup_precure', 'read_news'], body['tools'].map {|tool| tool['name']})
+        assert_equal(['search_songs', 'lookup_precure'], body['tools'].map {|tool| tool['name']})
         assert_false(body.key?('tool_choice'))
         true
       end
@@ -418,6 +420,15 @@ module Makoto
       assert_requested(:post, URL) do |request|
         !JSON.parse(request.body).key?('tools')
       end
+    end
+
+    # 🔴 **見出し（記憶）と `read_news`（道具）は同じ `ChatNews` を見る**（v1.2.0 のリリース前レビューの黄）。
+    def test_memory_and_tools_share_the_news
+      model = ChatModel.new
+      news = model.send(:news)
+
+      assert_same(news, model.send(:memory).instance_variable_get(:@news))
+      assert_same(news, model.send(:tools).instance_variable_get(:@news))
     end
   end
 end
