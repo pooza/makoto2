@@ -123,7 +123,7 @@ module Makoto
         messages: messages,
       }
       return params unless tools_enabled?
-      params[:tools] = ChatTools::DEFINITIONS
+      params[:tools] = ChatTools.definitions
       params[:tool_choice] = {type: :none} if last
       return params
     end
@@ -180,7 +180,13 @@ module Makoto
     end
 
     def memory
-      return @memory ||= ChatMemory.new
+      return @memory ||= ChatMemory.new(news:)
+    end
+
+    # 🔴 **見出し（記憶）と `read_news`（道具）は同じ `ChatNews` を見る**（別々に持つと、見出しは見えているのに
+    # 道具の側が引けず「見当たらない」と答えうる・v1.2.0 のリリース前レビューの黄）。
+    def news
+      return @news ||= ChatNews.new
     end
 
     # 🔴 **会話に出てきた曲の名義を、曲データで引いて渡す**（#668 → `ChatSongFacts`）。⚠ 引けたときだけ・
@@ -227,7 +233,7 @@ module Makoto
     end
 
     def tools
-      return @tools ||= ChatTools.new
+      return @tools ||= ChatTools.new(news:)
     end
 
     def cache_control

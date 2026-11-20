@@ -2,8 +2,10 @@ module Makoto
   class ChatToolsTest < TestCase
     GIRLS = [
       {girl_name: 'cure_black', precure_name: 'キュアブラック', human_name: '美墨 なぎさ', cast_name: '本名 陽子'},
-      {girl_name: 'cure_sky', precure_name: 'キュアスカイ', human_name: 'ソラ・ハレワタール', cast_name: '関根 明良',
-       title: 'ひろがるスカイ！プリキュア'},
+      {girl_name: 'cure_sky', precure_name: 'キュアスカイ', human_name: 'ソラ・ハレワタール', cast_name: '関根 明良'},
+      # ⚠ cure-api の `title` は作品名ではなく称号（v1.2.0 のリリース前レビューの赤）。
+      {girl_name: 'cure_rosetta', precure_name: 'キュアロゼッタ', human_name: '四葉 ありす', cast_name: '渕上 舞',
+       title: 'ひだまりポカポカ'},
     ].freeze
 
     def setup
@@ -181,12 +183,44 @@ module Makoto
       assert_true(@tools.call('drop_tables', {}).error?)
     end
 
-    # ⚠ 全角の空白だけの語は空とみなす（#680 の緑・関係ない人を返していた）。⚠ 作品名も返す。
-    def test_lookup_precure_ignores_blank_queries_and_returns_the_title
+    # ⚠ 全角の空白だけの語は空とみなす（#680 の緑・関係ない人を返していた）。
+    def test_lookup_precure_ignores_blank_queries
       stub_girls
 
       assert_equal([], rows(@tools.call('lookup_precure', {'query' => '　'})))
-      assert_equal('ひろがるスカイ！プリキュア', rows(@tools.call('lookup_precure', {'query' => 'スカイ'})).first['title'])
+    end
+
+    # 🔴 **称号を渡さない**（cure-api の `title` は作品名ではない・v1.2.0 のリリース前レビューの赤）。
+    def test_lookup_precure_does_not_pass_the_epithet
+      stub_girls
+      row = rows(@tools.call('lookup_precure', {'query' => 'ロゼッタ'})).first
+
+      assert_equal('キュアロゼッタ', row['precure'])
+      assert_false(row.key?('title'))
+      assert_false(row.value?('ひだまりポカポカ'))
+    end
+
+    # 🔴 **期限が切れた後の取り直しに落ちても、前に引けた一覧を使う**（v1.2.0 のリリース前レビューの黄）。
+    def test_a_stale_list_is_used_when_refetching_fails
+      stub_girls
+      @tools.call('lookup_precure', {'query' => 'スカイ'})
+      @tools.instance_variable_get(:@lists)['girls'][:at] = Time.now - ChatTools::GIRLS_TTL - 1
+      stub_request(:get, girls_url).to_return(status: 503)
+      result = @tools.call('lookup_precure', {'query' => 'スカイ'})
+
+      assert_false(result.error?)
+      assert_equal(['キュアスカイ'], rows(result).map {|row| row['precure']})
+    end
+
+    # 🔴 **ニュースを切っている間は `read_news` を渡さない**（v1.2.0 のリリース前レビューの黄）。
+    def test_definitions_drop_read_news_while_news_is_disabled
+      config['/chat/news/enabled'] = true
+
+      assert_includes(ChatTools.definitions.map {|definition| definition[:name]}, 'read_news')
+      config['/chat/news/enabled'] = false
+
+      assert_not_include(ChatTools.definitions.map {|definition| definition[:name]}, 'read_news')
+      assert_includes(ChatTools.definitions.map {|definition| definition[:name]}, 'lookup_precure')
     end
 
     # 🔴 **引けなかったら、しばらく cure-api を引きに行かない**（#680 の B1）。⚠ そのあいだは Sentry へ送らない。
