@@ -18,6 +18,15 @@ module Makoto
 
     NOW = Time.new(2026, 11, 15, 8, 40, 0, '+09:00')
 
+    setup do
+      # ⚠ ニュースは test/chat_news.rb で見る。ここでは Mastodon を引かない。
+      config['/chat/news/enabled'] = false
+    end
+
+    teardown do
+      Heartbeat.clear_chat_memory_unavailable
+    end
+
     def status(text, hours_ago:, visibility: 'public')
       return {
         'created_at' => (NOW - (hours_ago * 3600)).utc.iso8601,
@@ -56,7 +65,7 @@ module Makoto
       service = FakeService.new([status('朝の挨拶', hours_ago: 1)])
       memory = ChatMemory.new(service:)
       memory.to_prompt(NOW)
-      memory.to_prompt(NOW + 60)
+      memory.to_prompt(NOW + 30)
 
       assert_equal(1, service.calls)
       memory.to_prompt(NOW + 600)
@@ -80,6 +89,43 @@ module Makoto
 
       assert_include(prompt, '## いま')
       assert_not_include(prompt, '最近の自分の投稿')
+    end
+
+    # 🔴 **引けなかったら、しばらく引きに行かない**（#680 の B1）。⚠ 前に引けたものがあればそれを使う。
+    def test_a_failure_backs_off
+      service = FakeService.new([status('朝の挨拶', hours_ago: 1)])
+      memory = ChatMemory.new(service:)
+      memory.to_prompt(NOW)
+      service.instance_variable_set(:@error, Ginseng::GatewayError.new('down'))
+      memory.to_prompt(NOW + 120)
+
+      assert_equal(2, service.calls)
+      assert_include(memory.to_prompt(NOW + 150), '朝の挨拶')
+      assert_equal(2, service.calls)
+      memory.to_prompt(NOW + 200)
+
+      assert_equal(3, service.calls)
+    end
+
+    # 🔴 **引けない状態を痕跡に残し、引けたら消す**（#680 の B4 → `makoto status`）。
+    def test_a_failure_is_recorded_until_it_recovers
+      service = FakeService.new(error: Ginseng::GatewayError.new('down'))
+      memory = ChatMemory.new(service:)
+      memory.to_prompt(NOW)
+
+      assert_not_nil(Heartbeat.chat_memory_unavailable_since)
+      service.instance_variable_set(:@error, nil)
+      memory.to_prompt(NOW + 120)
+
+      assert_nil(Heartbeat.chat_memory_unavailable_since)
+    end
+
+    # ⚠ 外の口は短く待ち、リトライしない（#680 の B1）。
+    def test_the_default_service_waits_briefly
+      http = ChatMemory.new.send(:service).http
+
+      assert_equal(config['/chat/lookup/timeout'], http.timeout)
+      assert_equal(0, http.retry_limit)
     end
   end
 end

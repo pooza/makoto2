@@ -19,6 +19,8 @@ module Makoto
     def setup
       super
       config['/anthropic/api_key'] = 'sk-ant-test'
+      # ⚠ ニュースは別のテストで見る（→ test/chat_news.rb）。ここでは Mastodon を引かない。
+      config['/chat/news/enabled'] = false
       @model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory)
     end
 
@@ -266,6 +268,24 @@ module Makoto
       end
     end
 
+    # 🔴 **話題の曲の名義を、記憶のさらに後ろに渡す**（#668 → `ChatSongFacts`）。⚠ 引けなければ足さない。
+    def test_it_passes_song_facts_after_the_memory
+      facts = Object.new
+      def facts.to_prompt(messages) = messages.last[:content].include?('Title:') ? '## 話題の曲の名義（曲データ）' : nil
+      stub_model
+      model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory, song_facts: facts)
+      model.respond([{role: 'user', content: "Title: HEART GOES ON\nArtist: 工藤真由"}])
+      model.respond(MESSAGES)
+
+      bodies = []
+      assert_requested(:post, URL, times: 2) {|request| bodies.push(JSON.parse(request.body)['system'])}
+
+      assert_equal('## 話題の曲の名義（曲データ）', bodies.first.last['text'])
+      assert_nil(bodies.first.last['cache_control'])
+      assert_include(bodies.first[-2]['text'], '## いま')
+      assert_include(bodies.last.last['text'], '## いま')
+    end
+
     # ⚠ **切れば渡さない**（困ったときの止め方）。
     def test_memory_can_be_turned_off
       config['/chat/memory/enabled'] = false
@@ -328,8 +348,35 @@ module Makoto
       end
     end
 
+    # 🔴 **往復の途中で落ちても、それまでに使ったぶんをログに残す**（#680 の B2）。
+    def test_a_failure_after_a_tool_keeps_the_usage
+      headers = {'Content-Type' => 'application/json'}
+      stub_request(:post, URL)
+        .to_return(status: 200, body: tool_use_body, headers: headers)
+        .then.to_return(status: 400, body: {type: 'error', error: {type: 'invalid_request_error', message: 'x'}}.to_json,
+          headers: headers)
+      model = model_with_tools
+      errors = []
+      model.define_singleton_method(:logger) do
+        logger = Object.new
+        logger.define_singleton_method(:error) {|entry| errors.push(entry)}
+        logger.define_singleton_method(:info) {|*| nil}
+        logger.define_singleton_method(:warn) {|*| nil}
+        logger
+      end
+
+      assert_nil(model.respond(MESSAGES))
+      assert_equal(100, errors.last[:input_tokens])
+      assert_equal(5700, errors.last[:cache_read])
+      assert_predicate(errors.last[:cost], :positive?)
+    ensure
+      Heartbeat.clear_chat_failures
+    end
+
     # 🔴 **道具の定義は毎回同じものを渡す**（キャッシュの順は tools → system）。
+    # ⚠ ニュースを切っている間は `read_news` を渡さない（→ `ChatTools.definitions`）。
     def test_it_offers_the_tools
+      config['/chat/news/enabled'] = false
       stub_model
       @model.respond(MESSAGES)
 
@@ -373,6 +420,15 @@ module Makoto
       assert_requested(:post, URL) do |request|
         !JSON.parse(request.body).key?('tools')
       end
+    end
+
+    # 🔴 **見出し（記憶）と `read_news`（道具）は同じ `ChatNews` を見る**（v1.2.0 のリリース前レビューの黄）。
+    def test_memory_and_tools_share_the_news
+      model = ChatModel.new
+      news = model.send(:news)
+
+      assert_same(news, model.send(:memory).instance_variable_get(:@news))
+      assert_same(news, model.send(:tools).instance_variable_get(:@news))
     end
   end
 end

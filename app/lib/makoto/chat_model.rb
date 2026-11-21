@@ -65,11 +65,13 @@ module Makoto
     # @param ledger [Ledger, nil] ⚠ テストが差し替える（手元に makoto-scripts があると結果が変わるため）
     # @param tools [ChatTools, nil] ⚠ テストが差し替える
     # @param memory [ChatMemory, nil] ⚠ テストが差し替える
-    def initialize(client: nil, ledger: nil, tools: nil, memory: nil)
+    # @param song_facts [ChatSongFacts, nil] ⚠ テストが差し替える
+    def initialize(client: nil, ledger: nil, tools: nil, memory: nil, song_facts: nil)
       @client = client
       @ledger = ledger
       @tools = tools
       @memory = memory
+      @song_facts = song_facts
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -82,8 +84,10 @@ module Makoto
     # @param messages [Array<Hash>] `{role:, content:}` の並び。⚠ **最後は相手の投稿（`user`）**
     # @return [Reply, nil] ⚠ **失敗したら nil**（→ クラスの冒頭）
     def respond(messages)
-      @system = system_blocks + memory_blocks
-      reply = converse(messages.dup)
+      # ⚠ 1 回の返事の中（道具の往復）では同じものを渡す。
+      system = system_blocks + memory_blocks + song_blocks(messages)
+      @usage = {}
+      reply = converse(messages.dup, system)
       Heartbeat.clear_chat_failures
       return reply
     rescue Anthropic::Errors::AuthenticationError, Anthropic::Errors::PermissionDeniedError => e
@@ -96,18 +100,22 @@ module Makoto
     rescue Anthropic::Errors::APIError => e
       # 🔴 **続けて落ちていることを痕跡に残す**（#611 → `HeartbeatChat`）。
       Heartbeat.record_chat_failure
+      # 🔴 **往復の途中で落ちても、それまでに使ったぶんを残す**（#680 の B2）— 請求額との突き合わせがずれる。
+      spent = @usage.to_h.empty? ? {} : {**@usage, cost: cost(@usage)}
       logger.error(chat: 'model', message: 'request failed', error_class: e.class.name,
-        status: e.respond_to?(:status) ? e.status : nil, error: e)
+        status: e.respond_to?(:status) ? e.status : nil, **spent, error: e)
       report_error(e, chat: 'model')
       return nil
     end
 
+    # @param system [Array<Hash>] 指示書・台帳と、その後ろの記憶など（→ `#respond`）。⚠ 前の返事のものを持ち越さない
+    #   （#680 の緑 — 隠れた引数にしていたので、単独で呼ぶと前回の「いま」が残った）
     # @param last [Boolean] 道具を呼べる最後の回を過ぎた（`tool_choice: none` で答えさせる）
-    def params(messages, last: false)
+    def params(messages, system: system_blocks, last: false)
       params = {
         model: setting('name'),
         max_tokens: setting('max_tokens'),
-        system_: @system || system_blocks,
+        system_: system,
         output_config: {
           effort: setting('effort'),
           format: {type: :json_schema, schema: SCHEMA},
@@ -115,7 +123,7 @@ module Makoto
         messages: messages,
       }
       return params unless tools_enabled?
-      params[:tools] = ChatTools::DEFINITIONS
+      params[:tools] = ChatTools.definitions
       params[:tool_choice] = {type: :none} if last
       return params
     end
@@ -151,12 +159,12 @@ module Makoto
     private
 
     # 道具を呼ばれたら引いて返し、もう一度呼ぶ（→ クラスの冒頭）。
-    def converse(messages)
+    def converse(messages, system)
       usage = {}
       max_rounds.succ.times do |round|
         last = round >= max_rounds
-        response = client.messages.create(**params(messages, last:), request_options:)
-        usage = add_usage(usage, usage_of(response))
+        response = client.messages.create(**params(messages, system:, last:), request_options:)
+        usage = @usage = add_usage(usage, usage_of(response))
         return parse(response, usage) unless response.stop_reason == :tool_use && !last
         # ⚠⚠ **ブロックはそのまま返す**（`to_h` は SDK の属性名 `caller_` で送って 400 になる・2026-11-13）。
         messages.push({role: 'assistant', content: response.content})
@@ -172,7 +180,24 @@ module Makoto
     end
 
     def memory
-      return @memory ||= ChatMemory.new
+      return @memory ||= ChatMemory.new(news:)
+    end
+
+    # 🔴 **見出し（記憶）と `read_news`（道具）は同じ `ChatNews` を見る**（別々に持つと、見出しは見えているのに
+    # 道具の側が引けず「見当たらない」と答えうる・v1.2.0 のリリース前レビューの黄）。
+    def news
+      return @news ||= ChatNews.new
+    end
+
+    # 🔴 **会話に出てきた曲の名義を、曲データで引いて渡す**（#668 → `ChatSongFacts`）。⚠ 引けたときだけ・
+    # キャッシュの印より後ろ（会話ごとに変わる）。
+    def song_blocks(messages)
+      text = song_facts.to_prompt(messages)
+      return text ? [{type: 'text', text: text}] : []
+    end
+
+    def song_facts
+      return @song_facts ||= ChatSongFacts.new
     end
 
     def tools_enabled?
@@ -208,7 +233,7 @@ module Makoto
     end
 
     def tools
-      return @tools ||= ChatTools.new
+      return @tools ||= ChatTools.new(news:)
     end
 
     def cache_control

@@ -3,11 +3,15 @@ module Makoto
     GIRLS = [
       {girl_name: 'cure_black', precure_name: 'キュアブラック', human_name: '美墨 なぎさ', cast_name: '本名 陽子'},
       {girl_name: 'cure_sky', precure_name: 'キュアスカイ', human_name: 'ソラ・ハレワタール', cast_name: '関根 明良'},
+      # ⚠ cure-api の `title` は作品名ではなく称号（v1.2.0 のリリース前レビューの赤）。
+      {girl_name: 'cure_rosetta', precure_name: 'キュアロゼッタ', human_name: '四葉 ありす', cast_name: '渕上 舞',
+       title: 'ひだまりポカポカ'},
     ].freeze
 
     def setup
       super
       @tools = ChatTools.new(tracks: TrackRepository.new(track_db))
+      stub_singers
     end
 
     def girls_url
@@ -17,6 +21,26 @@ module Makoto
     def stub_girls(body = GIRLS.to_json)
       return stub_request(:get, girls_url).to_return(status: 200, body: body,
         headers: {'Content-Type' => 'application/json'})
+    end
+
+    SINGERS = [
+      {name: '池田 彩', members: [], nicknames: ['あやさん']},
+      {name: '工藤 真由', members: [], nicknames: ['くどまゆ', 'くどうしゃん', 'まゆちゃん']},
+      {name: '五條 真由美', members: [], nicknames: ['まいこ', 'まゆちゃん']},
+    ].freeze
+
+    def singers_url
+      return "#{config['/cure_api/url']}/singers"
+    end
+
+    def stub_singers(body = SINGERS.to_json)
+      return stub_request(:get, singers_url).to_return(status: 200, body: body,
+        headers: {'Content-Type' => 'application/json'})
+    end
+
+    def add_track(id, name, artist, released)
+      track_db[:track].insert(id: id, name: name, artist_name: artist, kind: 'vocal',
+        release_date: Date.parse(released), dedupe_key: TrackImporter.dedupe_key(name))
     end
 
     def rows(result)
@@ -40,6 +64,88 @@ module Makoto
       titles = rows(@tools.call('search_songs', {'query' => 'しまうま'})).map {|row| row['title']}
 
       assert_equal(['しまうまグルグル'], titles)
+    end
+
+    # 🔴 **あだ名は本名に読み替えて、名義で引く**（#669・名義の空白の有無は問わない）。
+    def test_search_songs_reads_a_nickname_as_the_singer
+      stub_singers
+      add_track(2001, 'HEART GOES ON', '池田 彩 & 工藤真由', '2011-01-26')
+      add_track(2002, 'くどまゆのうた', 'だれか', '2011-01-27')
+      titles = rows(@tools.call('search_songs', {'query' => 'くどまゆ'})).map {|row| row['title']}
+
+      assert_equal(['HEART GOES ON'], titles)
+    end
+
+    # 🔴 **2 人以上に当たるあだ名・辞書に無い語は、語のまま引く**（推測で本名に結びつけない）。
+    def test_search_songs_keeps_ambiguous_or_unknown_words
+      stub_singers
+      add_track(2001, 'HEART GOES ON', '池田 彩 & 工藤真由', '2011-01-26')
+      add_track(2002, 'まゆちゃんのうた', 'だれか', '2011-01-27')
+
+      assert_equal(['まゆちゃんのうた'], rows(@tools.call('search_songs', {'query' => 'まゆちゃん'})).map {|row| row['title']})
+      assert_equal(['しまうまグルグル'], rows(@tools.call('search_songs', {'query' => 'しまうま'})).map {|row| row['title']})
+    end
+
+    # ⚠ `/singers` が引けなくても、道具は止めない（語のまま引く）。
+    def test_search_songs_survives_without_singers
+      stub_request(:get, singers_url).to_return(status: 503)
+
+      assert_false(@tools.call('search_songs', {'query' => 'しまうま'}).error?)
+    end
+
+    # read_news の見出し（`ChatNews` の代わり）。
+    class FakeNews
+      def find(query)
+        return nil unless query.include?('感謝祭')
+        return ChatNews::Headline.new(at: '2026-11-16（月）13:35', title: '感謝祭 開催', source: 'A',
+          url: 'https://news.example/a')
+      end
+    end
+
+    class FakeArticle
+      attr_reader :urls
+
+      def initialize
+        @urls = []
+      end
+
+      def read(url)
+        @urls.push(url)
+        return {title: '感謝祭', text: @text || '本文'}
+      end
+
+      attr_writer :text
+    end
+
+    # 🔴 **読みに行く先は、見出しに当たった記事の URL だけ**（#654）。
+    def test_read_news_reads_only_the_headline_url
+      config['/chat/news/enabled'] = true
+      article = FakeArticle.new
+      tools = ChatTools.new(tracks: TrackRepository.new(track_db), news: FakeNews.new, article:)
+      result = tools.call('read_news', {'query' => '感謝祭'})
+
+      assert_equal('本文', rows(result).first['text'])
+      assert_equal(['https://news.example/a'], article.urls)
+      assert_equal(0, tools.call('read_news', {'query' => 'https://evil.example/'}).count)
+      assert_equal(['https://news.example/a'], article.urls)
+    end
+
+    # ⚠ 本文がほとんど取れなかったら、別の見出しへ回らせる。
+    def test_read_news_notes_a_thin_article
+      config['/chat/news/enabled'] = true
+      article = FakeArticle.new
+      tools = ChatTools.new(tracks: TrackRepository.new(track_db), news: FakeNews.new, article:)
+
+      assert_include(rows(tools.call('read_news', {'query' => '感謝祭'})).first['note'], '別の見出し')
+      article.text = 'あ' * ChatTools::THIN_ARTICLE_LENGTH
+
+      assert_nil(rows(tools.call('read_news', {'query' => '感謝祭'})).first['note'])
+    end
+
+    def test_read_news_is_an_error_when_news_is_disabled
+      config['/chat/news/enabled'] = false
+
+      assert_true(@tools.call('read_news', {'query' => '感謝祭'}).error?)
     end
 
     # ⚠ LIKE の記号は文字として扱う（`%` で全部に当たらない）。
@@ -75,6 +181,63 @@ module Makoto
 
     def test_an_unknown_tool_is_an_error_result
       assert_true(@tools.call('drop_tables', {}).error?)
+    end
+
+    # ⚠ 全角の空白だけの語は空とみなす（#680 の緑・関係ない人を返していた）。
+    def test_lookup_precure_ignores_blank_queries
+      stub_girls
+
+      assert_equal([], rows(@tools.call('lookup_precure', {'query' => '　'})))
+    end
+
+    # 🔴 **称号を渡さない**（cure-api の `title` は作品名ではない・v1.2.0 のリリース前レビューの赤）。
+    def test_lookup_precure_does_not_pass_the_epithet
+      stub_girls
+      row = rows(@tools.call('lookup_precure', {'query' => 'ロゼッタ'})).first
+
+      assert_equal('キュアロゼッタ', row['precure'])
+      assert_false(row.key?('title'))
+      assert_false(row.value?('ひだまりポカポカ'))
+    end
+
+    # 🔴 **期限が切れた後の取り直しに落ちても、前に引けた一覧を使う**（v1.2.0 のリリース前レビューの黄）。
+    def test_a_stale_list_is_used_when_refetching_fails
+      stub_girls
+      @tools.call('lookup_precure', {'query' => 'スカイ'})
+      @tools.instance_variable_get(:@lists)['girls'][:at] = Time.now - ChatTools::GIRLS_TTL - 1
+      stub_request(:get, girls_url).to_return(status: 503)
+      result = @tools.call('lookup_precure', {'query' => 'スカイ'})
+
+      assert_false(result.error?)
+      assert_equal(['キュアスカイ'], rows(result).map {|row| row['precure']})
+    end
+
+    # 🔴 **ニュースを切っている間は `read_news` を渡さない**（v1.2.0 のリリース前レビューの黄）。
+    def test_definitions_drop_read_news_while_news_is_disabled
+      config['/chat/news/enabled'] = true
+
+      assert_includes(ChatTools.definitions.map {|definition| definition[:name]}, 'read_news')
+      config['/chat/news/enabled'] = false
+
+      assert_not_include(ChatTools.definitions.map {|definition| definition[:name]}, 'read_news')
+      assert_includes(ChatTools.definitions.map {|definition| definition[:name]}, 'lookup_precure')
+    end
+
+    # 🔴 **引けなかったら、しばらく cure-api を引きに行かない**（#680 の B1）。⚠ そのあいだは Sentry へ送らない。
+    def test_a_failure_backs_off
+      stub_request(:get, girls_url).to_return(status: 503)
+
+      assert_true(@tools.call('lookup_precure', {'query' => 'キュアスカイ'}).error?)
+      assert_true(@tools.call('lookup_precure', {'query' => 'キュアスカイ'}).error?)
+      assert_requested(:get, girls_url, times: 1)
+    end
+
+    # ⚠ 外の口は短く待ち、リトライしない（#680 の B1）。
+    def test_the_default_http_waits_briefly
+      http = ChatTools.new.send(:http)
+
+      assert_equal(config['/chat/lookup/timeout'], http.timeout)
+      assert_equal(0, http.retry_limit)
     end
   end
 end

@@ -4,7 +4,7 @@ source 'https://rubygems.org'
 #   ⚠⚠ 事故が理由の pin ではない。外すのは「実機と CI の Ruby を 5.x にし、
 #   当日通しリハーサルを 5.x で通した」とき（→ docs/CLAUDE.md の当日通し）。
 ruby '>= 4.0', '< 5.0'
-gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v7.0.1', require: 'ginseng'
+gem 'ginseng-core', github: 'pooza/ginseng-core', tag: 'v7.1.0', require: 'ginseng'
 gem 'ginseng-fediverse', github: 'pooza/ginseng-fediverse', tag: 'v9.0.0',
   require: 'ginseng/fediverse'
 # チャットボットの応答（#18）。⚠ **公式の Ruby SDK**（Messages API・structured outputs）。
@@ -19,6 +19,8 @@ gem 'sqlite3'
 gem 'tzinfo'
 # 監視の口（MonitorServer）を常駐の中で起こすためだけに使う（#84）。
 # ⚠ WebUI ではない。⚠⚠ 管理コンソールは作らないという決定は変えていない。
+# サンクルミエール通信の記事の本文を取り出す（#654 → `ChatArticle`）。⚠ sanitize の依存として入っていたものを自分で宣言する。
+gem 'nokogiri'
 gem 'puma'
 gem 'thor'
 # リハーサルで日付だけを騙すために使う（#110）。⚠⚠ **本番の group に置く。**

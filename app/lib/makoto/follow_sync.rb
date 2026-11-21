@@ -25,6 +25,7 @@ module Makoto
   # - ⚠ **見るだけの CLI は痕跡に書かない**（`record: false`・#636 / #640）
   class FollowSync
     include Package
+    include FollowSyncLimit
 
     # 待ちの設定が読めないときの待ち（秒・#611）。⚠ スレッドを死なせないための逃げ道。
     FALLBACK_INTERVAL = 3600
@@ -191,12 +192,19 @@ module Makoto
     # 受信のスレッド（`on_follow`）が足したフォロワーは、承認待ち（`requested`）にだけ入って外す側に回る — 鍵の相手が
     # フォローした直後に、返したばかりの申請を取り消していた。⚠ 止めている相手は、いまのフォロワーでも外す。
     def apply(to_follow, to_unfollow)
-      to_unfollow = to_unfollow.reject {|id| roster.ids&.include?(id.to_s) && !stopped?(id)}
-      unfollowed = to_unfollow.select {|id| attempt(:unfollow, id)}
+      # 🔴 **1 人ずつ、外す直前に確かめ直す**（#680 の緑）— ループの前の 1 回だけでは、前の相手を外している間に
+      # 外す対象の相手がフォローし直す（`on_follow`）と、返した申請を取り消していた。
+      outcomes = to_unfollow.to_h {|id| [id, still_following?(id) ? :kept : attempt(:unfollow, id)]}
+      unfollowed = outcomes.keys.select {|id| outcomes[id] == true}
       followed = to_follow.select {|id| attempt(:follow, id)}
-      failed = (to_follow.size + to_unfollow.size) - (followed.size + unfollowed.size)
-      logger.info(follow: 'sync', followed: followed.size, unfollowed: unfollowed.size, failed:)
+      failed = (to_follow.size - followed.size) + outcomes.values.count(false)
+      logger.info(follow: 'sync', followed: followed.size, unfollowed: unfollowed.size, failed:,
+        kept: outcomes.values.count(:kept))
       return {followed: followed.to_a, unfollowed: unfollowed.to_a}
+    end
+
+    def still_following?(id)
+      return roster.ids&.include?(id.to_s) && !stopped?(id)
     end
 
     # @return [Boolean] できたか。⚠ 例外を上げない（→ `sync`）
@@ -231,20 +239,6 @@ module Makoto
       return action
     end
 
-    # 🔴 **超えたら 1 人も外さず、知らせる**（#614・2026-11-10 オーナー判断）。⚠⚠ 歯止めは「一覧が欠けて全員を
-    # 外す」事故を防ぐためのもの。わざと踏まれると毎回止まるが、外すかは人が決める（`makoto chat follow-sync`）。
-    # ⚠ `makoto status` の warning に出し、Sentry は止まり始めた 1 回だけ（毎時鳴らさない）。
-    def over_limit(to_unfollow)
-      error = Ginseng::GatewayError.new(
-        "follow: #{to_unfollow.size} accounts to unfollow is over the limit (#{unfollow_limit})",
-      )
-      logger.error(follow: 'sync', message: error.message)
-      first = Heartbeat.follow_over_limit.nil?
-      trace(:record_follow_over_limit, to_unfollow.size, unfollow_limit)
-      report_error(error, follow: 'sync') if first
-      return Set.new
-    end
-
     # 承認待ちを変えて、変わっていたら痕跡に書く。⚠ `@mutex` の中で呼ぶ。
     # @return [Set] 変えたあとの写し
     def requested_change
@@ -275,10 +269,6 @@ module Makoto
     def stopped?(id)
       return true if repository.blocked(id)
       return gate.penalized?(id)
-    end
-
-    def unfollow_limit
-      return config['/chat/follow/unfollow_limit'].to_i
     end
 
     def wait

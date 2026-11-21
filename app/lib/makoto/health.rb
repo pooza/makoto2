@@ -262,6 +262,12 @@ module Makoto
       end
       unloaded = Heartbeat.followers_unloaded_since
       results.push("followers have not been loaded since #{unloaded.getlocal.iso8601}") if unloaded
+      # 🔴 **記憶（自分の投稿）が引けない**（#680 の B4）。⚠ その間は「いま」だけで答えている。
+      # ⚠ 記憶を切っている間は出さない（引き直さないので痕跡が消えず、出たまま残っていた・v1.2.0 のリリース前レビューの黄）。
+      forgotten = Heartbeat.chat_memory_unavailable_since if config['/chat/memory/enabled'] == true
+      if forgotten
+        results.push("chat memory has been unavailable since #{forgotten.getlocal.iso8601}")
+      end
       # 🔴 **取りこぼしに追いつけていない**（#610・v1.0.1 のリリース前レビュー）。⚠ その間は起点が止まっている。
       pending = Heartbeat.catch_up_pending_since
       results.push("mention catch-up has been failing since #{pending.getlocal.iso8601}") if pending

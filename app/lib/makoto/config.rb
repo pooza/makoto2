@@ -25,6 +25,8 @@ module Makoto
       '/chat/model/timeout',
       '/chat/followers/refresh',
       '/chat/memory/refresh',
+      '/chat/news/refresh',
+      '/chat/lookup/backoff',
       '/streaming/stale',
       '/streaming/retry/base',
       '/streaming/retry/max',
