@@ -3494,6 +3494,29 @@ SANI="♪ # キボウレインボウ#\n…"     ← sanitize_status（末尾の�
 
 ⚠ **予算は新しい設定を足さず `/http` から出す**（`test/http.rb` の「予算がライブの枠間隔より短い」と同じ式）。⚠ **`phase` を付けたので `RehearsalReport` は `exec` に数えない**（→ #277）。
 
+### ✅ v1.2.1 をリリースし、本番へ入れた（2026-11-23）
+
+✅ **[v1.2.1](https://github.com/pooza/makoto2/releases/tag/v1.2.1)**（`main` = `0e17302`）を出し、**同日 11:03 JST に `rubicon` へデプロイした。**🔴 **`main` から切ったセキュリティパッチ**（v1.1.1 と同じ形・オーナー判断 2026-11-23）— 🔴 **`1.3` の作業は入っていない。**
+
+| 中身 | |
+| --- | --- |
+| puma | **8.1.0 → 8.1.2**（GHSA-4v6q-hvv7-49h9「SSL 接続でのメモリ枯渇」/ GHSA-rhww-p99c-hgj9「JRuby の HTTP パーサ」・#714）。週次の `bundler-audit`（`audit.yml`）が 2026-11-22 に起票した。`bundle update puma --conservative` で lock の puma だけ |
+
+| 手順 | 結果 |
+| --- | --- |
+| 1. 箱 | 🔴 **箱は作っていない**（#714 は箱なしのまま本番で閉じた・v1.1.1 の #695 と同じ扱い） |
+| 2. リリース前レビュー | **省いた**（差分は lock の puma 2 行と `version` の 1 行・コードの変更なし） |
+| 3. セキュリティレビュー | ✅ **`bundle-audit check --update` 0 件**（このブランチの lock）・Dependabot open 0 |
+| 4. ステージング検証 | ✅ **`bydo` を develop（`3e592b9`・#715・同じ puma 8.1.2）で 10:51 に restart**。登録ログ 7 枠・監視の口 3 本 200・`gem list` で puma 8.1.2。当日通しは省いた（コードの変更なし・シーズンオフ） |
+| 6〜7. PR・CI | ✅ **#716**（`hotfix/714-puma` → `main`）・Codex 指摘なし（👍）・CI 緑。手元の `rake test` 1449 件緑（worktree に `config/local.yaml` を写して） |
+| 8. タグ | ✅ **`v1.2.1`** |
+| 9. デプロイ | ✅ **`rubicon` = `0e17302` / `1.2.1` / `jobs 7` / puma 8.1.2**・門 OK（次の枠 12:00）・レシピ → `config:lint` OK → drop-in なし → `restart`（11:03）・登録ログ 7 行・`/healthz` の 3 口 200・**`live setlist --date=2027-11-04 --mc` は bydo と 163 行すべて一致** |
+| 10. 箱 | — （#714 を閉じた） |
+| 11. 記録 | ✅ この節・chubo2 の `infra-history.md`・メモリ。沿革には足していない（新しい種類の投稿が始まる版ではない） |
+
+- ✅ **`main` をその日のうちに develop へ戻した**（衝突なし・develop の `version` は `1.2.1` になる。`1.3` の着手時に `1.3.0` へ上げる）
+- ⚠ **同じ日に cure-api の develop も puma 8.1.2 にした**（dependabot `pooza/cure-api#412`。`main` は v3.1.5 で済み）
+
 ### ✅ v1.2.0 をリリースし、本番へ入れた（2026-11-21）
 
 ✅ **[v1.2.0](https://github.com/pooza/makoto2/releases/tag/v1.2.0)**（`main` = `4f1c9fa`）を出し、**同日 10:08 JST に `rubicon` へデプロイした。**チャットボットがニュースを知り（#653 サンクルミエール通信の見出し / #654 記事を読む）、歌手のあだ名（#669）と欠けた名義（#668）を曲データで確かめる版。ほかに #671 / #680 / #684 / #695（v1.1.1 で先に本番へ）。
