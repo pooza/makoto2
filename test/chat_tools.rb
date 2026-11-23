@@ -200,6 +200,42 @@ module Makoto
       assert_false(row.value?('ひだまりポカポカ'))
     end
 
+    # 名前を 2 つ持つ 3 人（cure-api の `/girls` を変身前の名前と声優の組でまとめると、2 行以上はこの 3 組・#707）。
+    TWO_FORMS = [
+      {girl_name: 'cure_bloom', precure_name: 'キュアブルーム', human_name: '日向 咲', cast_name: '樹元 オリエ'},
+      {girl_name: 'cure_egret', precure_name: 'キュアイーグレット', human_name: '美翔 舞', cast_name: '榎本 温子'},
+      {girl_name: 'cure_bright', precure_name: 'キュアブライト', human_name: '日向 咲', cast_name: '樹元 オリエ'},
+      {girl_name: 'cure_windy', precure_name: 'キュアウィンディ', human_name: '美翔 舞', cast_name: '榎本 温子'},
+      {girl_name: 'cure_arcana_shadow', precure_name: 'キュアアルカナ・シャドウ', human_name: '森亜 るるか',
+       cast_name: '東山 奈央'},
+      {girl_name: 'cure_arcana', precure_name: 'キュアアルカナ', human_name: '森亜 るるか', cast_name: '東山 奈央'},
+    ].freeze
+
+    # 🔴 **同じ人の別の姿は 1 人にまとめ、片方で引いてももう片方を添える**（#707）。
+    def test_lookup_precure_joins_the_forms_of_one_person
+      stub_girls((GIRLS + TWO_FORMS).to_json)
+
+      arcana = rows(@tools.call('lookup_precure', {'query' => 'アルカナ'}))
+
+      assert_equal(1, arcana.size)
+      assert_equal(['キュアアルカナ・シャドウ', 'キュアアルカナ'], arcana.first['forms'])
+      assert_equal('森亜 るるか', arcana.first['name'])
+      assert_equal(['キュアブルーム', 'キュアブライト'], rows(@tools.call('lookup_precure', {'query' => 'ブライト'})).first['forms'])
+      assert_equal(['キュアイーグレット', 'キュアウィンディ'], rows(@tools.call('lookup_precure', {'query' => 'イーグレット'})).first['forms'])
+      assert_equal(2, rows(@tools.call('lookup_precure', {'query' => 'キュアブ'})).size)
+    end
+
+    # ⚠ 姿が 1 つの人には `forms` を付けない。⚠ 変身前の名前か声優が空の行はまとめない（取り違えない）。
+    def test_lookup_precure_keeps_single_forms_apart
+      stub_girls((GIRLS + [
+        {girl_name: 'cure_a', precure_name: 'キュアエー', human_name: '', cast_name: '同じ 声'},
+        {girl_name: 'cure_b', precure_name: 'キュアビー', human_name: '', cast_name: '同じ 声'},
+      ]).to_json)
+
+      assert_false(rows(@tools.call('lookup_precure', {'query' => 'スカイ'})).first.key?('forms'))
+      assert_equal(['キュアエー', 'キュアビー'], rows(@tools.call('lookup_precure', {'query' => '同じ声'})).map {|row| row['precure']})
+    end
+
     # 🔴 **期限が切れた後の取り直しに落ちても、前に引けた一覧を使う**（v1.2.0 のリリース前レビューの黄）。
     def test_a_stale_list_is_used_when_refetching_fails
       stub_girls
