@@ -47,6 +47,21 @@ module Makoto
       exit 1
     end
 
+    # 🔴 **辞書へ載せるかを決めるのは人**（最初の何回かはオーナーに見せる・#565）。⚠ スプレッドシートには書かない。
+    option :all, type: :boolean, default: false, desc: 'キャラクター名義と作品名も出す'
+    desc 'singers', '歌手辞書（cure-api の /singers）に当たらない名義を、曲数の多い順に出す（#565）'
+    def singers
+      labels = {'candidate' => '候補（作家・非プリキュア歌手・新しい歌手）', 'character' => 'キャラクター名義', 'title' => '作品名'}
+      SingerCandidates.new.exec.group_by(&:kind).each do |kind, items|
+        next unless options[:all] || kind == 'candidate'
+        puts "## #{labels.fetch(kind)}: #{items.size} 件"
+        items.each {|item| puts [item.count, item.name, item.example].join("\t")}
+      end
+    rescue Sequel::DatabaseError => e
+      warn "読めませんでした。先に `rake migration:run` を実行してください: #{error_message(e)}"
+      exit 1
+    end
+
     private
 
     # ⚠ 行数と曲数を必ず並べて出す。同じ曲が名義違いで複数行あるので、行数だけ見ると
