@@ -120,6 +120,30 @@ module Makoto
       assert_nil(Heartbeat.chat_memory_unavailable_since)
     end
 
+    # 🔴 **CLI（`chat try`）は痕跡に書かない・消さない**（#640 / #701）。
+    def test_a_memory_without_record_leaves_the_trace_alone
+      service = FakeService.new(error: Ginseng::GatewayError.new('down'))
+      ChatMemory.new(service:, record: false).to_prompt(NOW)
+
+      assert_nil(Heartbeat.chat_memory_unavailable_since)
+      Heartbeat.record_chat_memory_unavailable(now: NOW)
+      ChatMemory.new(service: FakeService.new, record: false).to_prompt(NOW)
+
+      assert_not_nil(Heartbeat.chat_memory_unavailable_since)
+    end
+
+    # ⚠ **引けた回の後始末で落ちても、引けた投稿は使う**（「引けない」にしない・#701 の緑）。
+    def test_a_trace_failure_after_a_fetch_keeps_the_posts
+      memory = ChatMemory.new(service: FakeService.new([status('引けた', hours_ago: 1)]))
+      original = Heartbeat.method(:clear_chat_memory_unavailable)
+      Heartbeat.define_singleton_method(:clear_chat_memory_unavailable) {raise Errno::ENOSPC}
+
+      assert_include(memory.to_prompt(NOW), '引けた')
+      assert_nil(memory.instance_variable_get(:@failed_at))
+    ensure
+      Heartbeat.define_singleton_method(:clear_chat_memory_unavailable, original)
+    end
+
     # ⚠ 外の口は短く待ち、リトライしない（#680 の B1）。
     def test_the_default_service_waits_briefly
       http = ChatMemory.new.send(:service).http

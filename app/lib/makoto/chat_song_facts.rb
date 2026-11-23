@@ -42,6 +42,7 @@ module Makoto
     # @return [String, nil] ⚠ **渡すものが無ければ nil**
     def to_prompt(messages)
       facts = facts_of(messages)
+      @failing = false
       return nil if facts.empty?
       lines = ['## 話題の曲の名義（曲データ）', '', LEAD, '']
       facts.each {|fact| lines.push(line(fact))}
@@ -50,7 +51,9 @@ module Makoto
     rescue => e
       # 🔴 **引けなくても返事は止めない**（名義を渡さないだけ）。
       logger.warn(chat: 'song_facts', message: 'failed', error_class: e.class.name)
-      report_error(e, chat: 'song_facts')
+      # ⚠ **Sentry へは落ちている間に 1 回だけ**（DB が落ちている間、返事のたびに積んでいた・#701 の緑）。
+      report_error(e, chat: 'song_facts') unless @failing
+      @failing = true
       return nil
     end
 
@@ -83,9 +86,12 @@ module Makoto
       return pairs
     end
 
+    # 🔴 **渡す曲名は曲データの表記**（利用者の書いた文字列を system に載せない・#701 の緑）。
     def fact(title, posted)
-      artists = artists_of(title)
-      return nil if artists.empty?
+      rows = rows_of(title)
+      return nil if rows.empty?
+      title = rows.first[:name]
+      artists = artists_of(rows)
       unless posted
         return artists.size == 1 ? Fact.new(title:, artist: artists.values.first, posted: nil) : nil
       end
@@ -96,11 +102,15 @@ module Makoto
       return Fact.new(title:, artist: candidates.values.first, posted:)
     end
 
+    # 曲名の鍵に当たる歌の曲（新しい盤から）。
+    def rows_of(title)
+      return tracks.dataset
+          .where(kind: ChatTools::SONG_KINDS, dedupe_key: TrackImporter.dedupe_key(title))
+          .reverse(:release_date, :id).all
+    end
+
     # 正規化した名義 => 表示する名義（新しい盤のもの）。
-    def artists_of(title)
-      rows = tracks.dataset
-        .where(kind: ChatTools::SONG_KINDS, dedupe_key: TrackImporter.dedupe_key(title))
-        .reverse(:release_date, :id).all
+    def artists_of(rows)
       return rows.each_with_object({}) do |row, artists|
         artists[self.class.normalize_artist(row[:artist_name])] ||= row[:artist_name]
       end

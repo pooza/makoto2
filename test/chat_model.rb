@@ -162,6 +162,28 @@ module Makoto
       assert_nil(ChatModel.new(memory: fake_memory).respond(MESSAGES))
     end
 
+    # 🔴 **CLI（`chat try`）は常駐の痕跡に書かない・消さない**（#640 / #701）。
+    def test_a_model_without_record_leaves_the_traces_alone
+      FileUtils.rm_f(Heartbeat.path)
+      body = {type: 'error', error: {type: 'authentication_error', message: 'invalid x-api-key'}}.to_json
+      stub_request(:post, URL).to_return(status: 401, body: body, headers: {'Content-Type' => 'application/json'})
+      model = ChatModel.new(ledger: Ledger.new('/nonexistent/ledger.md'), memory: fake_memory).quiet!
+
+      assert_nil(model.respond(MESSAGES))
+      assert_nil(Heartbeat.chat_auth_failed_at)
+
+      Heartbeat.record_chat_failure
+
+      WebMock.reset!
+      stub_model(reply: '{"reply":"はい。","marks":[]}')
+
+      assert_equal('はい。', model.respond(MESSAGES).text)
+
+      assert_equal(1, Heartbeat.chat_failures)
+    ensure
+      Heartbeat.clear_chat_failures
+    end
+
     # 🔴 **キーが通らなくなったら痕跡に残す**（→ `Health#chat_warnings`）。⚠ 次に通れば消える。
     def test_a_rejected_key_is_recorded_and_cleared
       FileUtils.rm_f(Heartbeat.path)

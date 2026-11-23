@@ -18,8 +18,13 @@ module Makoto
     include Package
     include ChatLookup
 
-    # 返す本文の上限（字）。⚠ 記事の要点は始めのほうにある。⚠ 1 回読むと入力が 2,000 トークンほど増える。
+    # 返す本文の上限（字）。⚠ 記事の要点は始めのほうにある。⚠ 1 本読むと入力が 約 1,400 トークン増える
+    # （2026-11-18 の実測・`docs/CLAUDE.md`。上限まで取れた記事なら もう少し）。
     ARTICLE_MAX_LENGTH = 1500
+    # 記事 1 本を読む全体の締め切り（秒）。🔴 **ginseng の `timeout` は socket の 1 回の待ちごと**で、リダイレクトも
+    # 8 回まで追うので、少しずつ流してくる相手には返事のスレッドを長く掴まれうる（#701）。⚠ 実況の窓の締め切り
+    # （`/chat/commentary/deadline` 30 秒）より十分短く。
+    READ_DEADLINE = 10
     # 読む HTML の上限（バイト）。🔴 **受け取りながら数え、超えたら読むのをやめる**（`max_bytes`・PR #693 の Codex の P2）。
     # ⚠ 受け取ってから切ると、大きい応答や流し続ける相手でメモリが青天井になり、返事のスレッドも塞がる。
     MAX_BYTES = 1_000_000
@@ -57,7 +62,9 @@ module Makoto
     def read(url)
       validator = @validator || Ginseng::PublicHost.validator
       url = self.class.article_url(url)
-      response = http.get(url, {host_validator: validator, max_bytes: MAX_BYTES})
+      response = Timeout.timeout(READ_DEADLINE, Ginseng::GatewayError, 'news: article deadline') do
+        http.get(url, {host_validator: validator, max_bytes: MAX_BYTES})
+      end
       type = response.headers['content-type'].to_s
       raise Ginseng::GatewayError, "news: not html (#{type})" unless type.include?('html')
       return self.class.extract(response.body.to_s)

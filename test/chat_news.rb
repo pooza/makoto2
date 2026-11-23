@@ -82,6 +82,26 @@ module Makoto
 
       assert_equal('https://news.example/a', ChatNews.link_of({'content' => content}))
       assert_nil(ChatNews.link_of({'content' => '<p>リンクなし</p>'}))
+      # ⚠ http の記事は読まない（#701 の緑）。
+      assert_nil(ChatNews.link_of({'card' => {'url' => 'http://card.example/'},
+                                   'content' => '<p><a href="http://news.example/a">news</a></p>'}))
+    end
+
+    # ⚠ **出典の括弧まで写されても当たる**（#701）。
+    def test_find_ignores_the_source_in_brackets
+      news = ChatNews.new(service: FakeService.new([headline('名探偵プリキュア！感謝祭 開催決定', 'A', hours_ago: 1)]))
+
+      assert_equal('https://example.com/a', news.find('感謝祭 開催決定（A）', NOW).url)
+      assert_equal('https://example.com/a', news.find('感謝祭 開催決定 (A)', NOW).url)
+    end
+
+    # 🔴 **見出し自体の括弧は落とさない**（新しい「（大阪）」を選ばない・PR #726 の Codex の P2）。
+    def test_find_keeps_brackets_of_the_headline
+      statuses = [headline('感謝祭（大阪）', 'A', hours_ago: 1), headline('感謝祭（東京）', 'B', hours_ago: 2)]
+      news = ChatNews.new(service: FakeService.new(statuses))
+
+      assert_equal('感謝祭（東京）', news.find('感謝祭（東京）', NOW).title)
+      assert_equal('感謝祭（東京）', news.find('（東京）', NOW).title)
     end
 
     def test_find_matches_a_part_of_the_headline
@@ -147,6 +167,15 @@ module Makoto
         .to_return(status: 200, body: {error: 'not found'}.to_json, headers: {'Content-Type' => 'application/json'})
 
       assert_empty(ChatNews::Source.new.tagged_statuses('nobody', 'tag'))
+    end
+
+    # 🔴 **JSON でない 200 は失敗として上げる**（黙って「見出し 0 件」を覚えない・#701）。
+    def test_source_raises_on_a_non_json_lookup
+      config['/chat/news/url'] = 'https://news.example'
+      stub_request(:get, 'https://news.example/api/v1/accounts/lookup?acct=mikabot')
+        .to_return(status: 200, body: '<html>maintenance</html>', headers: {'Content-Type' => 'text/html'})
+
+      assert_raise(Ginseng::GatewayError) {ChatNews::Source.new.tagged_statuses('mikabot', 'tag')}
     end
 
     def test_a_failure_returns_nil_and_backs_off

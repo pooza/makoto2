@@ -31,7 +31,7 @@ module Makoto
         warn 'API キーがありません（config/local.yaml の /anthropic/api_key）'
         exit 1
       end
-      model = ChatModel.new
+      model = ChatModel.new.quiet!
       reply = model.respond(thread_messages + [{role: 'user', content: text}])
       unless reply
         warn '返事を作れませんでした（ログを見てください）'

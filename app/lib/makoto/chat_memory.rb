@@ -35,9 +35,11 @@ module Makoto
 
     # @param service [MastodonService, nil] ⚠ テストが差し替える
     # @param news [ChatNews, nil] ⚠ テストが差し替える
-    def initialize(service: nil, news: nil)
+    # @param record [Boolean] 痕跡に書くか。⚠⚠ **常駐だけが書く**（`chat try` の CLI は書かない・#640 / #701）
+    def initialize(service: nil, news: nil, record: true)
       @service = service
       @news = news
+      @record = record
       @posts = nil
       @fetched_at = nil
       @failed_at = nil
@@ -99,7 +101,7 @@ module Makoto
       @posts = service.own_statuses(limit: [setting('max_posts').to_i * 2, 40].min)
       @fetched_at = now
       @failed_at = nil
-      Heartbeat.clear_chat_memory_unavailable
+      available
       return @posts
     rescue => e
       # 🔴 **何で落ちても返事は止めない**（1.1 のリリース前レビュー）— 400 / 404 は `GatewayError` ではなく、
@@ -109,9 +111,18 @@ module Makoto
       return @posts || []
     end
 
+    # ⚠ 痕跡を書けなくても返事は止めない。🔴 **引けた回の後始末で落ちても「引けない」にしない**（引けた投稿は使う・#701 の緑）
+    # — 消すのが引く処理の rescue の内側にあったので、痕跡が書けない（ディスクが一杯など）と warning とログに出ていた。
+    def available
+      Heartbeat.clear_chat_memory_unavailable if @record
+    rescue => e
+      logger.error(chat: 'memory', error: e)
+    end
+
     # ⚠ 痕跡を書けなくても返事は止めない。
     def unavailable(error, now)
       @failed_at = now
+      return report_error(error, chat: 'memory') unless @record
       first = Heartbeat.chat_memory_unavailable_since.nil?
       Heartbeat.record_chat_memory_unavailable(now:)
       report_error(error, chat: 'memory') if first

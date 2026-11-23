@@ -69,7 +69,8 @@ module Makoto
 
       lines = text.lines.map(&:chomp)
 
-      assert_include(lines, '- 「テストのうた My True Love!」: テスト歌手')
+      # ⚠ 曲名は曲データの表記で渡す（投稿に書かれた文字列ではない・#701 の緑）。
+      assert_include(lines, '- 「テストのうた　Ｍｙ　Ｔｒｕｅ　Ｌｏｖｅ！」: テスト歌手')
       assert_include(lines, '- 「HEART GOES ON」: 池田 彩 & 工藤真由（投稿の「Artist: 工藤真由」は名義が欠けている）')
     end
 
@@ -96,6 +97,19 @@ module Makoto
       facts = ChatSongFacts.new(tracks: broken)
 
       assert_nil(facts.to_prompt([{role: 'user', content: nowplaying('HEART GOES ON')}]))
+    end
+
+    # ⚠ **Sentry へは落ちている間に 1 回だけ**（返事のたびに積まない・#701 の緑）。
+    def test_a_lookup_failure_is_reported_once
+      broken = Object.new
+      def broken.dataset = raise(Sequel::DatabaseError, 'gone')
+      facts = ChatSongFacts.new(tracks: broken)
+      reported = []
+      facts.define_singleton_method(:report_error) {|error, **| reported.push(error.class)}
+      messages = [{role: 'user', content: nowplaying('HEART GOES ON')}]
+      2.times {facts.to_prompt(messages)}
+
+      assert_equal([Sequel::DatabaseError], reported)
     end
   end
 end

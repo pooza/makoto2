@@ -30,6 +30,35 @@ module Makoto
       end
     end
 
+    # 期間の形の値なのに `DURATION_KEYS` に入れないもの（理由つき）。
+    DURATION_EXEMPT = {
+      # 枠の間隔は `Timetable` が自前で読んで確かめる（`parse_interval`）。
+      %r{/timetable/interval\z} => 'Timetable',
+      # `5m` か `1h` だけの選択肢（期間として足し引きしない・単価の鍵にもなる）。
+      %r{\A/chat/model/cache_ttl\z} => 'enum',
+    }.freeze
+
+    # 🔴 **期間の形の値は、`DURATION_KEYS` に入っているか、外す理由がある**（足し忘れは #612 と v1.2.0 で 2 回・#701）。
+    # ⚠ schema は `type: string` しか見ないので、`config/application.yaml` の値の形で拾う。
+    def test_duration_keys_cover_the_defaults
+      defaults = flatten(YAML.load_file(File.join(Environment.dir, 'config/application.yaml')))
+      missing = defaults.filter_map do |key, value|
+        next unless value.is_a?(String) && value.match?(/\A\d+(?:\.\d+)?\s*(?:ms|s|m|h|d|w)\z/)
+        next if Config::DURATION_KEYS.include?(key)
+        next if DURATION_EXEMPT.keys.any? {|pattern| key.match?(pattern)}
+        key
+      end
+
+      assert_empty(missing)
+    end
+
+    def flatten(hash, prefix = '')
+      return hash.flat_map do |key, value|
+        path = "#{prefix}/#{key}"
+        value.is_a?(Hash) ? flatten(value, path) : [[path, value]]
+      end
+    end
+
     def test_duration_list_errors
       key = Config::DURATION_LIST_KEYS.first
 

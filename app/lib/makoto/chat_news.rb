@@ -51,7 +51,10 @@ module Makoto
       # @return [Array<Hash>] 新しい順・返信とブーストを除く。⚠ アカウントが無ければ空配列
       def tagged_statuses(acct, tag, limit: 20)
         account = get('/api/v1/accounts/lookup', acct: acct.to_s.delete_prefix('@'))
-        return [] unless account.is_a?(Hash) && account['id']
+        # 🔴 **JSON でない 200 は失敗として上げる**（statuses の側と揃える・#701）— 黙って「見出し 0 件」を
+        # `/chat/news/refresh` のあいだ覚えていた。⚠ JSON の Hash で `id` が無い（アカウントが無い）ときだけ空配列。
+        raise Ginseng::GatewayError, 'news: unexpected account' unless account.is_a?(Hash)
+        return [] unless account['id']
         id = URI.encode_www_form_component(account['id'].to_s)
         statuses = get("/api/v1/accounts/#{id}/statuses",
           tagged: tag, exclude_replies: true, exclude_reblogs: true, limit: limit)
@@ -120,7 +123,15 @@ module Makoto
     end
 
     # 見出しの一部から、その記事を引く（#654 の `read_news`）。⚠ 当たらなければ nil。⚠ 2 つ以上なら新しいほう。
+    # ⚠ **語のままで当たらなければ、末尾の括弧を落として比べ直す**（見出しは「題（出典）」の形で渡すので、モデルが
+    # 括弧まで写すと当たらない・#701）。🔴 先に語のままで比べる（見出し自体の括弧〈「感謝祭（東京）」〉で別の記事を
+    # 選ばない・PR #726 の Codex の P2）。
     def find(query, now = Time.now)
+      query = query.to_s
+      return find_by(query, now) || find_by(query.sub(/[（(][^（）()]*[）)][[:space:]]*\z/, ''), now)
+    end
+
+    def find_by(query, now)
       needle = self.class.normalize(query)
       return nil if needle.empty?
       return headlines(now).find do |item|
@@ -133,13 +144,14 @@ module Makoto
     end
 
     # 投稿が配信した記事の URL。⚠ タグとメンションのリンクは除く。⚠ 無ければ nil。
+    # ⚠ **https だけ**（http の記事は読みに行かない・#701 の緑）。
     def self.link_of(status)
       card = status.dig('card', 'url').to_s
-      return card if card.start_with?('https://', 'http://')
+      return card if card.start_with?('https://')
       Nokogiri::HTML.fragment(status['content'].to_s).css('a[href]').each do |anchor|
         next if anchor['class'].to_s.match?(/hashtag|mention/)
         href = anchor['href'].to_s
-        return href if href.start_with?('https://', 'http://') && !href.include?('/tags/')
+        return href if href.start_with?('https://') && !href.include?('/tags/')
       end
       return nil
     end

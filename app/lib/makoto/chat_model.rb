@@ -38,6 +38,7 @@ module Makoto
   # ⚠⚠ **相手の本文も返事の本文もログに出さない**（長さと印と使用量だけ）。
   class ChatModel
     include Package
+    include ChatUsage
 
     # 悪戯の印（#510）。⚠ `config/chat/reply_format.md` の一覧と揃える。
     MARKS = ['provoke', 'backstage', 'impersonate'].freeze
@@ -67,11 +68,19 @@ module Makoto
     # @param memory [ChatMemory, nil] ⚠ テストが差し替える
     # @param song_facts [ChatSongFacts, nil] ⚠ テストが差し替える
     def initialize(client: nil, ledger: nil, tools: nil, memory: nil, song_facts: nil)
+      @record = true
       @client = client
       @ledger = ledger
       @tools = tools
       @memory = memory
       @song_facts = song_facts
+    end
+
+    # 痕跡に書かない（`chat try` の CLI・#640 / #701）。⚠⚠ **常駐だけが書く**（キーの失効・記憶の不調を、CLI が
+    # 書いたり消したりしていた）。
+    def quiet!
+      @record = false
+      return self
     end
 
     # API キーが置いてあるか。⚠ **無ければチャットボットは動かない**（受信は続く）。
@@ -88,18 +97,18 @@ module Makoto
       system = system_blocks + memory_blocks + song_blocks(messages)
       @usage = {}
       reply = converse(messages.dup, system)
-      Heartbeat.clear_chat_failures
+      Heartbeat.clear_chat_failures if @record
       return reply
     rescue Anthropic::Errors::AuthenticationError, Anthropic::Errors::PermissionDeniedError => e
       # 🔴 **キーの期限切れ・取り消し**（→ `HeartbeatChat`）。⚠ 再試行しても直らないので、痕跡に残して黙る。
-      Heartbeat.record_chat_auth_failure
+      Heartbeat.record_chat_auth_failure if @record
       logger.error(chat: 'model', message: 'api key is not valid', status: e.status,
         error_class: e.class.name)
       report_error(e, chat: 'model')
       return nil
     rescue Anthropic::Errors::APIError => e
       # 🔴 **続けて落ちていることを痕跡に残す**（#611 → `HeartbeatChat`）。
-      Heartbeat.record_chat_failure
+      Heartbeat.record_chat_failure if @record
       # 🔴 **往復の途中で落ちても、それまでに使ったぶんを残す**（#680 の B2）— 請求額との突き合わせがずれる。
       spent = @usage.to_h.empty? ? {} : {**@usage, cost: cost(@usage)}
       logger.error(chat: 'model', message: 'request failed', error_class: e.class.name,
@@ -144,18 +153,6 @@ module Makoto
       return @system_blocks
     end
 
-    # 使用量の見積もり（USD）。⚠ ログで見直すための目安で、請求額ではない。
-    # ⚠ `input_tokens` はキャッシュから読んだ分・書いた分を含まない（別に数える）。
-    def cost(usage)
-      total = [
-        usage[:input_tokens].to_i * setting('price/input').to_f,
-        usage[:output_tokens].to_i * setting('price/output').to_f,
-        usage[:cache_read].to_i * setting('price/cache_read').to_f,
-        usage[:cache_write].to_i * setting("price/cache_write/#{setting('cache_ttl')}").to_f,
-      ].sum
-      return (total / 1_000_000).round(5)
-    end
-
     private
 
     # 道具を呼ばれたら引いて返し、もう一度呼ぶ（→ クラスの冒頭）。
@@ -180,7 +177,7 @@ module Makoto
     end
 
     def memory
-      return @memory ||= ChatMemory.new(news:)
+      return @memory ||= ChatMemory.new(news:, record: @record)
     end
 
     # 🔴 **見出し（記憶）と `read_news`（道具）は同じ `ChatNews` を見る**（別々に持つと、見出しは見えているのに
@@ -221,15 +218,6 @@ module Makoto
           is_error: result.error?,
         }
       end
-    end
-
-    def add_usage(total, usage)
-      return usage if total.empty?
-      return total unless usage.any?
-      merged = total.merge(usage) do |key, a, b|
-        key == :model ? b : a.to_i + b.to_i
-      end
-      return merged
     end
 
     def tools
@@ -279,18 +267,6 @@ module Makoto
       logger.warn(chat: 'model', **fields, category: category, **usage.to_h, cost: cost(usage.to_h))
       report_error(Ginseng::GatewayError.new("chat model: #{fields[:message]}"), chat: 'model')
       return nil
-    end
-
-    def usage_of(response)
-      usage = response.usage
-      return {} unless usage
-      return {
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
-        cache_read: usage.cache_read_input_tokens.to_i,
-        cache_write: usage.cache_creation_input_tokens.to_i,
-        model: response.model.to_s,
-      }
     end
 
     def setting(key)
