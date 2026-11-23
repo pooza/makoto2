@@ -720,6 +720,10 @@ module Makoto
       Heartbeat.record_chat_memory_unavailable(now: now)
       Heartbeat.record_chat_memory_unavailable(now: now + 60)
 
+      # ⚠ 続けて `CHAT_FAILURE_LIMIT` 回までは言わない（1 回の取りこぼしで数時間残さない・#701）。
+      assert_empty(health(pid: Process.pid).chat_warnings)
+      Heartbeat.record_chat_memory_unavailable(now: now + 120)
+
       assert_equal(["chat memory has been unavailable since #{now.getlocal.iso8601}"],
         health(pid: Process.pid).chat_warnings)
       Heartbeat.clear_chat_memory_unavailable

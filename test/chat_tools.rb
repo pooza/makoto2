@@ -142,6 +142,22 @@ module Makoto
       assert_nil(rows(tools.call('read_news', {'query' => '感謝祭'})).first['note'])
     end
 
+    # 🔴 **記事が読めないのは外のサイトの都合なので Sentry へ送らない**（#701）。⚠ こちらの不具合は送る。
+    def test_an_unreadable_article_is_not_reported
+      config['/chat/news/enabled'] = true
+      article = FakeArticle.new
+      tools = ChatTools.new(tracks: TrackRepository.new(track_db), news: FakeNews.new, article:)
+      reported = []
+      tools.define_singleton_method(:report_error) {|error, **| reported.push(error.class)}
+      [Ginseng::GatewayError.new('Bad response 403'), Timeout::Error.new, NoMethodError.new('bug')].each do |error|
+        article.define_singleton_method(:read) {|_url| raise error}
+
+        assert_true(tools.call('read_news', {'query' => '感謝祭'}).error?)
+      end
+
+      assert_equal([NoMethodError], reported)
+    end
+
     def test_read_news_is_an_error_when_news_is_disabled
       config['/chat/news/enabled'] = false
 

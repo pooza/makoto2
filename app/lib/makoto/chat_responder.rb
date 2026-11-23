@@ -32,6 +32,7 @@ module Makoto
   class ChatResponder
     include Package
     include ChatOwnerNotice
+    include ChatSkip
 
     # ⚠ 溜まった通知の上限。⚠ 門の全体の上限（1 日 150 回）より十分小さければよい。
     QUEUE_MAX = 50
@@ -167,11 +168,9 @@ module Makoto
 
     def respond(account, status, decision, notification, received_at)
       thread = ChatThread.new(status, ancestors(status), own_id: own_id)
-      closed = repository.closed_thread?(thread.root_id, account['id'])
-      return done(:closed_thread, notification) if closed
-      messages = thread.messages
-      return done(:empty, notification) if messages.empty?
-      reply = model.respond(messages)
+      skipped = skip_thread(thread, account, notification, received_at)
+      return skipped if skipped
+      reply = model.respond(thread.messages)
       # ⚠ **LLM を呼んだぶんは数える**（黙ると決めた返事も・費用がかかったので）。
       # 🔴 **失敗も数える**（v1.0.0 のリリース前レビュー）。⚠⚠ 拒否・上限での打ち切り・読めない JSON も
       # 費用はかかる。数えないと、拒否を引き出す文の繰り返しが回数の上限をすり抜ける。
@@ -248,13 +247,6 @@ module Makoto
     def pick(type)
       bodies = messages_repository.by_type(type).map {|record| record[:body]}
       return bodies.empty? ? nil : bodies.sample
-    end
-
-    def seen?(id)
-      return true if @seen.include?(id.to_s)
-      @seen.push(id.to_s)
-      @seen.shift while @seen.size > SEEN_MAX
-      return false
     end
 
     def done(result, notification, level: :info, **fields)

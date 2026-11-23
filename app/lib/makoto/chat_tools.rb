@@ -140,7 +140,8 @@ module Makoto
       end
     rescue => e
       logger.warn(chat: 'tool', tool: name.to_s, message: 'failed', error_class: e.class.name)
-      report_error(e, chat: 'tool', tool: name.to_s) unless e.is_a?(BackingOff)
+      quiet = e.is_a?(BackingOff) || unreadable_article?(name, e)
+      report_error(e, chat: 'tool', tool: name.to_s) unless quiet
       return failed('引けませんでした')
     end
 
@@ -201,6 +202,14 @@ module Makoto
     end
 
     private
+
+    # 🔴 **記事が読めないのは外のサイトの都合**（403 / 404 / 時間切れ / HTML でない / 大きすぎる）なので Sentry へ
+    # 送らない（ログだけ・#701）。こちらで直せないものを、訊かれるたびに 1 件ずつ積んでいた。
+    # ⚠ 設定の誤り（`ConfigError`）や、こちらの不具合は今までどおり送る。
+    def unreadable_article?(name, error)
+      return false unless name.to_s == 'read_news'
+      return error.is_a?(Ginseng::GatewayError) || error.is_a?(Timeout::Error)
+    end
 
     def found(rows)
       return Result.new(content: JSON.generate(rows), count: rows.size, error: nil)

@@ -67,17 +67,25 @@ module Makoto
     end
 
     # 🔴 **チャットの記憶（自分の投稿）が引けないこと**（#680 の B4）。⚠ 引けたら消える。
+    # ⚠ **続けて引けなかった回数も数える**（`makoto status` は `Health::CHAT_FAILURE_LIMIT` 回からだけ言う・#701）—
+    # Mastodon の再起動の最中に 1 通来ただけで、次のメンションまで（夜なら数時間）warning が残っていた。
     def record_chat_memory_unavailable(now: nil)
       return update do |record|
-        record.merge(chat_memory_unavailable_since: record[:chat_memory_unavailable_since] ||
-          (now || Time.now).getutc.iso8601)
+        since = record[:chat_memory_unavailable_since] || (now || Time.now).getutc.iso8601
+        failures = record[:chat_memory_failures].to_i + 1
+        record.merge(chat_memory_unavailable_since: since, chat_memory_failures: failures)
       end
     end
 
     # ⚠ **書いてあるときだけ書き直す**（返事のたびに鍵を取りに行かない）。
     def clear_chat_memory_unavailable
-      return nil unless stored.key?(:chat_memory_unavailable_since)
-      return update {|record| record.except(:chat_memory_unavailable_since)}
+      keys = [:chat_memory_unavailable_since, :chat_memory_failures]
+      return nil unless keys.any? {|key| stored.key?(key)}
+      return update {|record| record.except(*keys)}
+    end
+
+    def chat_memory_failures
+      return stored[:chat_memory_failures].to_i
     end
 
     def chat_memory_unavailable_since

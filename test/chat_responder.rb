@@ -145,7 +145,8 @@ module Makoto
     # ⚠ 2026-11-08 は日曜（ニチアサの窓の中に受けた形）。
     def test_a_late_reply_in_the_strong_window_is_dropped_but_counted
       received_at = Time.parse('2026-11-08 08:40:00 +0900')
-      lateness = [false, true]
+      # ⚠ 見るのは 3 回（呼ぶ前・前のやりとりを引いた後〈#701〉・返事の後）。
+      lateness = [false, false, true]
       @gate.define_singleton_method(:late?) {|*| lateness.shift}
 
       assert_equal(:late_in_window, responder.handle(notification, received_at))
@@ -157,6 +158,17 @@ module Makoto
     # 🔴 **呼ぶ前から締め切りを過ぎていれば、LLM を呼ばず数えない**（追いついた通知・v1.0.1 のリリース前レビュー）。
     def test_a_late_mention_is_dropped_before_the_model
       received_at = Time.parse('2026-11-08 08:40:00 +0900')
+
+      assert_equal(:late_in_window, responder.handle(notification, received_at))
+      assert_empty(@model.calls)
+      assert_equal(0, @repository.count(:respond, Time.now - 60))
+    end
+
+    # ⚠ **前のやりとりを引いた後に締め切りを過ぎていれば、LLM を呼ばない**（#701）。
+    def test_a_mention_late_after_the_thread_is_dropped_before_the_model
+      received_at = Time.parse('2026-11-08 08:40:00 +0900')
+      lateness = [false, true]
+      @gate.define_singleton_method(:late?) {|*| lateness.shift}
 
       assert_equal(:late_in_window, responder.handle(notification, received_at))
       assert_empty(@model.calls)

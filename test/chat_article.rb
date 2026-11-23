@@ -73,6 +73,21 @@ module Makoto
       assert_not_requested(photo)
     end
 
+    # 🔴 **記事 1 本に全体の締め切りを置く**（socket の待ちごとではなく・#701）。
+    def test_read_gives_up_at_the_deadline
+      stub_request(:get, 'https://news.example/slow').to_return do
+        sleep(0.5)
+        html_response
+      end
+      ChatArticle.send(:remove_const, :READ_DEADLINE)
+      ChatArticle.const_set(:READ_DEADLINE, 0.1)
+
+      assert_raise(Ginseng::GatewayError) {article.read('https://news.example/slow')}
+    ensure
+      ChatArticle.send(:remove_const, :READ_DEADLINE)
+      ChatArticle.const_set(:READ_DEADLINE, 10)
+    end
+
     def test_read_fetches_html
       stub_request(:get, 'https://news.example/a').to_return(html_response)
 
