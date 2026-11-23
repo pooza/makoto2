@@ -68,7 +68,8 @@ module Makoto
         name: 'lookup_precure',
         description: <<~TEXT.strip,
           プリキュアを名前で引く（キュアの名前・変身前の名前・声優の名前のどれか）。最大 #{PRECURE_LIMIT} 人。
-          他の作品のプリキュアの名前や声優を確かめたいときに使う。
+          ドキドキ！プリキュア以外のプリキュアの名前が話に出たら、話す前にこれで引く。
+          forms があれば、そこに並んだ名前はどれも同じ人の別の姿。
         TEXT
         input_schema: {
           type: 'object',
@@ -156,6 +157,8 @@ module Makoto
       end
     end
 
+    # 🔴 **同じ人の別の姿は 1 人にまとめ、`forms` に名前を全部並べる**（キュアアルカナとキュアアルカナ・シャドウ
+    # など・#707）。⚠ 片方の名前で引いても、もう片方を添える。⚠ 上限は人の数で数える。
     def lookup_precure(query)
       return [] if query.empty?
       needle = CureApiService.normalize(query)
@@ -164,11 +167,13 @@ module Makoto
           CureApiService.normalize(girl[key].to_s).include?(needle)
         end
       end
-      return hits.first(PRECURE_LIMIT).map do |girl|
+      return hits.uniq {|girl| person_key(girl)}.first(PRECURE_LIMIT).map do |girl|
+        forms = forms_of(girl)
         {
           precure: girl['precure_name'],
           name: girl['human_name'],
           cast: girl['cast_name'],
+          forms: forms.size > 1 ? forms : nil,
           # 🔴 **cure-api の `title` は作品名ではなく称号**（「光の使者」など・101 人中 25 人）なので渡さない。
           # ⚠ 作品名と取り違えて答えていた（v1.2.0 のリリース前レビューの赤）。作品名は #675（cure-api#400）の後。
         }.compact
@@ -236,6 +241,18 @@ module Makoto
 
     def girls
       return list('girls')
+    end
+
+    # 同じ人かを決める組（変身前の名前と声優）。🔴 **名前で決め打ちしない**（新しい作品で増えても追いつく・#707）。
+    # ⚠ どちらかが空の行はまとめない（取り違えるより、別の人として返す）。
+    def forms_of(girl)
+      key = person_key(girl)
+      return girls.select {|other| person_key(other) == key}.map {|other| other['precure_name']}
+    end
+
+    def person_key(girl)
+      key = [girl['human_name'], girl['cast_name']].map {|value| CureApiService.normalize(value)}
+      return key.none?(&:empty?) ? key : [girl['girl_name'] || girl['precure_name']]
     end
 
     def escape_like(value)
