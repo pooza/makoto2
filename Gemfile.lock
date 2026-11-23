@@ -162,7 +162,7 @@ GEM
     power_assert (3.0.1)
     prism (1.9.0)
     public_suffix (7.0.5)
-    puma (8.1.0)
+    puma (8.1.2)
       nio4r (~> 2.0)
     raabro (1.5.0)
     racc (1.8.1)
@@ -332,7 +332,7 @@ CHECKSUMS
   power_assert (3.0.1) sha256=8ce9876716cc74e863fcd4cdcdc52d792bd983598d1af3447083a3a9a4d34103
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   public_suffix (7.0.5) sha256=1a8bb08f1bbea19228d3bed6e5ed908d1cb4f7c2726d18bd9cadf60bc676f623
-  puma (8.1.0) sha256=86337ed8a60eb3f246c287b7ffd7cbb81dee5a2408b745e2c33e77760b7c2ac7
+  puma (8.1.2) sha256=3a6d9a34c9a4d0175eabd11b703939b5d43ebe08bc2534ac7dfd4df33a6ceedc
   raabro (1.5.0) sha256=3f998a7bc84f9c84df3ab580634d2e0a5bda4f0841168d56035f529c9877440a
   racc (1.8.1) sha256=4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
