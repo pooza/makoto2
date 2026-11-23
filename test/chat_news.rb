@@ -95,6 +95,15 @@ module Makoto
       assert_equal('https://example.com/a', news.find('感謝祭 開催決定 (A)', NOW).url)
     end
 
+    # 🔴 **見出し自体の括弧は落とさない**（新しい「（大阪）」を選ばない・PR #726 の Codex の P2）。
+    def test_find_keeps_brackets_of_the_headline
+      statuses = [headline('感謝祭（大阪）', 'A', hours_ago: 1), headline('感謝祭（東京）', 'B', hours_ago: 2)]
+      news = ChatNews.new(service: FakeService.new(statuses))
+
+      assert_equal('感謝祭（東京）', news.find('感謝祭（東京）', NOW).title)
+      assert_equal('感謝祭（東京）', news.find('（東京）', NOW).title)
+    end
+
     def test_find_matches_a_part_of_the_headline
       news = ChatNews.new(service: FakeService.new([headline('名探偵プリキュア！感謝祭 開催決定', 'A', hours_ago: 1)]))
 

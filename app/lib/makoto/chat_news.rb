@@ -123,10 +123,16 @@ module Makoto
     end
 
     # 見出しの一部から、その記事を引く（#654 の `read_news`）。⚠ 当たらなければ nil。⚠ 2 つ以上なら新しいほう。
-    # ⚠ **末尾の出典の括弧は落としてから比べる**（見出しは「題（出典）」の形で渡すので、モデルが括弧まで写すと
-    # 当たらない・#701）。
+    # ⚠ **語のままで当たらなければ、末尾の括弧を落として比べ直す**（見出しは「題（出典）」の形で渡すので、モデルが
+    # 括弧まで写すと当たらない・#701）。🔴 先に語のままで比べる（見出し自体の括弧〈「感謝祭（東京）」〉で別の記事を
+    # 選ばない・PR #726 の Codex の P2）。
     def find(query, now = Time.now)
-      needle = self.class.normalize(query.to_s.sub(/[（(][^（）()]*[）)][[:space:]]*\z/, ''))
+      query = query.to_s
+      return find_by(query, now) || find_by(query.sub(/[（(][^（）()]*[）)][[:space:]]*\z/, ''), now)
+    end
+
+    def find_by(query, now)
+      needle = self.class.normalize(query)
       return nil if needle.empty?
       return headlines(now).find do |item|
         item.url && self.class.normalize(item.title).include?(needle)
