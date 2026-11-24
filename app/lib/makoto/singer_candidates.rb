@@ -22,7 +22,8 @@ module Makoto
 
     BRACKET = /[(（\[「『〈][^)）\]」』〉]*[)）\]」』〉]/
     ONLY_BRACKETS = /\A(?:#{BRACKET})+\z/
-    SEPARATOR = %r{[,、&＆/／・･〜~]|\bwith\b|\bfeat\.?}i
+    # ⚠ `with` / `feat` の前後は `\b` にしない（正規化で空白が詰まり、`withヤング` の境目を `\b` は見ない・#727）。
+    SEPARATOR = %r{[,、&＆/／・･〜~]|(?<![a-z])with(?![a-z])|(?<![a-z])feat(?![a-z])\.?}i
     TITLE = /プリキュア|ぷりきゅあ|\A映画/i
     KINDS = ['candidate', 'character', 'title'].freeze
 
@@ -38,8 +39,11 @@ module Makoto
     # @return [Array<Candidate>] 分類ごと（候補 → キャラクター名義 → 作品名）・曲数の多い順
     def exec
       found = {}
+      counted = Set.new
       songs.each do |row|
         names_of(row[:artist_name]).each do |name|
+          # ⚠ 同じ名前の同じ曲は 1 回（同じ名義に 2 度書かれた名前・名義の書き方違い・#727）。
+          next unless counted.add?([name, row[:dedupe_key]])
           found[name] ||= {count: 0, example: row[:name]}
           found[name][:count] += 1
         end

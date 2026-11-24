@@ -34,6 +34,8 @@ module Makoto
       # ⚠ 同じ名義の同じ曲は 1 回（盤違いで水増ししない）。⚠ 歌でない曲は見ない。
       add_track('うた 2', '高橋秀幸')
       add_track('うた 4', '劇伴の人', kind: 'bgm')
+      # ⚠ 同じ曲の名義の書き方違い・同じ名義に 2 度書かれた名前も 1 回（#727）。
+      add_track('うた 1', '高橋秀幸/五條真由美, 高橋秀幸 & 五條 真由美')
       candidates = mine(subject.exec, ['高橋秀幸', '新人歌手', '劇伴の人', '五條真由美', '池田彩'])
 
       assert_equal([['高橋秀幸', 2], ['新人歌手', 1]], candidates.map {|item| [item.name, item.count]})
@@ -47,6 +49,10 @@ module Makoto
       assert_equal([], subject.names_of('工藤真由 コーラス:高橋秀幸'))
       assert_equal(['キュアミラクル(CV:高橋李依)', 'キュアマジカル(CV:堀江由衣)'],
         subject.names_of('キュアミラクル(CV:高橋李依)、キュアマジカル(CV:堀江由衣)'))
+      # ⚠ 空白が詰まっても `with` / `feat.` で割る（#727）。
+      assert_equal(['ヤング', 'フレッシュ'], subject.names_of('五條真由美 with ヤング・フレッシュ'))
+      assert_equal(['ハミィ(CV:三石琴乃)'], subject.names_of('工藤真由&池田彩withハミィ(CV:三石琴乃)'))
+      assert_equal(['新人歌手'], subject.names_of('池田彩 feat. 新人 歌手'))
     end
 
     # 作品名・キャラクター名義（括弧つき・`/girls` の名前）・それ以外の候補に分ける。
