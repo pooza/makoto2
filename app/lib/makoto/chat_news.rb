@@ -48,21 +48,38 @@ module Makoto
       include Package
       include ChatLookup
 
+      # 🔴 **`since` までページをめくる**（#730）。配信は 1 日 10〜27 件・多い日は 50 件あり、1 ページ（40 件）では
+      # 3 日に届かない。⚠ めくるのは `max_pages` まで（遡りすぎない）。
+      #
+      # @param since [Time, nil] これより古い投稿が出たら止める。⚠ nil なら 1 ページだけ
       # @return [Array<Hash>] 新しい順・返信とブーストを除く。⚠ アカウントが無ければ空配列
-      def tagged_statuses(acct, tag, limit: 20)
+      def tagged_statuses(acct, tag, limit: 40, since: nil, max_pages: 1)
         account = get('/api/v1/accounts/lookup', acct: acct.to_s.delete_prefix('@'))
         # 🔴 **JSON でない 200 は失敗として上げる**（statuses の側と揃える・#701）— 黙って「見出し 0 件」を
         # `/chat/news/refresh` のあいだ覚えていた。⚠ JSON の Hash で `id` が無い（アカウントが無い）ときだけ空配列。
         raise Ginseng::GatewayError, 'news: unexpected account' unless account.is_a?(Hash)
         return [] unless account['id']
         id = URI.encode_www_form_component(account['id'].to_s)
-        statuses = get("/api/v1/accounts/#{id}/statuses",
-          tagged: tag, exclude_replies: true, exclude_reblogs: true, limit: limit)
-        raise Ginseng::GatewayError, 'news: unexpected statuses' unless statuses.is_a?(Array)
-        return statuses.grep(Hash)
+        params = {tagged: tag, exclude_replies: true, exclude_reblogs: true, limit: limit}
+        found = []
+        max_pages.clamp(1, nil).times do
+          page = get("/api/v1/accounts/#{id}/statuses", params)
+          raise Ginseng::GatewayError, 'news: unexpected statuses' unless page.is_a?(Array)
+          page = page.grep(Hash)
+          found.concat(page)
+          break if page.size < limit || since.nil? || reached?(page.last, since) || !page.last['id']
+          params = params.merge(max_id: page.last['id'])
+        end
+        return found
       end
 
       private
+
+      def reached?(status, since)
+        return Time.parse(status['created_at'].to_s) < since
+      rescue ArgumentError
+        return true
+      end
 
       def get(path, params)
         base = URI.parse(config['/chat/news/url'].to_s)
@@ -169,7 +186,9 @@ module Makoto
     def statuses(now)
       return @statuses if @statuses && @fetched_at && (now - @fetched_at) < refresh_seconds
       return @statuses || [] if backing_off?(@failed_at, now)
-      @statuses = service.tagged_statuses(setting('account'), setting('tag'), limit: 40)
+      since = now - (setting('days').to_f * 24 * 60 * 60)
+      @statuses = service.tagged_statuses(setting('account'), setting('tag'), since:,
+        max_pages: setting('max_pages').to_i)
       @fetched_at = now
       @failed_at = nil
       return @statuses
