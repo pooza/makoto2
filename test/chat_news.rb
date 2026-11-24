@@ -9,9 +9,9 @@ module Makoto
         @calls = 0
       end
 
-      def tagged_statuses(acct, tag, **)
+      def tagged_statuses(acct, tag, **options)
         @calls += 1
-        @args = [acct, tag]
+        @args = [acct, tag, options]
         raise @error if @error
         return @statuses
       end
@@ -48,7 +48,7 @@ module Makoto
       assert_include(prompt, '2026-11-18（水）06:40　名探偵プリキュア！感謝祭 開催決定（ライブドアニュース）')
       assert_not_include(prompt, 'https://')
       assert_not_include(prompt, '#precure_fun')
-      assert_equal(['mikabot', 'サンクルミエール通信'], service.args)
+      assert_equal(['mikabot', 'サンクルミエール通信'], service.args.first(2))
     end
 
     # 🔴 **見出しの中の指示に従わせない**（データとして渡す）。
@@ -159,6 +159,43 @@ module Makoto
         .to_return(status: 200, body: [{'id' => '1'}].to_json, headers: {'Content-Type' => 'application/json'})
 
       assert_equal([{'id' => '1'}], ChatNews::Source.new.tagged_statuses('@mikabot', 'サンクルミエール通信'))
+    end
+
+    # 2 件のページ（`from` から下へ・`hours` 時間前から 1 時間ずつ古く）。
+    def stub_page(query, from, hours)
+      body = (0...2).map {|i| {'id' => (from - i).to_s, 'created_at' => (NOW - ((hours + i) * 3600)).utc.iso8601}}
+      stub_request(:get, 'https://news.example/api/v1/accounts/42/statuses')
+        .with(query: hash_including(query))
+        .to_return(status: 200, body: body.to_json, headers: {'Content-Type' => 'application/json'})
+    end
+
+    # 🔴 **`days` に届くまでページをめくる**（1 ページでは 3 日に届かない・#730）。⚠ `max_pages` で止める。
+    def test_source_pages_until_since
+      config['/chat/news/url'] = 'https://news.example'
+      stub_request(:get, 'https://news.example/api/v1/accounts/lookup?acct=mikabot')
+        .to_return(status: 200, body: {id: '42'}.to_json, headers: {'Content-Type' => 'application/json'})
+      stub_page({'limit' => '2'}, 100, 1)
+      stub_page({'max_id' => '99'}, 98, 30)
+      stub_page({'max_id' => '97'}, 96, 80)
+      source = ChatNews::Source.new
+
+      # 2 ページ目に 24 時間より古いものがあるので、そこで止める。
+      ids = source.tagged_statuses('mikabot', 'tag', limit: 2, since: NOW - (24 * 3600), max_pages: 5).map {|s| s['id']}
+
+      assert_equal(['100', '99', '98', '97'], ids)
+      # ⚠ `max_pages` で止める・`since` が無ければ 1 ページ。
+      assert_equal(2, source.tagged_statuses('mikabot', 'tag', limit: 2, since: NOW - (999 * 3600), max_pages: 1).size)
+      assert_equal(2, source.tagged_statuses('mikabot', 'tag', limit: 2).size)
+    end
+
+    # ⚠ 引くときに、`days` ぶんの起点と `max_pages` を渡す。
+    def test_statuses_are_fetched_for_the_days
+      config['/chat/news/days'] = 3
+      config['/chat/news/max_pages'] = 5
+      service = FakeService.new([headline('見出し', 'A', hours_ago: 1)])
+      ChatNews.new(service:).to_prompt(NOW)
+
+      assert_equal({since: NOW - (3 * 24 * 3600), max_pages: 5}, service.args.last)
     end
 
     def test_source_returns_nothing_for_an_unknown_account
