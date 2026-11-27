@@ -434,7 +434,7 @@ module Makoto
     end
 
     def stub_instance(status, body)
-      url = "#{config['/mastodon/url']}/api/v1/instance"
+      url = "#{config['/mastodon/url']}/api/v2/instance"
       headers = {'Content-Type' => 'application/json'}
       return stub_request(:get, url).to_return(status: status, body: body.to_json, headers: headers)
     end
@@ -442,7 +442,7 @@ module Makoto
     # 🔴 **投稿先が申告する上限を読む**（#351）。⚠ **トークンは付けず、直で聞く。**
     def test_declared_max_length
       headers = nil
-      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance").to_return do |request|
+      stub_request(:get, "#{config['/mastodon/url']}/api/v2/instance").to_return do |request|
         headers = request.headers
         {status: 200, headers: {'Content-Type' => 'application/json'},
          body: {configuration: {statuses: {max_characters: 3000}}}.to_json}
@@ -539,10 +539,10 @@ module Makoto
       assert_raise(Ginseng::AuthError) {MastodonService.new.follow('9')}
     end
 
-    # 🔴 **SSE の口は申告された `streaming_api` から組む**（#29）。⚠ `wss://` は `https://` へ。
+    # 🔴 **SSE の口は申告された `configuration.urls.streaming` から組む**（#29）。⚠ `wss://` は `https://` へ。
     # ⚠⚠ **トークンをクエリに載せない**（ヘッダで渡す）。
     def test_streaming_uri
-      stub_instance(200, {urls: {streaming_api: 'wss://streaming.example.com'}})
+      stub_instance(200, {configuration: {urls: {streaming: 'wss://streaming.example.com'}}})
       service = MastodonService.new
       uri = service.streaming_uri
 
