@@ -41,6 +41,11 @@ module Makoto
     # メンションを受ける SSE の口（#29）。⚠ **通知だけを流すストリーム**（ホームの投稿は来ない）。
     STREAMING_PATH = '/api/v1/streaming/user/notification'.freeze
 
+    # 投稿先の申告（上限・Streaming API のホスト）を読む口（#506）。⚠ **`/api/v1/instance` は
+    # Mastodon 4.0 から非推奨**なので後継の v2 を読む。⚠ 申告の場所が v1 と違う
+    # （`urls.streaming_api` → `configuration.urls.streaming`）。
+    INSTANCE_PATH = '/api/v2/instance'.freeze
+
     # フォロワーの一覧を辿るページ数の上限（80 件ずつ ＝ 8,000 人）。⚠ 尽きたら例外（途中までを返さない）。
     FOLLOWER_MAX_PAGES = 100
     # 関係を 1 回に聞く人数（#636）。⚠ `id[]` を並べるので、URL を長くしすぎない。
@@ -128,8 +133,7 @@ module Makoto
     #
     # ⚠ **トークンは付けない**（公開の口）。⚠ **経路の設定に関わらず直で聞く**（→ `#account`）。
     def declared_max_length
-      response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
-      body = response.parsed_response
+      body = instance
       return nil unless body.is_a?(Hash)
       return body.dig('configuration', 'statuses', 'max_characters')&.to_i
     rescue Ginseng::GatewayError => e
@@ -247,7 +251,7 @@ module Makoto
 
     # メンションを受ける SSE の口（#29）。⚠ **トークンは載せない**（→ `streaming_headers`）。
     #
-    # 🔴 **ホストは投稿先が申告する `urls.streaming_api` から引く** — ⚠ **Streaming API は
+    # 🔴 **ホストは投稿先が申告する `configuration.urls.streaming` から引く** — ⚠ **Streaming API は
     # 本体と別のホストに置ける**ので、`/mastodon/url` から組み立てない。⚠ 申告は `wss://` なので
     # SSE 用に `https://` へ読み替える。⚠ **申告が無ければ本体のホストに倒す。**
     #
@@ -255,9 +259,8 @@ module Makoto
     # 8.0.0）が、上流は `wss://` の WebSocket 用のままで、SSE 用の読み替え・申告が無いときの倒し方は持たない（#605 で確認）。
     # ginseng-upstream: no — SSE で受けるのはこのアプリの選択（#29）。上流は WebSocket の口として正しい
     def streaming_uri
-      response = http.get('/api/v1/instance', {headers: {'X-Mulukhiya' => package_class.full_name}})
-      body = response.parsed_response
-      declared = body.dig('urls', 'streaming_api') if body.is_a?(Hash)
+      body = instance
+      declared = body.dig('configuration', 'urls', 'streaming') if body.is_a?(Hash)
       uri = URI.parse(declared.presence || http.base_uri.to_s)
       uri = URI.parse(uri.to_s.sub(/\Awss:/, 'https:').sub(/\Aws:/, 'http:'))
       uri.path = STREAMING_PATH
@@ -309,6 +312,13 @@ module Makoto
     end
 
     private
+
+    # ⚠ **トークンは付けない**（公開の口）。⚠ **経路の設定に関わらず直で聞く**（→ `#account`）。
+    # ⚠ 聞けなければ `Ginseng::GatewayError` のまま上げる（分類は呼んだ側の `classify`）。
+    def instance
+      response = http.get(INSTANCE_PATH, {headers: {'X-Mulukhiya' => package_class.full_name}})
+      return response.parsed_response
+    end
 
     # 🔴 **モロヘイヤが足した分**（#351）。⚠ **応答の `content` が「足された後の本文」**
     # なので、**読み取り権は要らない**（🔴 **`/api/v1/statuses/:id/source` は `read` が要るが、

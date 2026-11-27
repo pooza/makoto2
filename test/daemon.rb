@@ -608,7 +608,7 @@ module Makoto
 
     def records_of_max_length(declared)
       body = declared ? {configuration: {statuses: {max_characters: declared}}} : {}
-      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance")
+      stub_request(:get, "#{config['/mastodon/url']}/api/v2/instance")
         .to_return(status: 200, body: body.to_json, headers: {'Content-Type' => 'application/json'})
       records = Hash.new {|hash, key| hash[key] = []}
       @daemon.instance_variable_set(:@logger, Recorder.new(records))
@@ -631,7 +631,7 @@ module Makoto
     # ⚠ **聞けなくても常駐は止めない**（警告どまり）。
     def test_an_unreadable_limit_is_only_a_warning
       config['/http/retry/seconds'] = 0
-      stub_request(:get, "#{config['/mastodon/url']}/api/v1/instance").to_return(status: 503)
+      stub_request(:get, "#{config['/mastodon/url']}/api/v2/instance").to_return(status: 503)
       records = Hash.new {|hash, key| hash[key] = []}
       @daemon.instance_variable_set(:@logger, Recorder.new(records))
       @daemon.send(:verify_max_length).join
